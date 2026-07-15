@@ -10,7 +10,7 @@ Verified locally on **2026-07-15** against the committed D0/D1 research snapshot
 | Complete catalog contract | Pass | 88/88 files visible; two short templates preserved with explicit zero-section states |
 | ESLint | Pass | `pnpm lint` |
 | Strict TypeScript | Pass | `pnpm typecheck` |
-| Unit/data tests | Pass | 5 files, 10 tests via `pnpm test` |
+| Unit/data tests | Pass | 6 files, 13 tests via `pnpm test` |
 | Impeccable anti-pattern scan | Pass | `npx --yes impeccable detect src/`; zero findings |
 | Production build | Pass | Next.js 16.2.10; 5 product views and 2 dynamic local APIs |
 
@@ -33,6 +33,18 @@ Verified with the Codex in-app browser against the local Next.js development ser
 - Source-path copy changed to a confirmed `Path copied` state.
 - Query `What blocks external activation?` returned 12 ranked source sections.
 - All three new charts expose exact-data disclosures and disable animation for reduced-motion users.
+- The founder Brief now exposes five traceable research questions with separate founder and Michael consequences.
+- The operating plan reconciles all 45 workflows and exposes the five-step `Admit → Route → Prepare → Execute after GO → Decide` loop.
+- The new comprehension surfaces passed at 390px with one H1, semantic ordered/definition-list structure, and zero document-level horizontal overflow.
+
+## Comprehension audit
+
+- Baseline and revised screenshots were captured for the Brief, Evidence library, Operating plan, and Ricardo notes.
+- The revised founder synthesis and Michael operating loop were inspected independently at desktop and mobile widths.
+- The P1 gaps were the absence of a business-level research narrative and the absence of a repeatable Michael workflow; both are now resolved.
+- Accessibility claims remain bounded to the inspected semantics, responsive reflow, visible text states, and native disclosures. Full WCAG conformance is not claimed.
+
+See [COMPREHENSION_AUDIT.md](./COMPREHENSION_AUDIT.md) for the step-by-step audit record.
 
 ## Production boundary checks
 

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { MichaelOperatingLoop } from "@/components/michael-operating-loop";
 import { OwnershipMap } from "@/components/ownership-map";
 import { PageHeader } from "@/components/page-header";
 import { operatingAxes, phases } from "@/lib/content";
@@ -16,6 +17,8 @@ export default function MikeyPage() {
       />
 
       <OwnershipMap />
+
+      <MichaelOperatingLoop />
 
       <section className="responsibility-grid section-block" aria-label="Michael responsibility boundary">
         <article className="responsibility-card owns">

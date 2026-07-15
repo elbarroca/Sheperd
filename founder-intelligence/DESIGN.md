@@ -23,6 +23,8 @@ Every primary view follows this order:
 3. Flow, map, chart, or evidence visualization.
 4. Supporting detail and source traceability.
 
+The founder Brief adds a five-question synthesis immediately after the current decision posture. It translates the corpus into `studied → found → founder move → Michael move` before exposing deeper charts and files.
+
 Navigation uses founder tasks: Brief, Decision map, Operating plan, Evidence library, and Ricardo notes.
 
 ## Visual language
@@ -63,6 +65,8 @@ Navigation uses founder tasks: Brief, Decision map, Operating plan, Evidence lib
 - Blocker and ownership maps remain meaningful as nested lists without connector lines.
 - Planning scores use native meters plus named bands and a method disclosure.
 - Priority matrix is supplementary; the accessible ranked list carries the same decision.
+- Research synthesis uses semantic ordered cards with explicit founder and Michael consequences; it is not a decorative mind map.
+- Michael's operating loop reconciles all 45 workflows and keeps the approval-gated execution step visually and textually distinct.
 
 ## Interaction and accessibility
 

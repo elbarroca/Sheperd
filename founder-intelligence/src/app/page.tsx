@@ -3,6 +3,7 @@ import { DecisionFlow } from "@/components/decision-flow";
 import { EvidenceTide } from "@/components/evidence-tide";
 import { IntelligenceCharts } from "@/components/intelligence-charts";
 import { PageHeader } from "@/components/page-header";
+import { ResearchSynthesis } from "@/components/research-synthesis";
 import { ScoreGrid } from "@/components/score-grid";
 import { DirectionalArrow } from "@/components/ui-icons";
 import { phases } from "@/lib/content";
@@ -46,6 +47,8 @@ export default function FounderBriefPage() {
           <Link href="/improvements">Open the decision map <span aria-hidden="true">→</span></Link>
         </div>
       </section>
+
+      <ResearchSynthesis />
 
       <DecisionFlow />
 

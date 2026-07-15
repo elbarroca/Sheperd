@@ -27,12 +27,13 @@ Open `http://localhost:3000`.
 ## What it includes
 
 - Founder brief with current posture, observed facts, next decision, and a gated operating flow.
+- Five-question research synthesis showing what was studied, what was found, and the separate founder and Michael consequences.
 - Screenshot-informed control-room UI with a compact task bar, responsive active navigation, and a dark-to-light analytical rhythm.
 - Complete 88-file evidence library with folder/layer filtering, lazy section retrieval, full source paths, and explicit empty states.
 - Data-backed readiness, corpus-shape, and evidence-state charts with exact-data fallbacks.
 - Evidence mix with direct counts and clearly labeled planning heuristics.
 - Six decision clusters covering all twelve activation blockers.
-- Michael's stakeholder ownership map, responsibility boundary, and sixteen-week operating path.
+- Michael's stakeholder ownership map, 45-workflow reconciliation, five-step weekly loop, admitted cadence, responsibility boundary, and sixteen-week operating path.
 - Ricardo's source-to-interpretation-to-consequence analysis.
 - A dependency-first experiment queue whose weights cannot unlock external work.
 - Local TF-IDF retrieval with explicit loading, empty, malformed-response, network-error, and source inspection states.
@@ -64,4 +65,4 @@ pnpm build
 - `noindex` metadata and response headers.
 - Vercel Deployment Protection is required before founder sharing.
 
-See [PRODUCT.md](./PRODUCT.md), [DESIGN.md](./DESIGN.md), [DEPLOYMENT.md](./DEPLOYMENT.md), [DATA_CONTRACT.md](./DATA_CONTRACT.md), and [QA_REPORT.md](./QA_REPORT.md).
+See [PRODUCT.md](./PRODUCT.md), [DESIGN.md](./DESIGN.md), [COMPREHENSION_AUDIT.md](./COMPREHENSION_AUDIT.md), [DEPLOYMENT.md](./DEPLOYMENT.md), [DATA_CONTRACT.md](./DATA_CONTRACT.md), and [QA_REPORT.md](./QA_REPORT.md).
