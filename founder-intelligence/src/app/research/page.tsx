@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { KnowledgeMap } from "@/components/knowledge-map";
 import { PageHeader } from "@/components/page-header";
 import { ResearchSearch } from "@/components/research-search";
 import { SourceLibrary } from "@/components/source-library";
+import { SHEPERD_BRAND } from "@/lib/brand";
 import { getKnowledgeCatalog, getKnowledgeFile, getKnowledgeSummary } from "@/lib/knowledge";
 
 export const metadata: Metadata = { title: "Evidence library" };
@@ -21,6 +23,23 @@ export default function ResearchPage() {
         description="Browse all committed context, open full indexed sections, and search across the research without turning Ricardo's notes into company fact."
         meta={<><span>Retrieval method</span><strong>Local TF-IDF sparse v1</strong><small>No external model calls</small></>}
       />
+      <section className="brand-source-panel" aria-labelledby="brand-source-title">
+        <div className="brand-source-mark" aria-hidden="true">
+          <Image src={SHEPERD_BRAND.logo.path} alt="" width={104} height={80} />
+        </div>
+        <div className="brand-source-copy">
+          <p className="eyebrow">Live public identity</p>
+          <h2 id="brand-source-title">Brand source checked against sheperd.io</h2>
+          <p>The exact public mark and name are synchronized. Landing-page performance and capability statements remain company claims until the evidence register promotes them.</p>
+          <a href={SHEPERD_BRAND.publicSite} target="_blank" rel="noreferrer">Open the live landing page</a>
+        </div>
+        <dl>
+          <div><dt>Public name</dt><dd>{SHEPERD_BRAND.name}</dd></div>
+          <div><dt>Descriptor</dt><dd>{SHEPERD_BRAND.publicDescriptor}</dd></div>
+          <div><dt>Checked</dt><dd>{SHEPERD_BRAND.observedOn}</dd></div>
+          <div><dt>Claim boundary</dt><dd>Company-controlled surface</dd></div>
+        </dl>
+      </section>
       <dl className="corpus-strip" aria-label="Knowledge corpus summary">
         <div><dt>Source files</dt><dd>{summary.sourceFiles}</dd></div>
         <div><dt>Section chunks</dt><dd>{summary.chunks}</dd></div>

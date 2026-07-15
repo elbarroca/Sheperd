@@ -1,5 +1,30 @@
 # Founder Intelligence Design System
 
+## Live brand source
+
+- Source URL: `https://www.sheperd.io/`
+- Capture date: 2026-07-15
+- Evidence: live DOM, computed styles, asset inventory, metadata, and browser screenshot
+- Identity artifact: `public/brand/sheperd-dog-white.png`
+- Source record: `BRAND_SOURCE.md`
+
+![Live SheperD landing-page reference](./.firecrawl/sheperd-io-hero.png)
+
+Use the company-controlled landing page as the visual source of truth for the public name and logo only. Its numerical, capability, recovery, timing, entity, and commercial statements remain company claims until the canonical evidence register promotes them.
+
+Observed brand tokens:
+
+- Public name: **SheperD**
+- Primary mark: white dog-head logo, 1039×801 source, displayed at approximately 47×36 in the live header
+- Header/footer: `#000000`
+- Dark field: approximately `#0a1f33`
+- Primary action: `#1b6ca8`
+- Display type: Space Grotesk, 600 weight, tight negative tracking
+- Action/body type: Inter on the captured CTA; practical system fallbacks elsewhere
+- Public voice: direct recovery language and compact action labels
+
+The private dashboard retains its denser analytical typography and status colors. It adopts the exact mark, public-name casing, black/navy foundation, and blue action role without importing unverified marketing copy.
+
 ## Design intent
 
 A private founder control room, not a public marketing site. The supplied SheperD reference establishes the visual language: near-black navy, electric-blue signal, crisp white analytical surfaces, compact navigation, and connected decision modules.
@@ -85,3 +110,14 @@ Navigation uses founder tasks: Brief, Decision map, Operating plan, Evidence lib
 - Charts, maps, score cards, analysis rows, and search results collapse to one column.
 - The source catalog becomes a bounded file list followed by the full source reader.
 - Dense tables remain horizontally scrollable inside a labeled focusable region.
+
+## Rerun inputs
+
+```text
+workflow: firecrawl-website-design-clone
+source_url: https://www.sheperd.io/
+target_stack: Next.js App Router
+output: DESIGN.md + BRAND_SOURCE.md + public/brand assets
+```
+
+Firecrawl was unavailable during the 2026-07-15 capture because no API key was configured. The evidence above was collected from the live DOM, asset inventory, computed styles, metadata, and browser screenshots instead.

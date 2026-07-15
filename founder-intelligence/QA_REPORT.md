@@ -10,7 +10,7 @@ Verified locally on **2026-07-15** against the committed D0/D1 research snapshot
 | Complete catalog contract | Pass | 88/88 files visible; two short templates preserved with explicit zero-section states |
 | ESLint | Pass | `pnpm lint` |
 | Strict TypeScript | Pass | `pnpm typecheck` |
-| Unit/data tests | Pass | 6 files, 13 tests via `pnpm test` |
+| Unit/data tests | Pass | 7 files, 15 tests via `pnpm test` |
 | Impeccable anti-pattern scan | Pass | `npx --yes impeccable detect src/`; zero findings |
 | Production build | Pass | Next.js 16.2.10; 5 product views and 2 dynamic local APIs |
 
@@ -36,6 +36,15 @@ Verified with the Codex in-app browser against the local Next.js development ser
 - The founder Brief now exposes five traceable research questions with separate founder and Michael consequences.
 - The operating plan reconciles all 45 workflows and exposes the five-step `Admit → Route → Prepare → Execute after GO → Decide` loop.
 - The new comprehension surfaces passed at 390px with one H1, semantic ordered/definition-list structure, and zero document-level horizontal overflow.
+
+## Live brand sync
+
+- The public identity was checked against `https://www.sheperd.io/` on 2026-07-15.
+- The exact 1039x801 white dog-head source asset is stored locally with its original aspect ratio and SHA-256 provenance in `BRAND_SOURCE.md`.
+- The dashboard lockup renders the mark at 47x36 on desktop and 36x28 on mobile; both inspected widths had zero document-level horizontal overflow.
+- The Evidence library exposes the live identity, capture date, public source, and explicit company-claim boundary without promoting landing-page performance statements.
+- Page metadata now uses the synchronized mark for icon and Apple touch icon; the obsolete placeholder icon files were removed.
+- The visible public contact label (`info@sheperd.io`) does not match its live `mailto:` target (`avi@sheperd.io`); the conflict remains unresolved and neither address is promoted as canonical.
 
 ## Comprehension audit
 

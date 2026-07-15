@@ -1,13 +1,18 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
+import { SHEPERD_BRAND } from "@/lib/brand";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "SheperD Founder Intelligence",
-    template: "%s | SheperD Intelligence",
+    default: `${SHEPERD_BRAND.name} Founder Intelligence`,
+    template: `%s | ${SHEPERD_BRAND.name} Intelligence`,
   },
   description: "Evidence-controlled research, Ricardo interpretation, and founder decisions for SheperD.",
+  icons: {
+    icon: [{ url: SHEPERD_BRAND.logo.path, type: "image/png" }],
+    apple: [{ url: SHEPERD_BRAND.logo.path, type: "image/png" }],
+  },
   robots: { index: false, follow: false },
 };
 
