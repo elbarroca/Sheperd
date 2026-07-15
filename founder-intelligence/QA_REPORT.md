@@ -2,69 +2,74 @@
 
 Verified locally on **2026-07-15** against the committed D0/D1 research snapshot.
 
+## Current product contract
+
+The public, read-only dashboard exposes four content routes:
+
+1. `/competitors` - positioning, 14 observed alternatives, public URLs, pricing signals, and evidence boundaries.
+2. `/market` - materiality signals, market friction, timing, sizing limits, reports, papers, and public problem language.
+3. `/michael` - immediate action, eight workstreams, AI support, and human approval boundaries.
+4. `/knowledge` - interactive 92-page React knowledge map, safe document deep links, full indexed sections, and accessible folder index.
+
+Legacy routes redirect without dropping query parameters:
+
+- `/` to `/competitors`
+- `/research` to `/knowledge`
+- `/mikey` and `/improvements` to `/michael`
+- `/ricardo` to `/market`
+
 ## Automated gates
 
 | Gate | Result | Evidence |
 |---|---|---|
-| Generated-data contract | Pass | 88 file manifests, 767 chunks, 1,200 terms, 42 sources, 12 blockers, 8 experiments |
-| Complete catalog contract | Pass | 88/88 files visible; two short templates preserved with explicit zero-section states |
-| ESLint | Pass | `pnpm lint` |
-| Strict TypeScript | Pass | `pnpm typecheck` |
-| Unit/data tests | Pass | 8 files, 17 tests via `pnpm test` |
-| Impeccable anti-pattern scan | Pass | `npx --yes impeccable detect src/`; zero findings |
-| Production build | Pass | Next.js 16.2.10; 5 product views and 2 dynamic local APIs |
-
-## Visual QA
-
-- The supplied 407x869 reference and a 407x869 implementation capture were compared side by side.
-- The implementation preserves the reference's navy-to-light rhythm, electric-blue signal, compact control bar, framed metrics, and embedded analytical surfaces.
-- The composition deliberately replaces the public acquisition form and wolf illustration with the read-only dashboard's hold posture, source navigation, and founder decision content.
-- Desktop chart and source-library views were inspected at 1440px; mobile hero, knowledge map, filters, file index, and file reader were inspected at 407px.
-- A fresh browser tab produced zero console warnings or errors.
+| Generated-data contract | Pass | 92 file manifests, 828 chunks, 1,200 terms, 53 sources, 12 blockers, 8 experiments |
+| Complete catalog contract | Pass | 92/92 files visible, including zero-section templates |
+| ESLint | Pass | `corepack pnpm lint` |
+| Strict TypeScript | Pass | `corepack pnpm typecheck` |
+| Unit and data tests | Pass | 11 files, 29 tests via `corepack pnpm test` |
+| Impeccable anti-pattern scan | Pass | `npx --yes impeccable detect src`; zero findings |
+| Production build | Pass | Next.js 16.2.10; four product views and two dynamic local APIs |
 
 ## Browser verification
 
-Verified with the Codex in-app browser against the local Next.js development server.
+Verified with a production-mode local server and `agent-browser`.
 
-- All five product routes passed at 407, 768, 1024, and 1440 pixel widths: one H1, visible hold state, visible active navigation, and zero page-level horizontal overflow.
-- The Evidence library exposed 88 of 88 admitted files.
-- Filtering for `Ricardo` returned one file and lazy-loaded all eight indexed sections.
-- The zero-section Decision Record template returned an explicit, traceable empty state.
-- Source-path copy changed to a confirmed `Path copied` state.
-- Query `What blocks external activation?` returned 12 ranked source sections.
-- All three new charts expose exact-data disclosures and disable animation for reduced-motion users.
-- The founder Brief now exposes five traceable research questions with separate founder and Michael consequences.
-- The operating plan reconciles all 45 workflows and exposes the five-step `Admit → Route → Prepare → Execute after GO → Decide` loop.
-- The new comprehension surfaces passed at 390px with one H1, semantic ordered/definition-list structure, and zero document-level horizontal overflow.
-- The revised Brief exposes one executive thesis, a preparation-versus-proof comparison, and five evidence-state-labelled golden nuggets before the full research detail.
-- All five routes were rechecked at 1440px and 390px: one H1, one active navigation item, and zero document-level horizontal overflow on every route.
+| Width | Route or flow | Result |
+|---|---|---|
+| 1440 | Competitors and knowledge map | Pass |
+| 1024 | Market situation | Pass |
+| 768 | Knowledge map | Pass |
+| 390 | Michael operating plan | Pass |
+| 320 | Competitor first viewport and mobile navigation | Pass |
 
-## Live brand sync
+Checks passed:
 
-- The public identity was checked against `https://www.sheperd.io/` on 2026-07-15.
-- The exact 1039x801 white dog-head source asset is stored locally with its original aspect ratio and SHA-256 provenance in `BRAND_SOURCE.md`.
-- The dashboard lockup renders the mark at 47x36 on desktop and 36x28 on mobile; both inspected widths had zero document-level horizontal overflow.
-- The Evidence library exposes the live identity, capture date, public source, and explicit company-claim boundary without promoting landing-page performance statements.
-- Page metadata now uses the synchronized mark for icon and Apple touch icon; the obsolete placeholder icon files were removed.
-- The visible public contact label (`info@sheperd.io`) does not match its live `mailto:` target (`avi@sheperd.io`); the conflict remains unresolved and neither address is promoted as canonical.
+- Exactly four primary navigation items and one active item.
+- Meaningful page content, one H1 per route, and no Next.js error overlay.
+- No document-level horizontal overflow at any inspected width.
+- Zero captured browser page errors.
+- Reduced-motion media preference is honored.
+- Keyboard focus begins at the visible-on-focus skip link.
+- The competitor chart has an accessible data table and a non-performance boundary.
+- The market page links to official reports, research papers, and bounded public problem-language sources.
+- The knowledge map initially shows every folder, expands `06_Research` to 14 pages, and renders all 92 file nodes on request.
+- Clicking the AI Opportunity Register node updates the shareable URL and opens the correct document.
+- `/research?file=<path>` redirects to `/knowledge?file=<path>` and preserves the requested source.
+- A traversal-shaped invalid file parameter returns `Document not found in the admitted corpus`, reveals no requested path, and renders no arbitrary document.
 
-## Comprehension audit
+## Evidence boundaries
 
-- Baseline and revised screenshots were captured for the Brief, Evidence library, Operating plan, and Ricardo notes.
-- The revised founder synthesis and Michael operating loop were inspected independently at desktop and mobile widths.
-- The P1 gaps were the absence of a business-level research narrative and the absence of a repeatable Michael workflow; both are now resolved.
-- Accessibility claims remain bounded to the inspected semantics, responsive reflow, visible text states, and native disclosures. Full WCAG conformance is not claimed.
+- Competitor coordinates describe public offer shape only. They are not performance, traction, or superiority scores.
+- Vendor pricing and outcomes remain company-controlled unless separately promoted by the claims register.
+- The `$15.4B` charge pool, `239,231` importer universe, complaint relief, and provider count are never combined into TAM.
+- `TAM`, `SAM`, `SOM`, product-market fit, repeatable outcomes, and unit economics remain `unknown`.
+- The 16-week source remains labeled `Internal proposal - not an executed agreement`.
+- External activation remains on hold until the required truth, authority, product, claims, security, capacity, and evidence gates pass.
 
-See [COMPREHENSION_AUDIT.md](./COMPREHENSION_AUDIT.md) for the step-by-step audit record.
+## Production boundary
 
-## Production boundary checks
-
-- `/` is public, uncached, noindex, frame-denied, and governed by the existing production CSP.
-- `/api/files` accepts only exact admitted source paths and fails closed for missing or unknown paths.
-- `/api/search` retains bounded local lexical retrieval and makes no external call.
-- No customer data, CRM, analytics, email, publishing, or embedding provider was connected.
-
-## External release state
-
-- The Vercel project uses Root Directory `founder-intelligence`, Node.js 24.x, and Production branch `main`.
-- Deployment Protection is disabled by explicit user authorization; anonymous Production access must be verified after deployment.
+- All pages are public, read-only, uncached, and `noindex`.
+- `/api/files` and `/knowledge?file=` accept only exact paths from the admitted generated catalog.
+- `/api/search` remains local lexical retrieval and makes no external model call.
+- No customer data, CRM, database, analytics, email, publishing, or embedding provider is connected.
+- The Vercel Root Directory remains `founder-intelligence`; no deployment was performed in this change.

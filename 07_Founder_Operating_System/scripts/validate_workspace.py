@@ -22,6 +22,7 @@ CONTROLLED_EVIDENCE_STATES = {
     "inference",
     "unverified",
     "mixed",
+    "anecdotal",
     "policy",
 }
 REQUIRED_YAML = {"type", "status", "owner", "updated", "evidence_status", "confidentiality"}
@@ -47,8 +48,12 @@ SCOPED_MARKDOWN_PATHS = (
     "05_AI/AI Enablement Roadmap.md",
     "05_AI/Human Approval Policy.md",
     "06_Research/Industry Regulatory and Competitive Dossier.md",
+    "06_Research/Market Evidence and Source Map.md",
     "10_Sources/Source - Competitor Websites - 2026-07-15.md",
+    "10_Sources/Source - Competitor and Public Pain Signals - 2026-07-15.md",
     "10_Sources/Source - GTM Market and Demand Scan - 2026-07-15.md",
+    "10_Sources/Source - Industry Congestion and Market Reports - 2026-07-15.md",
+    "10_Sources/Source - Research Papers and Community Evidence - 2026-07-15.md",
     "90_Templates/Experiment.md",
     "90_Templates/Weekly Scorecard.md",
     "90_Templates/GTM Operator Kit.md",
@@ -88,7 +93,7 @@ def link_resolves(source_path: Path, target: str) -> bool:
     raw_candidates = [REPO_ROOT / link_path, source_path.parent / link_path]
     candidates: list[Path] = []
     for raw in raw_candidates:
-        if raw.suffix in {".md", ".html", ".base", ".canvas"}:
+        if raw.suffix in {".md", ".html", ".base", ".canvas", ".csv"}:
             candidates.append(raw)
         else:
             candidates.extend(

@@ -89,8 +89,8 @@ function formatAccountability(value: string): string {
   return value
     .split(" and ")
     .map((item) => {
-      if (item === "Michael") return "GTM lead — Michael";
-      if (item === "Avi") return "Founder — Avi";
+      if (item === "Michael") return "GTM lead - Michael";
+      if (item === "Avi") return "Founder - Avi";
       return item;
     })
     .join(" · ");

@@ -14,14 +14,14 @@ tags:
 # QA and Acceptance Report
 
 > [!abstract] Acceptance result
-> The exact 14-artifact research package passed the evidence, vault, CSV, formula, cross-reference, privacy, offline-browser, interaction, accessibility, responsive, print, no-JavaScript, link, lint, typecheck, and test gates on 2026-07-15. Independent adversarial review found no P0, 11 P1, and 4 P2 defects; every P1 and P2 was repaired and the affected gates were rerun. The later GTM extension and founder workspace also passed their scoped engineering, browser, data, and fail-closed review. There are **zero unresolved P0/P1 findings**. This accepts the internal artifacts, not external activation: SheperD remains **research-only / external activation blocked**.
+> The original 14-artifact research package passed the evidence, vault, CSV, formula, cross-reference, privacy, offline-browser, interaction, accessibility, responsive, print, no-JavaScript, link, lint, typecheck, and test gates on 2026-07-15. Independent adversarial review found no P0, 11 P1, and 4 P2 defects; every P1 and P2 was repaired. The later GTM, founder-workspace, and market-evidence extensions also passed their scoped data and fail-closed review. There are **zero unresolved P0/P1 findings**. This accepts the internal artifacts, not external activation: SheperD remains **research-only / external activation blocked**.
 
 ## Acceptance summary
 
 | Gate | Result | Evidence |
 |---|---|---|
-| Exact artifact contract | Pass | 14/14 files exist; no extra file exists under `06_Research/` |
-| Evidence and legal boundaries | Pass | 42 source rows; controlled evidence states; current Part 541, §41301, route, Evergreen, FTC, FMC audit, port-volume, and GTM source boundaries preserved |
+| Original artifact contract | Historical pass | The original 14/14 package remains intact; later authorized extensions are tracked separately |
+| Evidence and legal boundaries | Pass | 53 source rows; controlled evidence states; current Part 541, §41301, route, Evergreen, FTC, FMC audit, port-volume, GTM, competition, congestion, paper, community, and sizing boundaries preserved |
 | Vault integrity | Pass | YAML parsed; internal wikilinks resolved; dated source notes follow the property contract |
 | Workflow coverage | Pass | 45/45 workflows; Week 0, 16/16 weeks, 4/4 gates, 8/8 workstreams; every row classified |
 | Step and AI traceability | Pass | Stable workflow-step IDs; 26/26 opportunities resolve to same-class steps; no bounded-agent step is active |
@@ -30,7 +30,7 @@ tags:
 | Offline/browser behavior | Pass | 54/54 browser checks; zero console errors, page errors, or network requests |
 | Accessibility | Pass | Axe 4.12.1: 0 violations, including 0 critical/serious; custom WCAG AA contrast check passed |
 | Responsive/print/resilience | Pass | 320/375/768/1024/1440/1920; no overflow; print and no-JavaScript views passed |
-| Public-link integrity | Pass | 30/30 direct HTTP(S) ledger targets returned 2xx/3xx; 8/8 local evidence paths resolved |
+| Public-link integrity | Pass with access boundary | Original 30/30 baseline passed; the market extension returned 21 HTTP 200 responses and 9 automated-access 403 responses that were separately inspected |
 | Repository engineering checks | Pass | Website lint, typecheck, and 7 tests passed |
 | Independent review | Pass | 0 unresolved P0; 0 unresolved P1; 0 unresolved P2 |
 
@@ -56,7 +56,7 @@ The validator checks exact artifacts, YAML, wikilinks, CSV width/schema/IDs/refe
 
 | Dataset | Rows | Controlled result |
 |---|---:|---|
-| `source-ledger.csv` | 42 | 17 verified; 15 company-claim; 6 mixed; 2 unverified; 1 internal-proposal; 1 internal-observation |
+| `source-ledger.csv` | 53 | 22 verified; 17 company-claim; 8 mixed; 3 unverified; 1 internal-proposal; 1 internal-observation; 1 anecdotal |
 | `workflows.csv` | 45 | 25 blocked; 8 needs-owner; 8 mapped; 4 out-of-scope |
 | `ai-opportunities.csv` | 26 | 10 deterministic; 9 assisted; 7 human-only; 0 bounded-agent |
 | `time-savings.csv` | 30 | 10 models × low/base/high |
@@ -100,13 +100,26 @@ The GTM extension added the validation control note, current market/demand scan,
 | Python lint | Pass: Ruff |
 | Strict typecheck | Pass: mypy over 8 source files |
 | Unit and HTTP tests | Pass: 8/8 |
-| Scoped vault/data validator | Pass: 472 checks |
+| Scoped vault/data validator | Pass: 535 checks |
 | Fail-closed adversarial rules | Pass: 22 checks; P0=0; P1=0 |
-| Research-report reconciliation | Pass: 42 embedded source rows equal the current ledger |
+| Research-report reconciliation | Pass: 53 embedded source rows equal the current ledger |
 | Browser interaction and health | Pass: explorer/query/ranker; 0 console warnings/errors; 0 overlays; 0 external resources |
 | Responsive inspection | Pass: 1280×720 and 390×844; no document overflow; mobile score/title defect repaired and retested |
 
 The GTM scores are separate planning assessments: research system `9.3/10`, GTM design `9.2/10`, real market evidence `1.8/10`, and safe execution readiness `3.3/10`. Only the system/design scores improved; no market-validation claim was promoted.
+
+## Market evidence extension acceptance — 2026-07-15
+
+The extension adds one canonical research index plus three dated public source notes covering industry/congestion, papers/community evidence, and competitor/public-pain signals. The supplied gCaptain article is retained as sponsored `company-claim` evidence; its metrics are excluded from market sizing and outcome claims.
+
+| Gate | Result |
+|---|---|
+| Canonical map | Pass: [[06_Research/Market Evidence and Source Map]] |
+| Source ledger | Pass: 53 valid rows with exact controlled-state distribution |
+| TAM/SAM/SOM boundary | Pass: problem materiality is supported; recoverable TAM, SAM, SOM, willingness to pay, and product-market fit remain unknown |
+| Public source-note links | Pass with access boundary: 30 unique links; 21 HTTP 200; 9 automated-access 403; 0 broken links after replacing one stale DOI resolver with the journal page |
+| Founder Intelligence index | Pass: all four new Markdown documents admitted into the public read-only corpus |
+| Offline research report | Pass: source metric, chart, legend, data table, source rows, and embedded JSON reconcile to 53 ledger rows |
 
 ## Link and access fallbacks
 

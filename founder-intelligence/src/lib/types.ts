@@ -41,6 +41,7 @@ export interface KnowledgeFileManifest {
   evidenceStatus: string;
   confidentiality: string;
   tags: string[];
+  links?: string[];
 }
 
 export interface SearchResult {
@@ -65,6 +66,8 @@ export interface KnowledgeFileSummary {
   tags: string[];
   sectionCount: number;
   wordCount: number;
+  outgoingLinks: string[];
+  incomingLinks: string[];
 }
 
 export interface KnowledgeFileSection {
@@ -148,4 +151,96 @@ export interface Blocker {
   owner: string;
   current_state: string;
   next_action: string;
+}
+
+export type CompetitorCategory = "recovery" | "audit" | "enterprise";
+
+export interface CompetitorProfile {
+  id: string;
+  name: string;
+  url: string;
+  category: CompetitorCategory;
+  categoryLabel: string;
+  specialization: number;
+  workflowBreadth: number;
+  offer: string;
+  pricingSignal: string;
+  evidenceBoundary: string;
+}
+
+export interface MarketSignal {
+  id: string;
+  value: string;
+  label: string;
+  meaning: string;
+  boundary: string;
+  url?: string;
+}
+
+export type MichaelTaskState = "prepare-now" | "approval-gated";
+
+export interface MichaelTask {
+  id: string;
+  workstream: string;
+  outcome: string;
+  aiAssist: string;
+  humanDecision: string;
+  state: MichaelTaskState;
+  sourcePath: string;
+}
+
+export type MichaelPillarId =
+  | "domain"
+  | "value"
+  | "crm"
+  | "sales-assets"
+  | "content"
+  | "segments"
+  | "governance"
+  | "live-sales";
+
+export type MichaelPhaseId = "foundation" | "warm-cohort" | "controlled-sprints" | "repeatability";
+
+export type MichaelExecutionState =
+  | "prepare-now"
+  | "execute-after-go"
+  | "evidence-review"
+  | "founder-decision";
+
+export interface MichaelPillar {
+  id: MichaelPillarId;
+  label: string;
+  objective: string;
+  optimization: string;
+  sourcePath: string;
+}
+
+export interface MichaelPhaseSummary {
+  id: MichaelPhaseId;
+  weeks: string;
+  goal: string;
+  gate: string;
+}
+
+export interface MichaelWeek {
+  week: number;
+  phase: MichaelPhaseId;
+  goal: string;
+  pillars: MichaelPillarId[];
+  actions: string[];
+  deliverable: string;
+  optimization: string;
+  state: MichaelExecutionState;
+  sourcePaths: string[];
+}
+
+export interface MichaelGtmPlay {
+  id: string;
+  title: string;
+  objective: string;
+  steps: string[];
+  measure: string;
+  boundary: string;
+  state: MichaelExecutionState;
+  sourcePaths: string[];
 }

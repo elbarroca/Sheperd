@@ -19,6 +19,16 @@ require(knowledge.sourceFiles >= 80, "expected at least 80 admitted source files
 require(Array.isArray(knowledge.files), "knowledge file manifest is missing");
 require(knowledge.files.length === knowledge.sourceFiles, "knowledge file manifest count drifted");
 require(knowledge.files.every((file) => file.path && file.title && file.layer), "knowledge file manifest is incomplete");
+const admittedKnowledgePaths = new Set(knowledge.files.map((file) => file.path));
+require(knowledge.files.every((file) => Array.isArray(file.links)), "knowledge file links are missing");
+require(
+  knowledge.files.every((file) => file.links.every((path) => admittedKnowledgePaths.has(path))),
+  "knowledge file links must resolve inside the admitted corpus",
+);
+require(
+  knowledge.files.reduce((sum, file) => sum + file.links.length, 0) >= 100,
+  "expected at least 100 admitted internal document links",
+);
 require(knowledge.chunks.length >= 300, "expected at least 300 knowledge chunks");
 require(knowledge.vocabulary.length >= 500, "expected at least 500 vector terms");
 require(knowledge.chunks.every((chunk) => chunk.id && chunk.path && chunk.text), "knowledge chunk is incomplete");
@@ -31,7 +41,7 @@ require(
   !/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(serializedGeneratedData),
   "email-shaped value entered generated data",
 );
-require(dashboard.sources.length === 42, "source ledger count must remain 42");
+require(dashboard.sources.length === 53, "source ledger count must remain 53");
 require(dashboard.blockers.length === 12, "blocker count must remain 12");
 require(dashboard.blockers.every((row) => row.current_state === "blocked"), "a blocker was silently promoted");
 require(dashboard.experiments.length === 8, "experiment count must remain 8");
@@ -68,4 +78,4 @@ if (issues.length) {
   process.exit(1);
 }
 
-console.log(`PASS: ${knowledge.sourceFiles} files, ${knowledge.chunks.length} chunks, 42 sources, 12 blockers, 8 experiments.`);
+console.log(`PASS: ${knowledge.sourceFiles} files, ${knowledge.chunks.length} chunks, 53 sources, 12 blockers, 8 experiments.`);

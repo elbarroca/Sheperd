@@ -149,4 +149,4 @@ Evidence status: `policy`; confidence: high. Sources: [[05_AI/Human Approval Pol
 
 ## Related
 
-[[06_Research/SheperD Deep Research - Control Note]] · [[06_Research/AI Opportunity Register]] · [[06_Research/Research Gaps and Interview Guide]]
+[[06_Research/Market Evidence and Source Map]] · [[06_Research/SheperD Deep Research - Control Note]] · [[06_Research/AI Opportunity Register]] · [[06_Research/Research Gaps and Interview Guide]]

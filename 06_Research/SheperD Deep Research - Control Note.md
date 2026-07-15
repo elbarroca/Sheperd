@@ -60,7 +60,7 @@ Use only: `verified`, `company-claim`, `internal-proposal`, `internal-observatio
 | `06_Research/QA and Acceptance Report.md` | Commands, results, findings, repairs | Accepted |
 | `06_Research/SheperD Interactive Report.html` | Standalone offline decision report | Accepted |
 
-Contract check: 14/14 exact artifacts exist and no additional file exists under `06_Research/`.
+Original contract check: the initial 14/14 artifacts passed at acceptance. Later authorized extensions, including [[06_Research/Market Evidence and Source Map]], are tracked in [[06_Research/QA and Acceptance Report]].
 
 ## Preflight record
 
@@ -182,4 +182,4 @@ Contract check: 14/14 exact artifacts exist and no additional file exists under 
 
 ## Related
 
-[[SheperD HQ]] · [[01_Company/Open Questions and Diligence]] · [[04_Operations/Risk, Assumption and Decision Register]]
+[[SheperD HQ]] · [[06_Research/Market Evidence and Source Map]] · [[01_Company/Open Questions and Diligence]] · [[04_Operations/Risk, Assumption and Decision Register]]
