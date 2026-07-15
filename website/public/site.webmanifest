@@ -1,0 +1,21 @@
+{
+  "name": "SheperD",
+  "short_name": "SheperD",
+  "description": "SheperD recovery corridor Preview",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#041426",
+  "theme_color": "#041426",
+  "icons": [
+    {
+      "src": "/brand/sheperd-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/brand/sheperd-favicon-32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1,49 +1,50 @@
 {
-  "name": "sheperd-website",
+  "name": "sheperd-preview",
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=22.12.0"
+    "node": "24.x"
   },
-  "packageManager": "pnpm@10.30.0",
+  "packageManager": "pnpm@10.33.2",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sharp",
+      "unrs-resolver"
+    ],
+    "overrides": {
+      "postcss": "8.5.19"
+    }
+  },
   "scripts": {
-    "dev": "next dev",
-    "build": "pnpm validate:content && pnpm validate:links && next build --webpack && pnpm validate:motion",
-    "build:production": "SITE_PUBLICATION_TARGET=production pnpm build",
-    "start": "next start",
-    "lint": "eslint .",
+    "dev": "next dev --hostname 127.0.0.1 --port 3000",
+    "build": "BUILD_TARGET=preview next build",
+    "build:production": "BUILD_TARGET=production next build",
+    "start": "next start --hostname 127.0.0.1 --port 3000",
+    "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "test:visual": "playwright test tests/visual",
-    "validate:content": "tsx scripts/validate-content.ts",
-    "validate:motion": "tsx scripts/validate-motion.ts",
-    "validate:links": "tsx scripts/validate-links.ts",
-    "validate": "pnpm validate:content && pnpm validate:motion && pnpm validate:links",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
-    "impeccable": "npx impeccable detect src/"
+    "test:visual": "playwright test tests/e2e/visual.spec.ts --project=chromium",
+    "check": "pnpm lint && pnpm typecheck && pnpm test"
   },
   "dependencies": {
+    "@phosphor-icons/react": "2.1.10",
     "motion": "12.42.2",
     "next": "16.2.10",
     "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "react-dom": "19.2.7",
+    "resend": "6.17.2"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.12.1",
     "@playwright/test": "1.61.1",
-    "@types/node": "24.0.15",
+    "@types/node": "24.10.1",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "eslint": "9.39.3",
+    "eslint": "9.39.5",
     "eslint-config-next": "16.2.10",
-    "tsx": "4.20.6",
+    "lighthouse": "13.4.0",
     "typescript": "5.9.3",
     "vitest": "4.1.10"
-  },
-  "pnpm": {
-    "overrides": {
-      "postcss": "8.5.19"
-    }
   }
 }

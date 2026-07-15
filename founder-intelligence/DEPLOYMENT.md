@@ -9,10 +9,16 @@ Create a separate Vercel project for this dashboard. Set its Root Directory to `
 - Framework preset: Next.js.
 - Install command: `pnpm install --frozen-lockfile`.
 - Build command: `pnpm build`.
-- Node.js: current Vercel-supported Node 22 runtime.
-- Enable Preview Deployment Protection before sharing.
+- Node.js: 24.x.
+- Production branch: `production` (reserved; do not create yet).
+- Enable Standard Protection with Vercel Authentication before deploying.
 - Keep Production private until an approved authentication and authorization layer exists.
 - Do not add customer-data, CRM, analytics, email, or publishing environment variables.
+
+The repository-level two-project setup is documented in `../VERCEL.md`. Pushes
+to `main` should be classified as protected Preview deployments. A Vercel
+Production build is also rejected in `next.config.ts` until the sharing and
+authentication gate is explicitly replaced.
 
 The committed `src/generated/` data allows the app to build when Vercel excludes repository files outside the Root Directory. Local maintainers regenerate those artifacts before committing research changes.
 

@@ -1,220 +1,135 @@
----
-name: SheperD Preview
-description: A port-control-room visual system for careful record review.
-designDials:
-  DESIGN_VARIANCE: 8
-  MOTION_INTENSITY: 7
-  VISUAL_DENSITY: 5
-colors:
-  paper: "#F9FBFA"
-  paper-raised: "#EEF4F3"
-  ink: "#071D28"
-  steel-700: "#39515A"
-  steel-600: "#586D73"
-  steel-300: "#A9BABC"
-  steel-150: "#D7E2E2"
-  oxide-800: "#8F2E16"
-  oxide-700: "#B5401F"
-  oxide-100: "#F4DDD5"
-typography:
-  display:
-    fontFamily: "Barlow, Arial, sans-serif"
-    fontSize: "clamp(4rem, 7.4vw, 6rem)"
-    fontWeight: 500
-    lineHeight: 0.88
-    letterSpacing: "-0.04em"
-  headline:
-    fontFamily: "Barlow, Arial, sans-serif"
-    fontSize: "clamp(2.6rem, 5.2vw, 5.25rem)"
-    fontWeight: 500
-    lineHeight: 0.94
-    letterSpacing: "-0.04em"
-  title:
-    fontFamily: "Barlow, Arial, sans-serif"
-    fontSize: "1.25rem"
-    fontWeight: 500
-    lineHeight: 1.2
-  lead:
-    fontFamily: "Barlow, Arial, sans-serif"
-    fontSize: "1.125rem"
-    fontWeight: 400
-    lineHeight: 1.5
-  body:
-    fontFamily: "Barlow, Arial, sans-serif"
-    fontSize: "1rem"
-    fontWeight: 400
-    lineHeight: 1.6
-  small:
-    fontFamily: "Barlow, Arial, sans-serif"
-    fontSize: "0.875rem"
-    fontWeight: 400
-    lineHeight: 1.5
-  label:
-    fontFamily: "Azeret Mono, ui-monospace, monospace"
-    fontSize: "0.72rem"
-    fontWeight: 500
-    lineHeight: 1.4
-    letterSpacing: "0.04em"
-rounded:
-  structural: "0px"
-  seal: "50%"
-spacing:
-  xs: "4px"
-  sm: "8px"
-  md: "16px"
-  lg: "24px"
-  xl: "32px"
-  2xl: "48px"
-  3xl: "64px"
-  4xl: "96px"
-components:
-  seal-link:
-    backgroundColor: "{colors.oxide-700}"
-    textColor: "{colors.paper}"
-    typography: "{typography.label}"
-    rounded: "{rounded.structural}"
-    padding: "13px 19px"
-    height: "52px"
-  seal-link-hover:
-    backgroundColor: "{colors.oxide-800}"
-    textColor: "{colors.paper}"
-    typography: "{typography.label}"
-    rounded: "{rounded.structural}"
-    padding: "13px 19px"
-    height: "52px"
-  container-module:
-    backgroundColor: "{colors.ink}"
-    textColor: "{colors.paper}"
-    typography: "{typography.label}"
-    rounded: "{rounded.structural}"
-    padding: "18px"
----
+# SheperD Recovery Corridor Design System
 
-# Design System: SheperD Preview
+Status: controlling implementation schema
+Selected reference: `docs/references/recovery-corridor-selected.png`
+Reference dimensions: `864 × 1821`
+Scope: local Preview; production publication remains blocked
 
-The controlling design dials are `DESIGN_VARIANCE=8`, `MOTION_INTENSITY=7`, and `VISUAL_DENSITY=5`.
+## Design thesis
 
-## Creative north star
+**Recover shipping-container overcharges through one visible operational corridor.**
 
-**The Port Control Room**
+The page moves from promise, to market context, to a three-step recovery path,
+to the existing recovery dashboard, and finally to the audit form. One cobalt
+line connects those stages. It communicates sequence and accountability rather
+than acting as decoration.
 
-SheperD should feel like a calm working surface for separating a charge into records, questions, and a conditional review path. The visual language combines maritime ink, sea-glass neutrals, blank evidence materials, terminal geometry, and one oxide signal. It is more vivid than the earlier sparse ledger while remaining serious, exact, and evidence-safe.
+## Brand invariants
 
-The page keeps the approved narrative order and uses six distinct composition families:
+- Brand label: `SheperD`.
+- Use the supplied shepherd-head asset without redrawing it:
+  `public/brand/sheperd-logo.png`.
+- Use the supplied Recovery Summary image without altering its data:
+  `public/media/recovery-dashboard.png`.
+- Preserve the live-site headline, figures, form fields, contact email,
+  LinkedIn destination, privacy destination, and footer identity. Explain the
+  three-step workflow in plain shipping-container language.
+- Do not invent customer logos, testimonials, certifications, legal seals,
+  case studies, or additional outcome data.
 
-1. An asymmetric hero with a documentary material image and inspectable evidence assembly.
-2. A still-life manifest where the three questions overlap the image as one working record.
-3. A sea-glass checklist bench with one dark active-detail surface.
-4. A panoramic route image and keyboard-accessible horizontal six-step rail.
-5. A sticky FAQ, bounded limits field, and direct answers without marketing expansion.
-6. A staggered source register instead of repeated source cards.
+## Color tokens
 
-Fixed light mode remains intentional because the Preview's controlling product contract selected a single document-like theme. Dark ink is reserved for active workbench surfaces and the footer, not arbitrary section inversion.
+| Token | Value | Role |
+| --- | --- | --- |
+| `--navy-1000` | `#020912` | page frame and footer |
+| `--navy-950` | `#041426` | hero and dashboard field |
+| `--navy-900` | `#06223f` | raised dark surfaces |
+| `--blue-700` | `#075dcc` | primary action depth |
+| `--blue-600` | `#0d6dfd` | primary CTA and corridor |
+| `--blue-400` | `#47a3ff` | glow, focus, active state |
+| `--ice-100` | `#eaf4ff` | cool section surface |
+| `--canvas` | `#f8fbff` | light content surface |
+| `--ink` | `#07172a` | light-surface text |
+| `--muted` | `#617085` | secondary light text |
+| `--white` | `#ffffff` | dark-surface text |
+| `--success` | `#16a177` | completed form state only |
 
-## Brand register
-
-### Point of view
-
-The invoice is not treated as the whole story. The design separates billing facts, operating records, applicable text, and unresolved questions without claiming that SheperD decides a case.
-
-### Recognition anchors
-
-- Plain `SheperD` wordmark with one square oxide stop.
-- Square modules, hard rules, and physical overlap rather than rounded cards.
-- Maritime ink plus oxide signal, never a second accent.
-- Blank paper, clips, steel, and route geometry used only as illustrative material.
-- Azeret Mono reserved for evidence labels, source metadata, indexes, and controls.
-
-### Anti-slop rules
-
-- No generic three-card feature row, bento grid, metrics strip, fake dashboard, or product screenshot.
-- No gradients, glass, glow, blur panels, pills, soft shadows, or decorative grids.
-- No repeated eyebrow labels. The audience line is the single main-flow kicker.
-- No customer records, carrier marks, container IDs, certification symbols, or implied operational proof.
-- No alternating dark/light section theme pattern.
-
-## Color
-
-Oxide is the only accent. It marks primary action, focus, active state, indexes, and the thin verification edge. Maritime ink is the structural neutral, while sea-glass tones create section grouping without adding a second accent.
-
-- `paper`: primary canvas and reading surface.
-- `paper-raised`: checklist and limits grouping.
-- `ink`: headings, structural controls, active-detail surface, and footer.
-- `steel-700`: support and body-secondary copy.
-- `steel-600`: metadata only.
-- `steel-300`: strong boundaries only; never text.
-- `steel-150`: quiet rules and dark-surface body text.
-- `oxide-700`: primary action and active signal.
-- `oxide-800`: hover/pressed state.
-- `oxide-100`: selection and dark-surface metadata.
-
-Text contrast must remain valid throughout motion. Semantic text never animates opacity.
+No purple. No warm cream. Blue glow is reserved for the corridor, primary
+actions, focus, and the hero mark.
 
 ## Typography
 
-Barlow carries all reading hierarchy. Azeret Mono is a compact evidence register, not a terminal theme.
+- Display: `Arial`, `Helvetica Neue`, system sans; 700–800 weight, tight tracking.
+- Body and controls: `Inter`-shaped system sans stack; 400–700 weight.
+- Utility labels: system monospace, uppercase, tracked, 11–13px.
+- One `h1`; sentence case; body copy stays at least 16px on desktop and 15px on
+  narrow screens.
 
-- Display: one H1, never above `6rem`, tracking no tighter than `-0.04em`, exactly two lines from 320px upward.
-- Headline: fluid to `5.25rem`, short balanced measures, no isolated one-word wrapping where avoidable.
-- Title: `1.25rem` or a fluid title clamp only for active record state.
-- Lead: `1.125rem`.
-- Body: `1rem`, with a 65 to 75 character reading measure.
-- Small: `0.875rem`.
-- Label: `0.72rem` desktop and `0.875rem` mobile when compact labels need legibility.
+## Layout contract
 
-## Imagery
+- Content frame: `min(100% - 40px, 1320px)` on desktop; 20px mobile gutters.
+- Header: dark, compact, shepherd mark and wordmark left, navigation centered,
+  audit CTA right.
+- Hero: asymmetric two-column composition. Copy owns the left; the exact mark is
+  enlarged on the right.
+- Metric corridor: three equal measurements on dark navy, connected by a single
+  structural line.
+- Problem/process: light split composition. Problem and benefits left; three
+  sequential steps right.
+- Dashboard/form: dark field. The exact dashboard image is dominant; the form is
+  integrated beneath it.
+- Footer: a clear three-column endpoint with the brand and recovery proposition,
+  section paths, direct contact, and a separated legal bar.
 
-The page uses three original generated editorial studies recorded in `MEDIA-PROVENANCE.md`:
+Mobile collapses to one column while preserving this reading order:
 
-- Hero: blank papers, metal clip, corrugated steel, and distant terminal geometry.
-- Manifest: three blank record groups arranged around a physical timeline strip.
-- Route: unmarked terminal lanes branching around container stacks.
+```text
+brand -> promise -> actions -> mark -> figures -> problem -> benefits
+-> process -> dashboard -> audit form -> footer
+```
 
-Every image is responsive AVIF with a local JPEG fallback, explicit dimensions, descriptive alt text, and no third-party request. Imagery is illustrative only and must not be described as a SheperD product, customer record, real case, official port, or operating proof.
+## Motion contract
 
-## Motion
+- Library: `motion` using `LazyMotion`, `m`, and `domAnimation` only.
+- Hero: one staggered opacity/translate entrance.
+- Section content: restrained once-only viewport reveals.
+- Dashboard: masked vertical reveal with no parallax or scroll hijacking.
+- Form: focus feedback and a compact success-state transition.
+- Animate only opacity and transform in normal flow.
+- `prefers-reduced-motion` receives the complete final state without delayed
+  reveals or nonessential movement.
 
-Motion explains entry, relationship, and state:
+## Interaction contract
 
-- Hero copy enters by short transform-only stagger; the hero image settles through a shallow clip and opacity reveal.
-- Evidence modules assemble as one spring group.
-- Manifest relation lines draw once as rows enter view.
-- Section wrappers vary between lift, lateral shift, and settle; semantic text does not fade.
-- Checklist detail transitions only after interaction and is lazy-loaded.
-- Buttons use a short `0.98` press scale.
+- Header and hero CTAs scroll to real page targets.
+- Audit fields use explicit labels, autocomplete tokens, required constraints,
+  visible focus, and a working local success state.
+- The Preview sends no request and stores no submitted value.
+- Navigation, form, privacy, email, and LinkedIn destinations remain keyboard
+  accessible with 44px minimum targets.
 
-All motion reads shared tokens, uses only Motion, avoids raw scroll listeners, and ends immediately under `prefers-reduced-motion`. Content remains complete without JavaScript.
+## Copy contract
 
-## Components
+- The first viewport must say that SheperD recovers demurrage and detention
+  overcharges from shipping-container invoices.
+- Define demurrage and detention before describing exceptions or the recovery
+  process; do not assume logistics or legal vocabulary.
+- Prefer `eligible`, `estimated`, and `may` where an outcome depends on invoice
+  facts or approval. Do not promise that every charge becomes a refund.
+- Keep one primary conversion action: a free container-invoice audit.
 
-### Navigation
+## Image and delivery contract
 
-The header is sticky, solid, and rule-led. Desktop keeps the four approved anchors and one primary action. The native mobile `details` menu preserves keyboard and no-JavaScript behavior. Every target is at least 44px.
+- Hero mark: intrinsic `512 × 395`; transparent PNG; responsive `next/image`.
+- Dashboard: intrinsic `1892 × 945`; responsive `next/image`; never stretched.
+- Selected reference is documentation only and never shipped to the page.
+- Open Graph uses a purpose-built `1200 × 630` capture of the implemented hero.
+- Avoid runtime third-party image, font, analytics, and tracking requests.
 
-### Container assembly
+## Accessibility and performance gates
 
-Three dark modules overlap the hero image and form one semantic button list. Hover or focus reveals detail; press pins one detail for touch users. The image remains visible on mobile because the redesign relies on imagery to establish context.
+- WCAG AA-oriented contrast, semantic landmarks, one H1, logical headings.
+- Skip link, keyboard path, forced-colors resilience, 200% reflow, no 320px
+  horizontal overflow.
+- No meaning depends on glow, color, motion, crop, hover, or pointer precision.
+- Performance targets: Lighthouse Performance at least 95, CLS at most 0.05,
+  application-authored script transfer below 150KB where practical, and no
+  avoidable third-party runtime.
 
-### Manifest
+## Publication boundary
 
-The semantic definition list overlaps the record still life. The image and list stack on mobile without changing DOM order or clipping focus.
-
-### Evidence disclosure
-
-Five numbered buttons control one stable region. The active record renders on a dark ink surface with oxide top edge. Only one animated panel is mounted at a time.
-
-### Route rail
-
-The six ordered steps form a continuous horizontal rail rather than six cards. On narrow screens it uses scroll snap, a visible partial next item, a focusable labeled container, and no page-level overflow.
-
-### FAQ, limits, and sources
-
-FAQ uses native `details`. Limits remain a bounded no-claim field. Sources use staggered register rows with direct official links and safe external-link attributes.
-
-## Non-negotiables
-
-- Preserve one H1, logical headings, visible focus, 200% reflow, forced colors, reduced motion, and no-JavaScript reading order.
-- Preserve the Preview publication boundary and all Production blockers.
-- Keep official source links direct and visually distinct.
-- Keep the initial modern JavaScript under 150,000 gzip bytes.
-- Do not add intake, analytics, tracking, contact capture, third-party media, or a second motion runtime.
+The visual implementation may reproduce content currently visible on
+`sheperd.io` for local stakeholder evaluation. It does not independently verify
+those claims. `BUILD_TARGET=production` remains fail-closed until exact claim,
+legal, intake, commercial, metadata, deployment, and publication approvals are
+recorded.

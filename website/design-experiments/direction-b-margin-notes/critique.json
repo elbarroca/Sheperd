@@ -1,0 +1,279 @@
+{
+  "kind": "critique-panel",
+  "artifact": "index.html",
+  "reviewed_at": "2026-07-15",
+  "reviewer": "OD Critique",
+  "score": 3.7,
+  "weighted_score": {
+    "value": 73.1,
+    "scale": 100,
+    "method": "Sum of each rubric score multiplied by its declared weight",
+    "verdict": "Strong trust foundation and distinctive execution, but the first screen does not explicitly identify importer finance and logistics teams, the CTA overstates the static preview, and the mobile progress rail arrives after the sequence it describes."
+  },
+  "trust_gate": {
+    "status": "pass",
+    "reason": "The artifact explicitly states that it is a no-collection preview, keeps missing evidence unresolved, stops at qualified human review, avoids legal and outcome claims, and links only to named official sources.",
+    "checks": [
+      {
+        "rule": "No collection or case-data intake",
+        "status": "pass",
+        "evidence": [
+          "index.html:885-892",
+          "index.html:983"
+        ]
+      },
+      {
+        "rule": "Qualified-human-review stop remains explicit",
+        "status": "pass",
+        "evidence": [
+          "index.html:944-951"
+        ]
+      },
+      {
+        "rule": "No legal conclusion, resolution, outcome, customer, security, or company-performance claim",
+        "status": "pass",
+        "evidence": [
+          "index.html:947"
+        ]
+      },
+      {
+        "rule": "Evidence gaps and source dates remain visible",
+        "status": "pass",
+        "evidence": [
+          "index.html:917-951"
+        ]
+      },
+      {
+        "rule": "External evidence links are limited to named official sources",
+        "status": "pass",
+        "evidence": [
+          "index.html:956-968"
+        ]
+      }
+    ],
+    "non_negotiable_boundary": "Remain a no-collection evidence checklist that carries unresolved gaps to qualified human review. Do not add intake, automated conclusions, legal advice, promised outcomes, or company capability claims."
+  },
+  "rubric": [
+    {
+      "id": "five_second_message_clarity",
+      "label": "Five-second message clarity",
+      "weight": 18,
+      "score": 76,
+      "weighted_points": 13.68,
+      "status": "partial",
+      "evidence": [
+        "index.html:871-880",
+        "desktop-1440.png",
+        "mobile-375.png"
+      ],
+      "assessment": "The hero establishes the one-record-versus-full-review thesis immediately, and the boundary note reinforces it. However, D&D is not expanded and the lede describes a process without naming the domain or user, so a first-time visitor can understand the caution before understanding who the page is for."
+    },
+    {
+      "id": "audience_relevance",
+      "label": "Explicit importer finance/logistics audience relevance",
+      "weight": 15,
+      "score": 42,
+      "weighted_points": 6.3,
+      "status": "fail",
+      "evidence": [
+        "index.html:868-881",
+        "index.html:895-900"
+      ],
+      "assessment": "The visible page never says importer, finance, logistics, demurrage, or detention. Billing, operational, governing, FMC, and eCFR cues become meaningful later, but the intended teams must infer relevance rather than see it stated in the hero or checklist introduction."
+    },
+    {
+      "id": "visual_distinctiveness",
+      "label": "Visual distinctiveness without template tropes",
+      "weight": 12,
+      "score": 86,
+      "weighted_points": 10.32,
+      "status": "pass",
+      "evidence": [
+        "index.html:212-267",
+        "index.html:382-569",
+        "desktop-1440.png"
+      ],
+      "assessment": "The asymmetrical case-file composition, cobalt pencil marks, persistent margin annotations, and three-column evidence sequence create a recognizable Direction B. It avoids generic feature-card rows, gradient spectacle, fake product UI, and decorative metrics. The warm editorial surface is familiar, but its operational annotation system makes it specific."
+    },
+    {
+      "id": "trust_and_evidence_safety",
+      "label": "Trust and evidence safety",
+      "weight": 20,
+      "score": 96,
+      "weighted_points": 19.2,
+      "status": "pass",
+      "evidence": [
+        "index.html:885-892",
+        "index.html:917-968",
+        "index.html:983"
+      ],
+      "assessment": "Safety is unusually explicit and repeated at the right moments: no collection is stated before the checklist, missing evidence remains unresolved, governing interpretation stays with a qualified reviewer, and the stop record rejects resolution and legal conclusions. Source links are named and visible rather than presented as hidden authority."
+    },
+    {
+      "id": "cta_path",
+      "label": "CTA path",
+      "weight": 12,
+      "score": 55,
+      "weighted_points": 6.6,
+      "status": "partial",
+      "evidence": [
+        "index.html:873-876",
+        "index.html:972-976"
+      ],
+      "assessment": "The hero CTA is prominent and reliably anchors to the checklist. Its verb, Build, implies a creation flow that the no-collection static preview does not provide. The identical final CTA points backward to content the visitor has already read, so the path is clear mechanically but semantically circular."
+    },
+    {
+      "id": "mobile_320_375",
+      "label": "320/375 mobile UX",
+      "weight": 10,
+      "score": 57,
+      "weighted_points": 5.7,
+      "status": "partial",
+      "evidence": [
+        "index.html:398-400",
+        "index.html:799-829",
+        "mobile-375.png"
+      ],
+      "assessment": "The 375 render is readable, single-column, and free of visible horizontal overflow; the 320 rules preserve a workable headline, nav, and CTA. The major defect is sequence order: order: 2 moves the review rail below all records on mobile, so users receive the progress model only after completing the evidence path."
+    },
+    {
+      "id": "accessibility_readiness",
+      "label": "Accessibility readiness",
+      "weight": 8,
+      "score": 84,
+      "weighted_points": 6.72,
+      "status": "pass",
+      "evidence": [
+        "index.html:126-151",
+        "index.html:448-474",
+        "index.html:831-851",
+        "index.html:855-915"
+      ],
+      "assessment": "Semantic landmarks, one h1, a skip link, visible focus treatment, 44px targets, reduced-motion behavior, aria-current, and a polite status region provide a solid baseline. Readiness is reduced by the mobile visual-versus-DOM sequence mismatch and 11px progress labels, which are unnecessarily small for operational reading."
+    },
+    {
+      "id": "performance_feasibility",
+      "label": "Performance feasibility",
+      "weight": 5,
+      "score": 92,
+      "weighted_points": 4.6,
+      "status": "pass",
+      "evidence": [
+        "index.html:99-120",
+        "index.html:987-1035"
+      ],
+      "assessment": "The page has no external font, image, framework, analytics, or third-party script dependency. Its small IntersectionObserver enhancement is appropriate and fails safely. The only material caveat is the fixed full-viewport texture with blend mode and layered gradients, which merits a low-end mobile paint check but does not threaten feasibility."
+    }
+  ],
+  "prioritized_findings": [
+    {
+      "priority": "P1",
+      "rank": 1,
+      "title": "Restore the mobile progress rail to the start of the evidence sequence",
+      "problem": "The mobile CSS assigns order: 2 to .marker-margin, placing the review sequence after the stop record and its margin note.",
+      "impact": "The progress model cannot orient 320/375 users, and visual order no longer matches DOM order.",
+      "evidence": [
+        "index.html:398-400",
+        "mobile-375.png"
+      ],
+      "recommended_fix": "Remove the mobile order override so the rail renders before Billing record; retain the explicit desktop grid placement at 980px and above."
+    },
+    {
+      "priority": "P1",
+      "rank": 2,
+      "title": "Name the audience and domain above the fold",
+      "problem": "The hero uses D&D without expansion and never identifies importer finance or logistics teams.",
+      "impact": "The caution is clear, but qualified visitors must infer that the page is for them.",
+      "evidence": [
+        "index.html:871-880"
+      ],
+      "recommended_fix": "Replace the lede with a concise audience line such as: For importer finance and logistics teams preparing demurrage and detention evidence for qualified human review."
+    },
+    {
+      "priority": "P1",
+      "rank": 3,
+      "title": "Make the CTA describe the static preview honestly",
+      "problem": "Build the checklist implies creation, while both CTAs only jump to an existing, non-collecting checklist and the second CTA sends readers backward.",
+      "impact": "The interaction promise is stronger than the artifact's actual behavior.",
+      "evidence": [
+        "index.html:873-876",
+        "index.html:972-976"
+      ],
+      "recommended_fix": "Rename the hero CTA to Review the checklist and remove the redundant final button, leaving the closing safety statement intact."
+    },
+    {
+      "priority": "P2",
+      "rank": 4,
+      "title": "Raise the smallest operational labels",
+      "problem": "Progress labels render at 11px and mobile navigation drops to 12px.",
+      "impact": "Targets remain usable, but rapid scanning and low-vision readability are weaker than the rest of the page.",
+      "evidence": [
+        "index.html:448-455",
+        "index.html:808-811"
+      ],
+      "recommended_fix": "Use the existing 12px text token for progress labels and confirm navigation remains single-line at 320px before increasing it."
+    },
+    {
+      "priority": "P2",
+      "rank": 5,
+      "title": "Verify the paper texture on a constrained mobile device",
+      "problem": "A fixed full-viewport pseudo-element uses mix-blend-mode with two layered gradients.",
+      "impact": "The effect is visually useful but is the only plausible paint-cost hotspot in an otherwise lightweight page.",
+      "evidence": [
+        "index.html:99-120"
+      ],
+      "recommended_fix": "Profile paint and scroll performance at 320px; simplify or disable the blend layer only if measured frame stability or battery cost regresses."
+    }
+  ],
+  "strengths_to_preserve": [
+    {
+      "title": "Explicit no-collection boundary",
+      "evidence": "index.html:885-892"
+    },
+    {
+      "title": "Qualified-human-review stop with unresolved gaps carried forward",
+      "evidence": "index.html:944-951"
+    },
+    {
+      "title": "Distinctive margin-note and cobalt-pencil evidence language",
+      "evidence": "index.html:320-343, 546-583"
+    },
+    {
+      "title": "Dependency-free progressive enhancement and reduced-motion fallback",
+      "evidence": "index.html:831-851, 987-1035"
+    }
+  ],
+  "refinement_passes": [
+    {
+      "id": 1,
+      "name": "Clarify audience and honest navigation",
+      "objective": "Make the intended visitor and the page's static behavior unmistakable within five seconds.",
+      "changes": [
+        "State importer finance and logistics teams in the hero lede and expand demurrage and detention there.",
+        "Rename the hero CTA from Build the checklist to Review the checklist.",
+        "Remove the duplicate final button so the page closes on the evidence boundary rather than a circular action."
+      ],
+      "acceptance_criteria": [
+        "A first-screen text scan identifies the audience, domain, evidence-sequence purpose, and qualified-human-review boundary.",
+        "The only primary CTA accurately describes an in-page review action.",
+        "No collection, automated decision, legal conclusion, outcome, or company capability is implied."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Restore mobile sequence and harden readiness",
+      "objective": "Align the visual and semantic reading order at 320/375 while preserving the margin-note concept.",
+      "changes": [
+        "Render the review sequence before Billing record on mobile and keep the existing desktop sticky placement.",
+        "Raise 11px progress labels to the existing 12px token and verify the 320px nav remains on one line.",
+        "Test skip-link, focus order, reduced motion, 320/375 reflow, and the fixed texture's paint cost without adding dependencies."
+      ],
+      "acceptance_criteria": [
+        "At 320px and 375px, there is no horizontal overflow, clipped copy, or wrapped CTA.",
+        "The progress rail appears before the evidence records in both DOM and visual order.",
+        "Keyboard focus, reduced-motion behavior, and source links remain functional.",
+        "No external font, third-party script, form, dashboard, data collection, or new claim is introduced."
+      ]
+    }
+  ]
+}

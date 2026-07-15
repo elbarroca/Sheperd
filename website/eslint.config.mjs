@@ -5,13 +5,16 @@ import nextTypescript from "eslint-config-next/typescript";
 export default defineConfig([
   ...nextVitals,
   ...nextTypescript,
+  {
+    rules: {
+      "@next/next/no-html-link-for-pages": "off",
+    },
+  },
   globalIgnores([
     ".next/**",
-    ".agents/**",
-    ".impeccable/**",
     "coverage/**",
     "playwright-report/**",
     "test-results/**",
-    "next-env.d.ts",
+    "design-experiments/**",
   ]),
 ]);

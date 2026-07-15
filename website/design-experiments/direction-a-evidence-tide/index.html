@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="A preview for reconstructing an import charge record before qualified human review." />
+  <title>SheperD | Record reconstruction preview</title>
+  <style>
+    :root {
+      --bg: oklch(96% 0.014 90);
+      --surface: oklch(21% 0.03 236);
+      --fg: oklch(23% 0.027 235);
+      --muted: oklch(43% 0.025 231);
+      --border: oklch(75% 0.025 225);
+      --accent: oklch(43% 0.12 42);
+      --accent-hover: color-mix(in oklch, var(--accent), var(--fg) 16%);
+      --accent-soft: color-mix(in oklch, var(--accent) 12%, transparent);
+      --fg-soft: color-mix(in oklch, var(--fg) 7%, transparent);
+      --font-display: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-body: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+      --fs-h1: clamp(3rem, 8.6vw, 7.2rem);
+      --fs-h2: clamp(2rem, 5vw, 4.5rem);
+      --fs-h3: clamp(1.25rem, 2.2vw, 1.75rem);
+      --fs-lead: clamp(1.0625rem, 1.7vw, 1.3rem);
+      --fs-body: 1rem;
+      --fs-meta: 0.75rem;
+      --gap-xs: 0.5rem;
+      --gap-sm: 0.75rem;
+      --gap-md: 1.25rem;
+      --gap-lg: 2rem;
+      --gap-xl: 3.5rem;
+      --gap-2xl: 6rem;
+      --container: 75rem;
+      --gutter: clamp(1rem, 4vw, 2rem);
+      --radius: 0.5rem;
+      --focus-ring: 0 0 0 3px color-mix(in oklch, var(--accent), transparent 62%);
+      --ease-route: cubic-bezier(0.23, 1, 0.32, 1);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html {
+      color-scheme: light;
+      scroll-behavior: smooth;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    body {
+      min-width: 20rem;
+      margin: 0;
+      overflow-x: clip;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: var(--fs-body);
+      line-height: 1.55;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    img, svg { display: block; max-width: 100%; }
+    a { color: inherit; text-decoration: none; }
+    p { margin: 0; text-wrap: pretty; }
+    h1, h2, h3 { margin: 0; font-family: var(--font-display); text-wrap: balance; }
+
+    a:focus-visible {
+      outline: 0;
+      box-shadow: var(--focus-ring);
+    }
+
+    .skip-link {
+      position: fixed;
+      top: 0.75rem;
+      left: 0.75rem;
+      z-index: 20;
+      display: inline-flex;
+      min-height: 2.75rem;
+      align-items: center;
+      padding: 0.65rem 1rem;
+      transform: translateY(-180%);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--bg);
+      font-weight: 700;
+    }
+
+    .skip-link:focus { transform: translateY(0); }
+
+    .container {
+      width: min(100%, var(--container));
+      margin-inline: auto;
+      padding-inline: var(--gutter);
+    }
+
+    .section {
+      padding-block: clamp(4rem, 10vw, 8.5rem);
+    }
+
+    .section + .section { border-top: 1px solid var(--border); }
+
+    .topnav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid var(--border);
+      background: color-mix(in oklch, var(--bg) 96%, transparent);
+    }
+
+    .topnav-inner {
+      display: flex;
+      min-height: 4.25rem;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--gap-md);
+    }
+
+    .wordmark {
+      font-family: var(--font-display);
+      font-size: 1.12rem;
+      font-weight: 750;
+      letter-spacing: -0.035em;
+    }
+
+    .topnav nav { display: flex; align-items: center; gap: clamp(0.25rem, 2vw, 1.25rem); }
+
+    .topnav nav a {
+      display: inline-flex;
+      min-height: 2.75rem;
+      align-items: center;
+      padding-inline: 0.5rem;
+      color: var(--muted);
+      font-size: 0.875rem;
+      font-weight: 650;
+    }
+
+    .topnav nav a:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 0.28em; }
+
+    .hero {
+      padding-block: clamp(3.5rem, 8vw, 6rem) clamp(4.5rem, 10vw, 8rem);
+    }
+
+    .hero-copy { max-width: 72rem; }
+
+    .eyebrow {
+      margin: 0 0 var(--gap-lg);
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      font-weight: 700;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 17ch;
+      font-size: var(--fs-h1);
+      font-weight: 670;
+      letter-spacing: -0.06em;
+      line-height: 0.94;
+    }
+
+    .hero-support {
+      display: grid;
+      grid-template-columns: minmax(0, 38rem) auto;
+      gap: var(--gap-lg);
+      align-items: end;
+      justify-content: space-between;
+      margin-top: clamp(2rem, 4vw, 3rem);
+    }
+
+    .lead {
+      max-width: 47ch;
+      color: var(--muted);
+      font-size: var(--fs-lead);
+      line-height: 1.45;
+    }
+
+    .btn {
+      display: inline-flex;
+      min-height: 3rem;
+      align-items: center;
+      justify-content: center;
+      padding: 0.75rem 1.1rem;
+      border: 1px solid var(--accent);
+      border-radius: var(--radius);
+      background: var(--accent);
+      color: var(--bg);
+      font-size: 0.9375rem;
+      font-weight: 750;
+      line-height: 1;
+      white-space: nowrap;
+      box-shadow: 0 2px 0 color-mix(in oklch, var(--fg), transparent 78%);
+      transition: background 150ms var(--ease-route), transform 150ms var(--ease-route), box-shadow 150ms var(--ease-route);
+    }
+
+    .btn:hover { background: var(--accent-hover); }
+    .btn:active { transform: translateY(1px); box-shadow: none; }
+
+    .passage-map {
+      position: relative;
+      min-height: clamp(15rem, 33vw, 25rem);
+      margin: clamp(3.5rem, 8vw, 7rem) 0 0;
+      overflow: hidden;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .passage-map svg {
+      position: absolute;
+      inset: 1.25rem 0 2.75rem;
+      width: 100%;
+      height: calc(100% - 4rem);
+      overflow: visible;
+    }
+
+    .route-drawn {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 2;
+      stroke-linecap: square;
+      stroke-linejoin: round;
+      vector-effect: non-scaling-stroke;
+      stroke-dasharray: 1;
+      stroke-dashoffset: 0;
+    }
+
+    .route-node {
+      fill: var(--bg);
+      stroke: var(--accent);
+      stroke-width: 2;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .map-word {
+      position: absolute;
+      right: 4%;
+      bottom: 2.8rem;
+      font-family: var(--font-mono);
+      font-size: clamp(0.66rem, 1.2vw, 0.78rem);
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .passage-map figcaption {
+      position: absolute;
+      left: 0;
+      bottom: 0.8rem;
+      max-width: 38ch;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .route-drawn {
+        animation: draw-route 1.8s var(--ease-route) 180ms both;
+      }
+    }
+
+    @keyframes draw-route {
+      from { stroke-dashoffset: 1; opacity: 0.35; }
+      to { stroke-dashoffset: 0; opacity: 1; }
+    }
+
+    .section-heading { max-width: 55rem; }
+
+    h2 {
+      font-size: var(--fs-h2);
+      font-weight: 650;
+      letter-spacing: -0.045em;
+      line-height: 1;
+    }
+
+    .section-intro {
+      max-width: 43ch;
+      margin-top: var(--gap-md);
+      color: var(--muted);
+      font-size: var(--fs-lead);
+    }
+
+    .record-route {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: clamp(2rem, 6vw, 5rem);
+      margin: clamp(3rem, 8vw, 6rem) 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .record-route::before {
+      content: "";
+      position: absolute;
+      top: 0.7rem;
+      right: 0;
+      left: 0;
+      height: 2px;
+      background: var(--accent);
+    }
+
+    .record-stop {
+      position: relative;
+      min-width: 0;
+      padding-top: 3.25rem;
+    }
+
+    .record-stop::before {
+      content: "";
+      position: absolute;
+      top: 0.25rem;
+      left: 0;
+      width: 1rem;
+      height: 1rem;
+      border: 2px solid var(--accent);
+      border-radius: 50%;
+      background: var(--bg);
+    }
+
+    h3 {
+      font-size: var(--fs-h3);
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      line-height: 1.15;
+    }
+
+    .record-stop p {
+      max-width: 30ch;
+      margin-top: var(--gap-sm);
+      color: var(--muted);
+    }
+
+    .gather-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+      gap: clamp(3rem, 10vw, 9rem);
+      align-items: start;
+    }
+
+    .gather-layout .section-heading { position: sticky; top: 7rem; }
+
+    .checklist {
+      position: relative;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: passage;
+    }
+
+    .checklist::before {
+      content: "";
+      position: absolute;
+      top: 1rem;
+      bottom: 1rem;
+      left: 1.45rem;
+      width: 2px;
+      background: var(--accent);
+    }
+
+    .checklist li {
+      position: relative;
+      min-height: 8.5rem;
+      padding: 0 0 2.75rem 4.8rem;
+      counter-increment: passage;
+    }
+
+    .checklist li:last-child { min-height: 0; padding-bottom: 0; }
+
+    .checklist li::before {
+      content: counter(passage, decimal-leading-zero);
+      position: absolute;
+      top: -0.1rem;
+      left: 0;
+      display: grid;
+      width: 3rem;
+      height: 3rem;
+      place-items: center;
+      border: 2px solid var(--accent);
+      border-radius: 50%;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      font-weight: 750;
+    }
+
+    .checklist p {
+      max-width: 43ch;
+      margin-top: var(--gap-xs);
+      color: var(--muted);
+    }
+
+    .review-stop {
+      position: relative;
+      margin-top: clamp(4rem, 8vw, 7rem);
+      padding: clamp(2rem, 5vw, 4.5rem);
+      overflow: hidden;
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--bg);
+    }
+
+    .review-stop::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      right: 0;
+      left: 0;
+      height: 0.45rem;
+      background: var(--accent);
+    }
+
+    .stop-word {
+      display: block;
+      margin-bottom: clamp(2.5rem, 7vw, 5rem);
+      color: var(--bg);
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    .review-stop h2 { max-width: 12ch; }
+
+    .review-stop p {
+      max-width: 48ch;
+      margin-top: var(--gap-lg);
+      color: color-mix(in oklch, var(--bg), transparent 18%);
+      font-size: var(--fs-lead);
+    }
+
+    .boundary-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      gap: clamp(3rem, 10vw, 8rem);
+      align-items: start;
+    }
+
+    .boundary-copy p {
+      max-width: 47ch;
+      margin-top: var(--gap-md);
+      color: var(--muted);
+      font-size: var(--fs-lead);
+    }
+
+    .source-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      border-top: 1px solid var(--fg);
+    }
+
+    .source-link {
+      display: grid;
+      min-height: 4.5rem;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: var(--gap-md);
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      font-weight: 700;
+    }
+
+    .source-link::after {
+      content: "Open";
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .source-link:hover { color: var(--accent); }
+    .source-link:hover::after { color: var(--accent); }
+
+    .pagefoot {
+      border-top: 1px solid var(--border);
+      padding-block: 2rem;
+      color: var(--muted);
+      font-size: 0.8125rem;
+    }
+
+    .pagefoot-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--gap-md);
+    }
+
+    .pagefoot strong { color: var(--fg); }
+
+    @media (max-width: 48rem) {
+      .topnav nav { display: none; }
+
+      .hero-support,
+      .gather-layout,
+      .boundary-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-support { align-items: start; }
+
+      .hero-support .btn { justify-self: start; }
+
+      .passage-map {
+        min-height: 16rem;
+        margin-top: 3.5rem;
+      }
+
+      .record-route {
+        grid-template-columns: 1fr;
+        gap: 0;
+        padding-left: 3.9rem;
+      }
+
+      .record-route::before {
+        top: 0;
+        bottom: 0;
+        left: 1.45rem;
+        width: 2px;
+        height: auto;
+      }
+
+      .record-stop { min-height: 10rem; padding: 0 0 3rem; }
+
+      .record-stop:last-child { min-height: 0; padding-bottom: 0; }
+
+      .record-stop::before { top: 0.2rem; left: -3rem; }
+
+      .gather-layout .section-heading { position: static; }
+
+      .pagefoot-inner { align-items: flex-start; flex-direction: column; }
+    }
+
+    @media (max-width: 23rem) {
+      :root { --fs-h1: clamp(2.65rem, 14vw, 3rem); }
+      h1 { letter-spacing: -0.05em; }
+      .checklist li { padding-left: 4.25rem; }
+      .source-link { grid-template-columns: 1fr; gap: 0.1rem; padding-block: 0.75rem; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+      .route-drawn { stroke-dashoffset: 0; opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+
+  <header class="topnav" data-od-id="topnav">
+    <div class="container topnav-inner">
+      <span class="wordmark" data-od-id="brand-label">SheperD</span>
+      <nav aria-label="Page sections">
+        <a href="#records">Records</a>
+        <a href="#review">Human review</a>
+        <a href="#sources">Official sources</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="content">
+    <section class="section hero" data-od-id="hero">
+      <div class="container">
+        <div class="hero-copy">
+          <p class="eyebrow">Record reconstruction preview</p>
+          <h1 data-od-id="hero-heading">Before you assess the charge, reconstruct the record.</h1>
+          <div class="hero-support">
+            <p class="lead">A preview for finance and logistics teams tracing what belongs in the record before review.</p>
+            <a class="btn" data-od-id="gather-cta" href="#gather">See what to gather</a>
+          </div>
+        </div>
+
+        <figure class="passage-map" data-od-id="route-line" aria-labelledby="route-caption">
+          <svg viewBox="0 0 1000 320" preserveAspectRatio="none" role="img" aria-label="A single route line moves from an invoice edge through an event sequence and ends beneath a source label.">
+            <path class="route-drawn" pathLength="1" d="M54 34 V154 H268 C308 154 320 184 356 184 H632 C676 184 688 230 732 230 H946 V270 H760" />
+            <circle class="route-node" cx="268" cy="154" r="8" />
+            <circle class="route-node" cx="488" cy="184" r="8" />
+            <circle class="route-node" cx="732" cy="230" r="8" />
+          </svg>
+          <span class="map-word" aria-hidden="true">Source</span>
+          <figcaption id="route-caption">One line shifts from invoice edge to event timeline to source underline.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section" id="records" data-od-id="evidence-layers">
+      <div class="container">
+        <div class="section-heading">
+          <h2 data-od-id="records-heading">Three records. One passage.</h2>
+          <p class="section-intro">Keep each layer distinct, then place them in a sequence a qualified reviewer can examine.</p>
+        </div>
+
+        <ol class="record-route" aria-label="Evidence layers">
+          <li class="record-stop" data-od-id="record-billing">
+            <h3>Billing record</h3>
+            <p>The charge as billed, with its references, dates, and stated basis.</p>
+          </li>
+          <li class="record-stop" data-od-id="record-operational">
+            <h3>Operational record</h3>
+            <p>The movement and handling events connected to the billed period.</p>
+          </li>
+          <li class="record-stop" data-od-id="record-governing">
+            <h3>Governing record</h3>
+            <p>The published terms and official regulatory sources selected for human review.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section" id="gather" data-od-id="gather-checklist">
+      <div class="container gather-layout">
+        <div class="section-heading">
+          <h2 data-od-id="gather-heading">Gather in sequence.</h2>
+          <p class="section-intro">Do not resolve the charge while the record is still incomplete.</p>
+        </div>
+
+        <ol class="checklist" aria-label="Sequential record checklist">
+          <li data-od-id="check-billing">
+            <h3>Gather the billing record</h3>
+            <p>Keep the complete record together, including the page where the charge appears.</p>
+          </li>
+          <li data-od-id="check-operational">
+            <h3>Gather the operational record</h3>
+            <p>Place dated movement and handling events in order without resolving conflicts.</p>
+          </li>
+          <li data-od-id="check-governing">
+            <h3>Gather the governing record</h3>
+            <p>Keep published terms beside the official source used for context.</p>
+          </li>
+          <li data-od-id="check-gaps">
+            <h3>Mark what remains open</h3>
+            <p>Note missing pages, mismatched references, and unresolved dates before assessment.</p>
+          </li>
+        </ol>
+      </div>
+
+      <div class="container">
+        <aside class="review-stop" id="review" data-od-id="human-review-stop" aria-labelledby="review-heading">
+          <strong class="stop-word">Stop here</strong>
+          <h2 id="review-heading">Qualified human review.</h2>
+          <p>Assessment begins only after a qualified human has reviewed the reconstructed record, checked the sources, and resolved open questions. No legal conclusion is made on this page.</p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section" id="sources" data-od-id="preview-boundary">
+      <div class="container boundary-grid">
+        <div class="boundary-copy">
+          <h2 data-od-id="boundary-heading">Preview only. No collection.</h2>
+          <p>This informational prototype does not accept, upload, store, analyze, or assess records. It provides no legal conclusion.</p>
+        </div>
+
+        <div aria-labelledby="source-heading">
+          <h3 id="source-heading" style="margin-bottom: 1.25rem;">Official sources</h3>
+          <ul class="source-list">
+            <li>
+              <a class="source-link" data-od-id="source-fmc" href="https://www.fmc.gov/">Federal Maritime Commission</a>
+            </li>
+            <li>
+              <a class="source-link" data-od-id="source-ecfr" href="https://www.ecfr.gov/current/title-46/chapter-IV/subchapter-B/part-541">46 CFR Part 541</a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="pagefoot" data-od-id="footer">
+    <div class="container pagefoot-inner">
+      <strong>SheperD</strong>
+      <span>Record reconstruction preview. No collection.</span>
+    </div>
+  </footer>
+</body>
+</html>

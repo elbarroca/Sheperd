@@ -1,0 +1,1060 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A non-collecting SheperD preview for building a D&D invoice evidence checklist.">
+  <title>SheperD | Margin Notes</title>
+  <style>
+    /* design-systems/editorial/tokens.css
+     * Structured token bindings for Editorial.
+     * editorial publishing language with warm paper surfaces, serif display type, and composed story cards.
+     */
+
+    :root {
+      --bg: #fbf7f0;
+      --surface: #fffdf8;
+      --surface-warm: #f1e6d6;
+      --fg: #1f1a16;
+      --fg-2: #4b4038;
+      --muted: #7d7168;
+      --meta: #9a5a2f;
+      --border: #ded3c5;
+      --border-soft: #eee5da;
+      --accent: #9a5a2f;
+      --accent-on: #ffffff;
+      --accent-hover: color-mix(in oklab, var(--accent), black 8%);
+      --accent-active: color-mix(in oklab, var(--accent), black 14%);
+      --success: #4f8a4f;
+      --warn: #c9822f;
+      --danger: #b33a3a;
+      --font-display: Georgia, "Times New Roman", serif;
+      --font-body: "Source Serif Pro", Georgia, serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+      --text-xs: 12px;
+      --text-sm: 14px;
+      --text-base: 18px;
+      --text-lg: 21px;
+      --text-xl: 30px;
+      --text-2xl: 44px;
+      --text-3xl: 66px;
+      --text-4xl: 92px;
+      --leading-body: 1.65;
+      --leading-tight: 1;
+      --tracking-display: -0.02em;
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 20px;
+      --space-6: 24px;
+      --space-8: 32px;
+      --space-12: 48px;
+      --section-y-desktop: 112px;
+      --section-y-tablet: 80px;
+      --section-y-phone: 56px;
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-pill: 9999px;
+      --elev-flat: none;
+      --elev-ring: 0 0 0 1px var(--border);
+      --elev-raised: 0 20px 50px rgba(31, 26, 22, 0.12);
+      --focus-ring: 0 0 0 4px rgba(154, 90, 47, 0.24);
+      --motion-fast: 180ms;
+      --motion-base: 280ms;
+      --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+      --container-max: 1120px;
+      --container-gutter-desktop: 36px;
+      --container-gutter-tablet: 24px;
+      --container-gutter-phone: 16px;
+    }
+
+    html {
+      --pencil: oklch(48% 0.21 264);
+      --pencil-dark: oklch(39% 0.2 264);
+      scroll-behavior: smooth;
+      scroll-padding-top: 96px;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-width: 0;
+      margin: 0;
+      overflow-x: hidden;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: var(--text-base);
+      line-height: 1.55;
+      text-rendering: optimizeLegibility;
+      isolation: isolate;
+    }
+
+    body::before {
+      position: fixed;
+      z-index: 10;
+      inset: 0;
+      pointer-events: none;
+      content: "";
+      opacity: 0.34;
+      background-image:
+        repeating-linear-gradient(
+          0deg,
+          transparent 0,
+          transparent 7px,
+          color-mix(in oklab, var(--fg), transparent 96%) 8px
+        ),
+        radial-gradient(
+          circle at 24% 18%,
+          color-mix(in oklab, var(--fg), transparent 94%) 0 0.7px,
+          transparent 0.9px
+        );
+      background-size: auto, 9px 11px;
+      mix-blend-mode: multiply;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    a:focus-visible {
+      outline: 3px solid var(--pencil);
+      outline-offset: 4px;
+    }
+
+    .skip-link {
+      position: fixed;
+      z-index: 40;
+      top: var(--space-3);
+      left: var(--space-4);
+      display: flex;
+      min-height: 44px;
+      align-items: center;
+      padding: 0 var(--space-4);
+      transform: translateY(-160%);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      color: var(--fg);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .skip-link:focus {
+      transform: translateY(0);
+    }
+
+    .container {
+      width: min(100% - (2 * var(--container-gutter-phone)), var(--container-max));
+      margin-inline: auto;
+    }
+
+    .site-header {
+      position: sticky;
+      z-index: 20;
+      top: 0;
+      padding: var(--space-3) 0;
+      background: color-mix(in oklab, var(--bg), transparent 6%);
+    }
+
+    .nav-shell {
+      display: flex;
+      min-height: 56px;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      padding: var(--space-1) var(--space-2) var(--space-1) var(--space-4);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      box-shadow: 0 1px 2px color-mix(in oklab, var(--fg), transparent 96%);
+    }
+
+    .wordmark {
+      flex: none;
+      font-family: var(--font-display);
+      font-size: var(--text-lg);
+      font-weight: 700;
+      letter-spacing: var(--tracking-display);
+    }
+
+    .nav-links {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: var(--space-1);
+    }
+
+    .nav-link {
+      display: inline-flex;
+      min-height: 44px;
+      align-items: center;
+      justify-content: center;
+      padding: 0 var(--space-3);
+      border-radius: var(--radius-md);
+      color: var(--fg-2);
+      font-size: var(--text-sm);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .nav-link:hover {
+      color: var(--pencil-dark);
+      background: color-mix(in oklab, var(--pencil), transparent 94%);
+    }
+
+    .hero {
+      display: grid;
+      min-height: calc(100dvh - 80px);
+      align-items: center;
+      padding: 64px 0 72px;
+    }
+
+    .hero-grid {
+      display: grid;
+      gap: var(--space-12);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      min-height: 30px;
+      align-items: center;
+      margin: 0 0 var(--space-5);
+      padding: 0 var(--space-3);
+      border: 1px solid color-mix(in oklab, var(--pencil), transparent 66%);
+      border-radius: var(--radius-sm);
+      background: color-mix(in oklab, var(--pencil), var(--surface) 92%);
+      color: var(--pencil-dark);
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-weight: 500;
+      letter-spacing: -0.025em;
+    }
+
+    h1 {
+      position: relative;
+      max-width: 13ch;
+      font-size: clamp(3rem, 10vw, 5.75rem);
+      line-height: 0.98;
+    }
+
+    h1::after {
+      position: absolute;
+      right: 4%;
+      bottom: -18px;
+      width: 48%;
+      height: 8px;
+      border-top: 3px solid var(--pencil);
+      border-bottom: 1px solid color-mix(in oklab, var(--pencil), transparent 35%);
+      content: "";
+      transform: rotate(-1.4deg);
+    }
+
+    h2 {
+      max-width: 14ch;
+      font-size: clamp(2.5rem, 7vw, var(--text-3xl));
+      line-height: 1;
+    }
+
+    h3 {
+      font-size: clamp(2rem, 5vw, var(--text-2xl));
+      line-height: 1.05;
+    }
+
+    .lede {
+      max-width: 42ch;
+      margin: var(--space-8) 0 0;
+      color: var(--fg-2);
+      font-size: var(--text-lg);
+      line-height: 1.55;
+    }
+
+    .hero-actions {
+      display: flex;
+      margin-top: var(--space-8);
+    }
+
+    .btn {
+      display: inline-flex;
+      min-height: 48px;
+      align-items: center;
+      justify-content: center;
+      padding: 0 var(--space-5);
+      border: 1px solid var(--pencil-dark);
+      border-radius: var(--radius-md);
+      background: var(--pencil-dark);
+      color: var(--accent-on);
+      box-shadow: 0 1px 2px color-mix(in oklab, var(--fg), transparent 82%);
+      font-size: var(--text-base);
+      font-weight: 800;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: transform var(--motion-fast) var(--ease-standard), opacity var(--motion-fast) var(--ease-standard);
+    }
+
+    .btn:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+    }
+
+    .btn:active {
+      transform: translateY(1px);
+    }
+
+    .hero-note {
+      align-self: end;
+      padding-top: var(--space-4);
+      border-top: 2px solid var(--pencil);
+      color: var(--fg-2);
+      transform: rotate(0.4deg);
+    }
+
+    .hero-material {
+      display: block;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      margin: 0 0 var(--space-5);
+      border: 1px solid var(--border);
+      object-fit: cover;
+      object-position: 30% center;
+      filter: saturate(0.82) contrast(1.04);
+    }
+
+    .note-label,
+    .source-date,
+    .rail-label,
+    .footer-meta {
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .note-label {
+      display: block;
+      margin-bottom: var(--space-2);
+      color: var(--pencil-dark);
+    }
+
+    .hero-note p,
+    .margin-note p,
+    .boundary-copy p {
+      margin: 0;
+    }
+
+    .boundary {
+      padding: 88px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: color-mix(in oklab, var(--surface-warm), var(--bg) 68%);
+    }
+
+    .boundary-grid {
+      display: grid;
+      gap: var(--space-8);
+    }
+
+    .boundary-copy {
+      max-width: 58ch;
+      color: var(--fg-2);
+    }
+
+    .boundary-copy strong {
+      display: block;
+      margin-bottom: var(--space-3);
+      color: var(--fg);
+      font-family: var(--font-display);
+      font-size: var(--text-xl);
+      font-weight: 500;
+      letter-spacing: -0.02em;
+    }
+
+    .checklist-section {
+      padding: 88px 0 var(--section-y-desktop);
+    }
+
+    .case-grid {
+      display: grid;
+      min-width: 0;
+      gap: 0;
+    }
+
+    .checklist-heading {
+      margin-bottom: 72px;
+    }
+
+    .checklist-heading p {
+      max-width: 52ch;
+      margin: var(--space-5) 0 0;
+      color: var(--fg-2);
+    }
+
+    .marker-margin {
+      order: 0;
+      margin-bottom: var(--space-8);
+    }
+
+    .marker-rail {
+      --marker-step: 0;
+      position: relative;
+      padding: var(--space-4);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+    }
+
+    .marker-rail[data-step="1"] {
+      --marker-step: 1;
+    }
+
+    .marker-rail[data-step="2"] {
+      --marker-step: 2;
+    }
+
+    .marker-rail[data-step="3"] {
+      --marker-step: 3;
+    }
+
+    .rail-label {
+      margin: 0 0 var(--space-3);
+      color: var(--fg-2);
+    }
+
+    .rail-track {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .rail-track::before {
+      position: absolute;
+      top: 8px;
+      right: 12.5%;
+      left: 12.5%;
+      height: 1px;
+      background: var(--border);
+      content: "";
+    }
+
+    .rail-item {
+      position: relative;
+      min-width: 0;
+      padding-top: 24px;
+      color: var(--fg-2);
+      font-size: var(--text-xs);
+      line-height: 1.25;
+      text-align: center;
+    }
+
+    .rail-item::before {
+      position: absolute;
+      z-index: 1;
+      top: 3px;
+      left: calc(50% - 5px);
+      width: 10px;
+      height: 10px;
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      background: var(--surface);
+      content: "";
+    }
+
+    .rail-item[aria-current="step"] {
+      color: var(--pencil-dark);
+      font-weight: 800;
+    }
+
+    .marker-cursor {
+      position: absolute;
+      z-index: 2;
+      top: 51px;
+      left: 0;
+      width: 25%;
+      height: 14px;
+      transform: translateX(calc(var(--marker-step) * 100%));
+      transition: transform 600ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .marker-cursor::before {
+      position: absolute;
+      top: 0;
+      left: calc(50% - 7px);
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--pencil);
+      border-radius: 50%;
+      background: var(--surface);
+      content: "";
+    }
+
+    .marker-rail[data-step="3"] .marker-cursor::before {
+      border-radius: var(--radius-sm);
+      background: var(--pencil);
+    }
+
+    .marker-status {
+      margin: var(--space-3) 0 0;
+      color: var(--fg-2);
+      font-size: var(--text-sm);
+    }
+
+    .reduced-motion-note {
+      display: none;
+      margin: var(--space-2) 0 0;
+      color: var(--fg-2);
+      font-size: var(--text-xs);
+    }
+
+    .evidence-record {
+      min-width: 0;
+      padding: 48px 0 64px;
+      border-top: 1px solid var(--border);
+      scroll-margin-top: 112px;
+    }
+
+    .evidence-record p {
+      max-width: 56ch;
+      margin: var(--space-5) 0 0;
+      color: var(--fg-2);
+    }
+
+    .check-line {
+      position: relative;
+      padding-left: 30px;
+    }
+
+    .check-line::before {
+      position: absolute;
+      top: 0.42em;
+      left: 2px;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--pencil);
+      content: "";
+      transform: rotate(-2deg);
+    }
+
+    .margin-note {
+      align-self: start;
+      margin: 0 0 var(--space-8);
+      padding: var(--space-4) 0 0;
+      border-top: 2px solid color-mix(in oklab, var(--pencil), transparent 26%);
+      color: var(--fg-2);
+      font-size: var(--text-sm);
+      line-height: 1.5;
+      transform: rotate(-0.35deg);
+    }
+
+    .source-date {
+      display: block;
+      margin-bottom: var(--space-2);
+      color: var(--pencil-dark);
+    }
+
+    .stop-record {
+      margin: 32px 0 0;
+      padding: var(--space-8);
+      border: 2px solid var(--pencil);
+      border-radius: var(--radius-md);
+      background: color-mix(in oklab, var(--pencil), var(--surface) 96%);
+      box-shadow: 3px 3px 0 color-mix(in oklab, var(--pencil), transparent 70%);
+    }
+
+    .stop-label {
+      display: inline-block;
+      margin: 0 0 var(--space-4);
+      padding-bottom: var(--space-1);
+      border-bottom: 3px double var(--pencil);
+      color: var(--pencil-dark);
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .sources {
+      padding: var(--section-y-desktop) 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .sources-grid {
+      display: grid;
+      gap: var(--space-12);
+    }
+
+    .source-list {
+      display: grid;
+      gap: var(--space-3);
+    }
+
+    .source-link {
+      display: grid;
+      min-height: 64px;
+      align-items: center;
+      grid-template-columns: 1fr auto;
+      gap: var(--space-4);
+      padding: var(--space-4) 0;
+      border-bottom: 1px solid var(--border);
+      color: var(--fg);
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .source-link:first-child {
+      border-top: 1px solid var(--border);
+    }
+
+    .source-link span:last-child {
+      color: var(--pencil-dark);
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+    }
+
+    .source-link:hover {
+      color: var(--pencil-dark);
+    }
+
+    .cta-band {
+      padding: 88px 0;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .cta-layout {
+      display: grid;
+      gap: var(--space-8);
+      align-items: end;
+    }
+
+    .cta-layout h2 {
+      max-width: 12ch;
+    }
+
+    .closing-boundary {
+      max-width: 38ch;
+      margin: 0;
+      color: var(--fg-2);
+    }
+
+    footer {
+      padding: var(--space-8) 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .footer-layout {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-4);
+    }
+
+    .footer-meta {
+      margin: 0;
+      color: var(--fg-2);
+    }
+
+    @media (min-width: 720px) {
+      .container {
+        width: min(100% - (2 * var(--container-gutter-tablet)), var(--container-max));
+      }
+
+      .hero-grid {
+        grid-template-columns: minmax(0, 2.5fr) minmax(220px, 0.8fr);
+        align-items: end;
+      }
+
+      .boundary-grid,
+      .sources-grid,
+      .cta-layout {
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
+        align-items: start;
+      }
+
+      .cta-layout {
+        align-items: end;
+      }
+
+      .cta-layout .btn {
+        justify-self: end;
+      }
+    }
+
+    @media (min-width: 980px) {
+      .container {
+        width: min(100% - (2 * var(--container-gutter-desktop)), var(--container-max));
+      }
+
+      .case-grid {
+        grid-template-columns: minmax(150px, 1fr) minmax(0, 640px) minmax(150px, 1fr);
+        column-gap: var(--space-8);
+      }
+
+      .checklist-heading {
+        grid-column: 2;
+        grid-row: 1;
+      }
+
+      .marker-margin {
+        grid-column: 1;
+        grid-row: 2 / 6;
+        margin: 0;
+      }
+
+      .marker-rail {
+        position: sticky;
+        top: 104px;
+        padding: var(--space-4) 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+      }
+
+      .rail-track {
+        display: block;
+        padding-left: 24px;
+      }
+
+      .rail-track::before {
+        top: 12px;
+        bottom: 12px;
+        left: 6px;
+        width: 1px;
+        height: auto;
+      }
+
+      .rail-item {
+        min-height: 72px;
+        padding: 0 0 0 var(--space-3);
+        text-align: left;
+      }
+
+      .rail-item::before {
+        top: 3px;
+        left: -22px;
+      }
+
+      .marker-cursor {
+        top: 48px;
+        left: -1px;
+        width: 14px;
+        height: 72px;
+        transform: translateY(calc(var(--marker-step) * 100%));
+      }
+
+      .marker-cursor::before {
+        left: 0;
+      }
+
+      .marker-status {
+        padding-right: var(--space-6);
+      }
+
+      .evidence-record {
+        grid-column: 2;
+      }
+
+      .evidence-record[data-marker-step="0"] {
+        grid-row: 2;
+      }
+
+      .evidence-record[data-marker-step="1"] {
+        grid-row: 3;
+      }
+
+      .evidence-record[data-marker-step="2"] {
+        grid-row: 4;
+      }
+
+      .evidence-record[data-marker-step="3"] {
+        grid-row: 5;
+      }
+
+      .margin-note {
+        grid-column: 3;
+        margin-top: 48px;
+      }
+
+      .margin-note[data-note-step="0"] {
+        grid-row: 2;
+      }
+
+      .margin-note[data-note-step="1"] {
+        grid-row: 3;
+      }
+
+      .margin-note[data-note-step="2"] {
+        grid-row: 4;
+      }
+
+      .margin-note[data-note-step="3"] {
+        grid-row: 5;
+      }
+    }
+
+    @media (max-width: 420px) {
+      body::before {
+        display: none;
+      }
+
+      body {
+        font-size: 16px;
+      }
+
+      .nav-shell {
+        padding-left: var(--space-3);
+      }
+
+      .nav-link {
+        padding-inline: var(--space-2);
+        font-size: 12px;
+      }
+
+      h1 {
+        font-size: clamp(2.75rem, 15vw, 3.6rem);
+      }
+
+      .hero {
+        padding-top: 48px;
+      }
+
+      .marker-rail {
+        margin-inline: calc(-1 * var(--space-1));
+        padding-inline: var(--space-3);
+      }
+
+      .stop-record {
+        padding: var(--space-6);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+
+      .marker-cursor {
+        display: none;
+      }
+
+      .reduced-motion-note {
+        display: block;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+
+  <header class="site-header" data-od-id="site-header">
+    <nav class="container nav-shell" aria-label="Primary navigation" data-od-id="primary-navigation">
+      <span class="wordmark" data-od-id="public-label">SheperD</span>
+      <div class="nav-links">
+        <a class="nav-link" href="#checklist">Checklist</a>
+        <a class="nav-link" href="#sources">Sources</a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="main-content">
+    <section class="hero" data-od-id="hero">
+      <div class="container hero-grid">
+        <div>
+          <p class="eyebrow">Margin Notes</p>
+          <h1 data-od-id="hero-heading">A D&amp;D invoice is one record. The review needs the rest.</h1>
+          <p class="lede">For importer finance and logistics teams preparing demurrage and detention evidence for qualified human review.</p>
+          <div class="hero-actions">
+            <a class="btn" href="#checklist" data-od-id="hero-cta">Review the checklist</a>
+          </div>
+        </div>
+        <aside class="hero-note" aria-label="Case file boundary" data-od-id="hero-margin-note">
+          <img class="hero-material" src="material-study.jpg" width="1717" height="916" alt="Three layered paper edges aligned by an orange thread and cobalt registration marks.">
+          <span class="note-label">Case boundary</span>
+          <p>One invoice anchors the page. It does not complete the record.</p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="boundary" aria-labelledby="boundary-title" data-od-id="preview-boundary">
+      <div class="container boundary-grid">
+        <h2 id="boundary-title">Preview. No collection.</h2>
+        <div class="boundary-copy">
+          <strong>Checklist layout only.</strong>
+          <p>No fields, submissions, customer documents, or case details appear in this preview.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="checklist" class="checklist-section" aria-labelledby="checklist-title" data-od-id="evidence-checklist">
+      <div class="container case-grid">
+        <header class="checklist-heading">
+          <h2 id="checklist-title">Follow the record, then stop.</h2>
+          <p>Move through three evidence layers in order. Record what is present, note what is not, and leave unresolved evidence unresolved.</p>
+        </header>
+
+        <aside class="marker-margin" aria-label="Evidence progress" data-od-id="evidence-marker">
+          <div class="marker-rail" data-step="0">
+            <p class="rail-label">Review sequence</p>
+            <ol class="rail-track">
+              <li class="rail-item" aria-current="step">Billing</li>
+              <li class="rail-item">Operational</li>
+              <li class="rail-item">Governing</li>
+              <li class="rail-item">Stop</li>
+            </ol>
+            <span class="marker-cursor" aria-hidden="true"></span>
+            <p class="marker-status" aria-live="polite">Current marker: Billing record.</p>
+            <p class="reduced-motion-note">Reduced motion: the active label changes without marker travel.</p>
+          </div>
+        </aside>
+
+        <article class="evidence-record" data-marker-step="0" data-od-id="evidence-billing">
+          <h3>Billing record</h3>
+          <p class="check-line">Identify the invoice date, billed period, stated charge, and record identifiers. Mark absent fields as gaps.</p>
+        </article>
+        <aside class="margin-note" data-note-step="0" data-od-id="billing-margin-note">
+          <span class="source-date">Source date</span>
+          <p>Record the date exactly as shown. Do not supply a missing date.</p>
+        </aside>
+
+        <article class="evidence-record" data-marker-step="1" data-od-id="evidence-operational">
+          <h3>Operational record</h3>
+          <p class="check-line">Match the period and identifiers across the operational record. Leave missing, unmatched, or ambiguous events unresolved.</p>
+        </article>
+        <aside class="margin-note" data-note-step="1" data-od-id="operational-margin-note">
+          <span class="source-date">Boundary note</span>
+          <p>The billing record does not establish the operational record.</p>
+        </aside>
+
+        <article class="evidence-record" data-marker-step="2" data-od-id="evidence-governing">
+          <h3>Governing record</h3>
+          <p class="check-line">Record the official material consulted and the date it was reviewed. Keep interpretation with the qualified reviewer.</p>
+        </article>
+        <aside class="margin-note" data-note-step="2" data-od-id="governing-margin-note">
+          <span class="source-date">Source date</span>
+          <p>Verify the current official text at review time. Do not infer from an undated copy.</p>
+        </aside>
+
+        <article class="evidence-record stop-record" data-marker-step="3" data-od-id="qualified-review-stop">
+          <p class="stop-label">Stop at unresolved evidence</p>
+          <h3>Qualified human review</h3>
+          <p>Carry the checklist, source dates, and open gaps forward. This preview does not resolve the issue or state a legal conclusion.</p>
+        </article>
+        <aside class="margin-note" data-note-step="3" data-od-id="stop-margin-note">
+          <span class="source-date">Gap rule</span>
+          <p>A missing source, date, match, or clear boundary ends the sequence here.</p>
+        </aside>
+      </div>
+    </section>
+
+    <section id="sources" class="sources" aria-labelledby="sources-title" data-od-id="official-sources">
+      <div class="container sources-grid">
+        <h2 id="sources-title">Official sources only.</h2>
+        <div class="source-list">
+          <a class="source-link" href="https://www.fmc.gov/" target="_blank" rel="noopener noreferrer" data-od-id="source-fmc">
+            <span>Federal Maritime Commission</span>
+            <span>FMC.gov</span>
+          </a>
+          <a class="source-link" href="https://www.ecfr.gov/current/title-46/chapter-IV/subchapter-B/part-541" target="_blank" rel="noopener noreferrer" data-od-id="source-ecfr">
+            <span>46 CFR Part 541, current text</span>
+            <span>eCFR.gov</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta-band" aria-labelledby="cta-title" data-od-id="checklist-cta-band">
+      <div class="container cta-layout">
+        <h2 id="cta-title">Keep the gaps visible.</h2>
+        <p class="closing-boundary">Carry missing dates, mismatched references, and unresolved evidence forward to qualified human review.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer data-od-id="site-footer">
+    <div class="container footer-layout">
+      <span class="wordmark">SheperD</span>
+      <p class="footer-meta">Preview / No collection / Qualified review stop</p>
+    </div>
+  </footer>
+
+  <script>
+    (() => {
+      const rail = document.querySelector('.marker-rail');
+      const items = Array.from(document.querySelectorAll('.rail-item'));
+      const records = Array.from(document.querySelectorAll('[data-marker-step]'));
+      const status = document.querySelector('.marker-status');
+      const labels = [
+        'Billing record',
+        'Operational record',
+        'Governing record',
+        'Stop at unresolved evidence'
+      ];
+
+      if (!rail || !status || records.length !== labels.length || !('IntersectionObserver' in window)) {
+        return;
+      }
+
+      const setMarker = (step) => {
+        rail.dataset.step = String(step);
+        items.forEach((item, index) => {
+          if (index === step) {
+            item.setAttribute('aria-current', 'step');
+          } else {
+            item.removeAttribute('aria-current');
+          }
+        });
+        status.textContent = `Current marker: ${labels[step]}.`;
+      };
+
+      const observer = new IntersectionObserver((entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+
+        if (!visible) {
+          return;
+        }
+
+        const step = Number(visible.target.getAttribute('data-marker-step'));
+        if (Number.isInteger(step) && step >= 0 && step < labels.length) {
+          setMarker(step);
+        }
+      }, {
+        rootMargin: '-22% 0px -54% 0px',
+        threshold: [0.1, 0.35, 0.6]
+      });
+
+      records.forEach((record) => observer.observe(record));
+    })();
+  </script>
+</body>
+</html>

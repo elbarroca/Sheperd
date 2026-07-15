@@ -1,0 +1,1032 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="SheperD Terminal Ledger preview: align billing, operational, and governing records before qualified human review.">
+  <title>SheperD | Terminal Ledger</title>
+  <script>document.documentElement.classList.add("has-js");</script>
+  <style>
+    /* design-systems/warm-editorial/tokens.css
+     * Structured token bindings for Warm Editorial.
+     * warm editorial system with cream canvas, serif display, and calm publication rhythm.
+     */
+
+    :root {
+      --bg: #fbf6ee;
+      --surface: #fffdf8;
+      --surface-warm: #f1e3cf;
+      --fg: #201914;
+      --fg-2: #4c4037;
+      --muted: #7a6d63;
+      --meta: #9b5b32;
+      --border: #ded2c3;
+      --border-soft: #eee4d7;
+      --accent: #9b5b32;
+      --accent-on: #ffffff;
+      --accent-hover: color-mix(in oklab, var(--accent), black 8%);
+      --accent-active: color-mix(in oklab, var(--accent), black 14%);
+      --success: #4f8a4f;
+      --warn: #c9822f;
+      --danger: #b33a3a;
+      --font-display: Georgia, "Times New Roman", serif;
+      --font-body: Inter, system-ui, sans-serif;
+      --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+      --text-xs: 12px;
+      --text-sm: 14px;
+      --text-base: 17px;
+      --text-lg: 20px;
+      --text-xl: 28px;
+      --text-2xl: 42px;
+      --text-3xl: 64px;
+      --text-4xl: 88px;
+      --leading-body: 1.62;
+      --leading-tight: 1;
+      --tracking-display: -0.025em;
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 20px;
+      --space-6: 24px;
+      --space-8: 32px;
+      --space-12: 48px;
+      --section-y-desktop: 112px;
+      --section-y-tablet: 80px;
+      --section-y-phone: 56px;
+      --radius-sm: 10px;
+      --radius-md: 16px;
+      --radius-lg: 24px;
+      --radius-pill: 9999px;
+      --elev-flat: none;
+      --elev-ring: 0 0 0 1px var(--border);
+      --elev-raised: 0 20px 52px rgba(32, 25, 20, 0.12);
+      --focus-ring: 0 0 0 4px rgba(155, 91, 50, 0.24);
+      --motion-fast: 150ms;
+      --motion-base: 240ms;
+      --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+      --container-max: 1180px;
+      --container-gutter-desktop: 36px;
+      --container-gutter-tablet: 24px;
+      --container-gutter-phone: 16px;
+    }
+  </style>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--bg);
+      color: var(--fg);
+      overflow-x: clip;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      min-width: 0;
+      overflow-x: hidden;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: var(--text-base);
+      line-height: var(--leading-body);
+    }
+
+    ::selection {
+      background: color-mix(in oklch, var(--warn) 72%, var(--surface-warm));
+      color: var(--fg);
+    }
+
+    a {
+      color: inherit;
+    }
+
+    a:focus-visible {
+      outline: 3px solid var(--fg);
+      outline-offset: 4px;
+    }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .skip-link {
+      position: fixed;
+      inset: var(--space-3) auto auto var(--space-3);
+      z-index: 3;
+      min-height: 44px;
+      padding: 10px var(--space-4);
+      background: var(--fg);
+      color: var(--bg);
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      transform: translateY(-160%);
+    }
+
+    .skip-link:focus {
+      transform: translateY(0);
+    }
+
+    .container {
+      width: min(100%, var(--container-max));
+      margin-inline: auto;
+      padding-inline: var(--container-gutter-phone);
+    }
+
+    .register-strip {
+      border-block: 1px solid var(--fg);
+      background: var(--bg);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      line-height: 1.25;
+      text-transform: uppercase;
+    }
+
+    .register-strip__inner {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+
+    .register-strip__cell {
+      display: flex;
+      align-items: center;
+      min-height: 44px;
+      padding: var(--space-2) var(--container-gutter-phone);
+      border-bottom: 1px solid var(--fg);
+      overflow-wrap: anywhere;
+    }
+
+    .register-strip__cell:last-child {
+      border-bottom: 0;
+    }
+
+    .public-label {
+      font-family: var(--font-body);
+      font-size: var(--text-sm);
+      font-weight: 800;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    .safety-label {
+      background: color-mix(in oklch, var(--warn) 72%, var(--surface-warm));
+      color: var(--fg);
+    }
+
+    .hero {
+      position: relative;
+      isolation: isolate;
+      display: grid;
+      align-content: center;
+      min-height: calc(100svh - 136px);
+      padding-block: var(--space-8);
+      border-bottom: 1px solid var(--fg);
+      overflow: hidden;
+    }
+
+    .hero__numeral {
+      position: absolute;
+      z-index: -1;
+      right: -0.06em;
+      bottom: -0.19em;
+      color: var(--border-soft);
+      font-family: "Arial Narrow", "Helvetica Neue Condensed", Impact, sans-serif;
+      font-size: clamp(13rem, 66vw, 30rem);
+      font-stretch: condensed;
+      font-weight: 900;
+      letter-spacing: -0.08em;
+      line-height: 0.8;
+      user-select: none;
+    }
+
+    .hero__grid {
+      display: grid;
+      gap: var(--space-8);
+    }
+
+    .kicker,
+    .section-code,
+    .meta-block dt,
+    .sequence-no,
+    .registration-state,
+    .stop-label,
+    .source-label,
+    .colophon {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      line-height: 1.4;
+      text-transform: uppercase;
+    }
+
+    .kicker {
+      display: inline-block;
+      width: fit-content;
+      margin: 0 0 var(--space-4);
+      padding: var(--space-1) var(--space-2);
+      background: color-mix(in oklch, var(--warn) 72%, var(--surface-warm));
+    }
+
+    h1,
+    h2,
+    h3,
+    p,
+    dl,
+    dd {
+      margin-top: 0;
+    }
+
+    h1,
+    h2,
+    h3 {
+      color: var(--fg);
+      font-family: "Arial Narrow", "Helvetica Neue Condensed", Impact, sans-serif;
+      font-stretch: condensed;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 13ch;
+      margin-bottom: var(--space-5);
+      font-size: clamp(2.3rem, 12.5vw, 7.5rem);
+      letter-spacing: -0.045em;
+      line-height: 0.9;
+      text-wrap: balance;
+    }
+
+    h2 {
+      max-width: 15ch;
+      margin-bottom: var(--space-5);
+      font-size: clamp(2.35rem, 10vw, 5.5rem);
+      letter-spacing: -0.04em;
+      line-height: 0.92;
+      text-wrap: balance;
+    }
+
+    h3 {
+      margin-bottom: var(--space-3);
+      font-size: clamp(1.65rem, 8vw, 2.65rem);
+      letter-spacing: -0.03em;
+      line-height: 0.95;
+    }
+
+    .hero__lead {
+      max-width: 39ch;
+      margin-bottom: var(--space-6);
+      color: var(--fg-2);
+      font-size: var(--text-base);
+    }
+
+    .primary-cta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-5);
+      width: min(100%, 282px);
+      min-height: 52px;
+      padding: var(--space-3) var(--space-4);
+      border: 2px solid var(--fg);
+      background: var(--fg);
+      color: var(--bg);
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-decoration: none;
+      text-transform: uppercase;
+    }
+
+    .primary-cta::after {
+      content: ">>>";
+      color: color-mix(in oklch, var(--warn) 72%, var(--surface-warm));
+      letter-spacing: 0;
+    }
+
+    .primary-cta:hover,
+    .primary-cta:active {
+      background: color-mix(in oklab, var(--fg), var(--bg) 8%);
+    }
+
+    .hero__meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin: 0;
+      border: 1px solid var(--fg);
+      background: var(--fg);
+      gap: 1px;
+    }
+
+    .meta-block {
+      min-width: 0;
+      padding: var(--space-3);
+      background: var(--bg);
+    }
+
+    .meta-block:last-child {
+      grid-column: 1 / -1;
+    }
+
+    .meta-block dt {
+      margin-bottom: var(--space-2);
+      color: var(--muted);
+    }
+
+    .meta-block dd {
+      margin-bottom: 0;
+      font-size: var(--text-sm);
+      font-weight: 750;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .boundary {
+      padding-block: var(--space-6);
+      border-bottom: 1px solid var(--fg);
+      background: color-mix(in oklch, var(--warn) 72%, var(--surface-warm));
+    }
+
+    .boundary__inner {
+      display: grid;
+      gap: var(--space-3);
+    }
+
+    .boundary strong {
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .boundary p {
+      max-width: 66ch;
+      margin-bottom: 0;
+      font-size: var(--text-sm);
+      font-weight: 650;
+    }
+
+    .evidence-section,
+    .sequence-section,
+    .sources-section {
+      padding-block: var(--section-y-phone);
+      border-bottom: 1px solid var(--fg);
+    }
+
+    .section-code {
+      display: block;
+      margin-bottom: var(--space-5);
+      color: var(--fg-2);
+    }
+
+    .section-intro {
+      max-width: 53ch;
+      margin-bottom: var(--space-8);
+      color: var(--fg-2);
+    }
+
+    .evidence-layout {
+      display: grid;
+      gap: var(--space-8);
+    }
+
+    .registration-stage {
+      order: 2;
+      min-height: 300px;
+      border: 1px solid var(--fg);
+      background: var(--surface-warm);
+    }
+
+    .registration-plate {
+      display: grid;
+      grid-template-rows: 1fr auto;
+      min-height: 300px;
+    }
+
+    .registration-field {
+      position: relative;
+      min-height: 236px;
+      overflow: hidden;
+      background-color: var(--bg);
+    }
+
+    .registration-field::before,
+    .registration-field::after {
+      position: absolute;
+      z-index: 0;
+      background: var(--fg);
+      content: "";
+    }
+
+    .registration-field::before {
+      top: 50%;
+      left: 0;
+      width: 100%;
+      height: 1px;
+    }
+
+    .registration-field::after {
+      top: 0;
+      left: 50%;
+      width: 1px;
+      height: 100%;
+    }
+
+    .reg-mark {
+      position: absolute;
+      z-index: 1;
+      top: 50%;
+      left: 50%;
+      display: block;
+      border: 3px solid color-mix(in oklch, var(--warn) 72%, var(--surface-warm));
+      background: transparent;
+      transition: transform var(--motion-base) var(--ease-standard);
+    }
+
+    .reg-mark::before,
+    .reg-mark::after {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      background: color-mix(in oklch, var(--warn) 72%, var(--surface-warm));
+      content: "";
+      transform: translate(-50%, -50%);
+    }
+
+    .reg-mark::before {
+      width: calc(100% + 18px);
+      height: 2px;
+    }
+
+    .reg-mark::after {
+      width: 2px;
+      height: calc(100% + 18px);
+    }
+
+    .reg-mark--billing {
+      width: 76px;
+      height: 76px;
+      transform: translate(calc(-50% - 42px), calc(-50% - 28px));
+    }
+
+    .reg-mark--operational {
+      width: 54px;
+      height: 54px;
+      transform: translate(calc(-50% + 38px), calc(-50% - 4px));
+    }
+
+    .reg-mark--governing {
+      width: 32px;
+      height: 32px;
+      transform: translate(calc(-50% - 12px), calc(-50% + 42px));
+    }
+
+    .registration-stage.is-aligned .reg-mark {
+      transform: translate(-50%, -50%);
+    }
+
+    .registration-state {
+      min-height: 64px;
+      margin: 0;
+      padding: var(--space-4);
+      border-top: 1px solid var(--fg);
+      background: var(--fg);
+      color: var(--bg);
+    }
+
+    .registration-state::before {
+      content: "[ AWAITING THREE CATEGORIES ]";
+    }
+
+    .registration-stage.is-aligned .registration-state::before {
+      color: color-mix(in oklch, var(--warn) 72%, var(--surface-warm));
+      content: "[ THREE CATEGORIES ALIGNED ]";
+    }
+
+    .layers-grid {
+      order: 1;
+      display: grid;
+      grid-template-columns: 1fr;
+      border: 1px solid var(--fg);
+      background: var(--fg);
+      gap: 1px;
+    }
+
+    .evidence-layer {
+      min-width: 0;
+      padding: var(--space-6);
+      background: var(--bg);
+    }
+
+    .evidence-layer__label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      margin-bottom: var(--space-8);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .evidence-layer__label span:last-child {
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .evidence-layer p {
+      max-width: 36ch;
+      margin-bottom: 0;
+      color: var(--fg-2);
+      font-size: var(--text-sm);
+    }
+
+    .sequence-list {
+      display: grid;
+      margin: 0;
+      padding: 0;
+      border: 1px solid var(--fg);
+      background: var(--fg);
+      gap: 1px;
+      list-style: none;
+    }
+
+    .sequence-item {
+      display: grid;
+      grid-template-columns: 52px minmax(0, 1fr);
+      min-width: 0;
+      background: var(--bg);
+    }
+
+    .sequence-no {
+      display: grid;
+      place-items: start center;
+      padding: var(--space-5) var(--space-2);
+      border-right: 1px solid var(--fg);
+      color: var(--fg);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .sequence-copy {
+      min-width: 0;
+      padding: var(--space-5);
+    }
+
+    .sequence-copy p {
+      max-width: 52ch;
+      margin-bottom: 0;
+      color: var(--fg-2);
+      font-size: var(--text-sm);
+    }
+
+    .review-stop {
+      position: relative;
+      margin-top: var(--space-8);
+      padding: var(--space-6);
+      border: 3px solid var(--fg);
+      background: color-mix(in oklch, var(--warn) 72%, var(--surface-warm));
+    }
+
+    .review-stop::before,
+    .review-stop::after {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: 3px;
+      background: var(--fg);
+      content: "";
+    }
+
+    .review-stop::before {
+      top: 7px;
+    }
+
+    .review-stop::after {
+      bottom: 7px;
+    }
+
+    .stop-label {
+      display: block;
+      margin-bottom: var(--space-4);
+    }
+
+    .review-stop h3 {
+      max-width: 16ch;
+      margin-bottom: var(--space-4);
+    }
+
+    .review-stop p {
+      max-width: 58ch;
+      margin-bottom: 0;
+      font-weight: 700;
+    }
+
+    .sources-grid {
+      display: grid;
+      border: 1px solid var(--fg);
+      background: var(--fg);
+      gap: 1px;
+    }
+
+    .source-link {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: var(--space-4);
+      min-height: 64px;
+      padding: var(--space-4);
+      background: var(--bg);
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .source-link::after {
+      content: ">>>";
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      letter-spacing: 0;
+    }
+
+    .source-link:hover,
+    .source-link:active {
+      background: color-mix(in oklch, var(--warn) 72%, var(--surface-warm));
+    }
+
+    .source-label {
+      display: block;
+      margin-bottom: var(--space-1);
+      color: var(--muted);
+    }
+
+    .source-name {
+      overflow-wrap: anywhere;
+    }
+
+    .footer {
+      padding-block: var(--space-8);
+      background: var(--fg);
+      color: var(--bg);
+    }
+
+    .footer__inner {
+      display: grid;
+      gap: var(--space-6);
+    }
+
+    .footer .public-label {
+      color: color-mix(in oklch, var(--warn) 72%, var(--surface-warm));
+    }
+
+    .colophon {
+      max-width: 65ch;
+      margin-bottom: 0;
+      color: var(--border);
+    }
+
+    @media (min-width: 640px) {
+      .container {
+        padding-inline: var(--container-gutter-tablet);
+      }
+
+      .register-strip__inner {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .register-strip__cell {
+        padding-inline: var(--container-gutter-tablet);
+        border-right: 1px solid var(--fg);
+        border-bottom: 0;
+      }
+
+      .register-strip__cell:last-child {
+        border-right: 0;
+      }
+
+      .hero {
+        min-height: calc(100svh - 46px);
+        padding-block: var(--space-12);
+      }
+
+      .hero__grid {
+        grid-template-columns: minmax(0, 1.7fr) minmax(240px, 0.8fr);
+        align-items: end;
+      }
+
+      .hero__meta {
+        grid-template-columns: 1fr;
+      }
+
+      .meta-block:last-child {
+        grid-column: auto;
+      }
+
+      .boundary__inner {
+        grid-template-columns: minmax(180px, 0.38fr) minmax(0, 1fr);
+        align-items: start;
+      }
+
+      .evidence-section,
+      .sequence-section,
+      .sources-section {
+        padding-block: var(--section-y-tablet);
+      }
+
+      .sequence-item {
+        grid-template-columns: 80px minmax(0, 1fr);
+      }
+
+      .sources-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .footer__inner {
+        grid-template-columns: minmax(160px, 0.35fr) minmax(0, 1fr);
+      }
+    }
+
+    @media (min-width: 960px) {
+      .container {
+        padding-inline: var(--container-gutter-desktop);
+      }
+
+      .register-strip__cell {
+        padding-inline: var(--container-gutter-desktop);
+      }
+
+      .hero__grid {
+        gap: clamp(3rem, 8vw, 8rem);
+      }
+
+      .evidence-section,
+      .sequence-section,
+      .sources-section {
+        padding-block: var(--section-y-desktop);
+      }
+
+      .evidence-layout {
+        grid-template-columns: minmax(280px, 0.74fr) minmax(0, 1.26fr);
+        align-items: start;
+      }
+
+      .registration-stage {
+        position: sticky;
+        top: var(--space-6);
+        order: 1;
+      }
+
+      .layers-grid {
+        order: 2;
+      }
+
+      .evidence-layer {
+        min-height: 250px;
+        padding: var(--space-8);
+      }
+
+      .sequence-list {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .sequence-item {
+        grid-template-columns: 64px minmax(0, 1fr);
+      }
+
+      .sequence-copy {
+        padding: var(--space-6);
+      }
+
+      .review-stop {
+        display: grid;
+        grid-template-columns: minmax(180px, 0.4fr) minmax(0, 1fr);
+        gap: var(--space-8);
+        padding: var(--space-8);
+      }
+
+      .review-stop h3 {
+        margin-bottom: 0;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+
+      .reg-mark {
+        transition: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+
+  <header class="register-strip" data-od-id="top-register" aria-label="Page register">
+    <div class="register-strip__inner">
+      <div class="register-strip__cell"><span class="public-label">SheperD</span></div>
+      <div class="register-strip__cell">Direction C / Terminal Ledger</div>
+      <div class="register-strip__cell safety-label">Preview / No collection</div>
+    </div>
+  </header>
+
+  <main id="main-content">
+    <section class="hero" data-od-id="hero">
+      <span class="hero__numeral" aria-hidden="true">03</span>
+      <div class="container hero__grid">
+        <div>
+          <p class="kicker">[ General import record ]</p>
+          <h1 data-od-id="hero-heading">Before the claim, align the record.</h1>
+          <p class="hero__lead">Place three evidence categories in sequence, then stop for qualified human review.</p>
+          <a class="primary-cta" data-od-id="check-record-cta" href="#record-check">Check the record</a>
+        </div>
+
+        <dl class="hero__meta" aria-label="Prototype boundaries">
+          <div class="meta-block">
+            <dt>Audience</dt>
+            <dd>Importer finance and logistics teams</dd>
+          </div>
+          <div class="meta-block">
+            <dt>Scope</dt>
+            <dd>Three generic evidence categories</dd>
+          </div>
+          <div class="meta-block">
+            <dt>Stop</dt>
+            <dd>Qualified human review</dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+    <aside class="boundary" data-od-id="preview-boundary" aria-label="Preview and data collection boundary">
+      <div class="container boundary__inner">
+        <strong>/// Preview boundary</strong>
+        <p>This page does not collect, submit, evaluate, or retain records. It presents a public-facing sequence only.</p>
+      </div>
+    </aside>
+
+    <section class="evidence-section" data-od-id="evidence-layers" aria-labelledby="evidence-heading">
+      <div class="container">
+        <span class="section-code">[ Three evidence layers ]</span>
+        <h2 id="evidence-heading" data-od-id="evidence-heading">Categories Before Conclusions</h2>
+        <p class="section-intro">Keep each category distinct. Alignment means the categories are present together, not that they agree.</p>
+
+        <div class="evidence-layout">
+          <div class="registration-stage" id="registration-stage" data-od-id="registration-stage" role="group" aria-label="Three registration marks align after all three evidence categories have appeared">
+            <div class="registration-plate">
+              <div class="registration-field" aria-hidden="true">
+                <span class="reg-mark reg-mark--billing"></span>
+                <span class="reg-mark reg-mark--operational"></span>
+                <span class="reg-mark reg-mark--governing"></span>
+              </div>
+              <p class="registration-state" aria-live="polite"><span class="visually-hidden" id="registration-status"></span></p>
+            </div>
+          </div>
+
+          <div class="layers-grid" data-od-id="evidence-category-grid">
+            <article class="evidence-layer" data-category="billing" data-od-id="evidence-billing">
+              <div class="evidence-layer__label"><span>[ Billing ]</span><span>01</span></div>
+              <h3>Billing record</h3>
+              <p>Commercial billing materials associated with the general import record.</p>
+            </article>
+
+            <article class="evidence-layer" data-category="operational" data-od-id="evidence-operational">
+              <div class="evidence-layer__label"><span>[ Operational ]</span><span>02</span></div>
+              <h3>Operational record</h3>
+              <p>Operational materials associated with the movement and handling record.</p>
+            </article>
+
+            <article class="evidence-layer" data-category="governing" data-od-id="evidence-governing">
+              <div class="evidence-layer__label"><span>[ Governing ]</span><span>03</span></div>
+              <h3>Governing record</h3>
+              <p>Current official material selected for the review context.</p>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="sequence-section" id="record-check" data-od-id="record-check" aria-labelledby="sequence-heading">
+      <div class="container">
+        <span class="section-code">&gt;&gt;&gt; Sequential check</span>
+        <h2 id="sequence-heading" data-od-id="sequence-heading">Place. Compare. Stop.</h2>
+        <p class="section-intro">Move through the categories in order. Do not turn category presence into a conclusion.</p>
+
+        <ol class="sequence-list" data-od-id="sequential-checklist">
+          <li class="sequence-item" data-od-id="check-billing">
+            <span class="sequence-no" aria-hidden="true">01</span>
+            <div class="sequence-copy">
+              <h3>Place billing record</h3>
+              <p>Identify the relevant billing materials for the same general import record.</p>
+            </div>
+          </li>
+          <li class="sequence-item" data-od-id="check-operational">
+            <span class="sequence-no" aria-hidden="true">02</span>
+            <div class="sequence-copy">
+              <h3>Place operational record</h3>
+              <p>Keep the operational materials distinct while placing them beside the billing record.</p>
+            </div>
+          </li>
+          <li class="sequence-item" data-od-id="check-governing">
+            <span class="sequence-no" aria-hidden="true">03</span>
+            <div class="sequence-copy">
+              <h3>Place governing record</h3>
+              <p>Use current official material relevant to the review context.</p>
+            </div>
+          </li>
+        </ol>
+
+        <aside class="review-stop" data-od-id="human-review-stop">
+          <div>
+            <span class="stop-label">[ Stop / Human review ]</span>
+            <h3>Qualified Human Review</h3>
+          </div>
+          <p>Stop here. A qualified person reviews the record before any claim or conclusion. This preview does not make that determination.</p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="sources-section" data-od-id="official-sources" aria-labelledby="sources-heading">
+      <div class="container">
+        <span class="section-code">[ Official sources only ]</span>
+        <h2 id="sources-heading" data-od-id="sources-heading">Read the Source Material</h2>
+        <p class="section-intro">Use current official publications directly. No secondary source is linked from this preview.</p>
+
+        <div class="sources-grid">
+          <a class="source-link" data-od-id="source-fmc" href="https://www.fmc.gov/">
+            <span><span class="source-label">Official website</span><span class="source-name">Federal Maritime Commission</span></span>
+          </a>
+          <a class="source-link" data-od-id="source-ecfr" href="https://www.ecfr.gov/current/title-46/chapter-IV/subchapter-B/part-541">
+            <span><span class="source-label">Current regulation</span><span class="source-name">46 CFR Part 541</span></span>
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer" data-od-id="colophon">
+    <div class="container footer__inner">
+      <span class="public-label">SheperD</span>
+      <p class="colophon">/// Terminal Ledger. Raw paper, ink rules, condensed type. Preview edition. No collection. Ends at qualified human review.</p>
+    </div>
+  </footer>
+
+  <script>
+    (() => {
+      const stage = document.querySelector("#registration-stage");
+      const categories = Array.from(document.querySelectorAll("[data-category]"));
+      const status = document.querySelector("#registration-status");
+
+      if (!(stage instanceof HTMLElement) || categories.length !== 3) {
+        return;
+      }
+
+      const align = () => {
+        stage.classList.add("is-aligned");
+        if (status) {
+          status.textContent = "Three evidence categories are present. Registration marks aligned.";
+        }
+      };
+
+      if (!("IntersectionObserver" in window)) {
+        align();
+        return;
+      }
+
+      const seen = new Set();
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            seen.add(entry.target);
+          }
+        });
+
+        if (seen.size === categories.length) {
+          align();
+          observer.disconnect();
+        }
+      }, { threshold: 0.35 });
+
+      categories.forEach((category) => observer.observe(category));
+    })();
+  </script>
+</body>
+</html>

@@ -1,104 +1,67 @@
-# SheperD Website Deployment Record
+# SheperD Website Deployment
 
-Status: Not deployed; external authentication blocker
-Recorded: 2026-07-15 02:30 WEST
-Build root: `website/`
+Status: repository-ready Vercel Preview; Production publication remains blocked
+Checked: 2026-07-15
 
-## Decision
+## Vercel project
 
-The app is mechanically ready for a Vercel Preview but no live URL is authorized or verified. It must not be shared until the intended project/team identity and Vercel Deployment Protection are confirmed. `noindex` is crawler guidance, not access control.
+- Repository: `https://github.com/elbarroca/Sheperd`
+- Production branch: `production` (reserved; do not create yet)
+- Deployment Protection: Standard Protection with Vercel Authentication
+- Root Directory: `website`
+- Framework: Next.js
+- Install command: `pnpm install --frozen-lockfile`
+- Build command: `pnpm build`
+- Node.js: 24.x
 
-Production deployment, promotion, domain attachment, DNS changes, paid resources, and mutation of any existing live site are prohibited until all publication gates resolve and explicit promotion authority is recorded.
+Pushes to `main` intentionally create protected Preview deployments. The normal
+build creates the evidence-safe, noindex application. Production builds remain
+fail-closed with
+`PRODUCTION_PUBLICATION_BLOCKED` until the publication gates are approved.
 
-## Local release identity
+The repository-level two-project setup is documented in `../VERCEL.md`.
 
-| Field | Value |
-|---|---|
-| Framework | Next.js 16.2.10 App Router |
-| Runtime | Node.js 22.23.1 |
-| Package manager | pnpm 10.30.0 through Corepack |
-| CLI inspected | Vercel CLI 56.1.0 |
-| Source-tree SHA-256 | `de227c7f3504ffb0863dffd8e5b52b14946dbfdc2d801e1e4dcb1d8f631ce582` |
-| Preview build | Passed |
-| Production build | Intentionally blocked |
-| Application secret required | No |
+## Local verification
 
-The source hash covers the sorted contents of `package.json`, `pnpm-lock.yaml`, the Next/TypeScript/ESLint/Playwright/Vitest configuration files, and every file under `src/`, `scripts/`, `public/`, and `tests/`:
-
-```bash
-find package.json pnpm-lock.yaml next.config.ts tsconfig.json eslint.config.mjs playwright.config.ts vitest.config.ts src scripts public tests -type f \
-  | LC_ALL=C sort \
-  | xargs shasum -a 256 \
-  | shasum -a 256
+```sh
+corepack pnpm install --frozen-lockfile
+corepack pnpm check
+corepack pnpm build
 ```
 
-## Authentication evidence
+Run `corepack pnpm test:e2e` against the optimized server for browser and visual
+verification.
 
-Three bounded, read-only authentication checks were made on 2026-07-15:
+## Resend audit-form setup
 
-| Attempt | Command | Result |
-|---:|---|---|
-| 1 | `vercel whoami` | `Error: Not authorized` |
-| 2 | `vercel whoami` | `Error: Not authorized` |
-| 3 | `vercel project ls` | `Error: Not authorized` |
+The form keeps its local no-transmission Preview behavior by default. The
+server route validates every field, uses a honeypot, sends plain-text intake to
+the approved SheperD inbox, and applies a per-submission idempotency key. It does
+not log form data.
 
-No further login or deployment attempt was made. No token was requested or printed.
+Before enabling delivery:
 
-Exact blocker: the workstation is not authenticated to the intended Vercel account/team, so project selection and protection cannot be verified safely.
+1. Verify the sending domain in Resend and approve the sender and recipient.
+2. Approve the privacy notice, intake retention policy, response owner, and a
+   durable rate-limit or abuse-control decision for the deployed environment.
+3. Set the server-only `RESEND_API_KEY`, `SHEPERD_AUDIT_FROM_EMAIL`, and
+   `SHEPERD_AUDIT_TO_EMAIL` values using `.env.example` as the key contract.
+4. Set both `FORM_DELIVERY_ENABLED=true` and
+   `NEXT_PUBLIC_AUDIT_DELIVERY_ENABLED=true`, rebuild, and test exactly one
+   bounded request before broader traffic.
 
-One required user action: run `vercel login` locally and authenticate the intended account/team. Do not share a token in chat.
+Do not place the Resend API key in a `NEXT_PUBLIC_` variable or commit a local
+environment file. If either the server flag or any required server value is
+missing, the API returns a non-delivery response and sends nothing.
 
-## Environment contract
+## Production blockers
 
-Only names and scopes are recorded.
+1. Verified legal entity, publishable brand identity, and publication owner.
+2. Approved company/product positioning and exact claim evidence with named approvers and dates.
+3. Approved privacy notice, terms, intake/data controls, and commercial terms.
+4. Approved CTA/contact destination and response owner.
+5. Canonical origin, indexing, metadata, analytics decision, deployment target, and explicit deploy/domain/DNS authority.
 
-| Name | Scope | Preview rule |
-|---|---|---|
-| `SITE_PUBLICATION_TARGET` | Build | Leave unset or set to `preview`; never set to `production` while gates remain. |
-| `VERCEL_ENV` | Vercel build | Platform context fallback only. |
-| `VERCEL_URL` | Vercel build | Mechanical Preview metadata image base only; not canonical approval. |
-| `PLAYWRIGHT_BASE_URL` | QA | Optional externally managed test origin. |
-
-There are no application secrets, database credentials, analytics keys, CRM keys, upload credentials, or mail provider settings.
-
-## Remote evidence unavailable
-
-| Required record | State |
-|---|---|
-| Vercel organization/team ID | Unavailable |
-| Vercel project ID and name | Unavailable |
-| Preview URL and deployment ID | Unavailable |
-| Deployment Protection proof | Unavailable |
-| Preview environment-scope inventory | Unavailable |
-| Deployed security headers and CSP | Unavailable |
-| Platform HSTS behavior | Unavailable |
-| Vercel cold-cache transfer and Lighthouse | Unavailable |
-| Rollback target and successful rollback record | Unavailable |
-
-No placeholder value is used for any missing field.
-
-## Post-authentication Preview sequence
-
-Run this only after the intended account/team is visible and the project owner authorizes Preview creation:
-
-1. From the parent `SheperD/` directory, inspect account/team identity with `vercel whoami` and project access with `vercel project ls`.
-2. Confirm the deployment target is a new or explicitly approved Preview project with Root Directory `website/`.
-3. Confirm Deployment Protection is enabled for the Preview before distributing its URL.
-4. Run `vercel --cwd website` without `--prod`.
-5. Record the returned project, team, Preview URL, deployment ID, source hash, and timestamp in this file.
-6. Inspect the deployment with `vercel inspect <preview-url>` and verify protection plus deployed response headers.
-7. Run the browser suite against the protected Preview using an owner-approved test session; never weaken protection for automation.
-8. Capture cold-cache Lighthouse evidence and reconcile it with `QA-REPORT.md`.
-9. Record the rollback target. The inspected CLI command shape is `vercel rollback <deployment-id-or-url>`; do not execute it without explicit rollback authorization.
-
-Do not use `--prod`. A successful Preview is not publication approval.
-
-## Rollback record
-
-Rollback status: Not testable because no deployment ID or URL exists.
-Rollback command inspected: `vercel rollback <deployment-id-or-url>`.
-Last known safe deployment: None created by this task.
-
-## Production gates
-
-The validator currently blocks `EXT-01` through `EXT-12` and five unapproved educational claim records. The complete traceability matrix is in `CONTENT-MATRIX.md`. `corepack pnpm build:production` must continue to exit nonzero until every gate has evidence and explicit publication authority.
+The complete blocker contract is in `docs/FACTS-AND-CONSTRAINTS.md`. A successful
+Vercel build proves technical deployability only; it does not approve public
+Production publication, domain attachment, indexing, or data collection.

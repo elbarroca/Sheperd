@@ -11,6 +11,7 @@ SheperD research, operating system, and publication-gated website.
 - [Founder intelligence dashboard](./founder-intelligence/README.md): private Next.js briefing, visualizations, vector search, and priority lab.
 - [Local founder operating system](./07_Founder_Operating_System/README.md): bounded SQLite query and transparent planning workspace.
 - [Website](./website/README.md): local setup, verification, and publication boundaries.
+- [Vercel deployment](./VERCEL.md): two-project protected Preview setup.
 
 ## Founder intelligence dashboard
 

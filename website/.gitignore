@@ -3,7 +3,9 @@ node_modules/
 coverage/
 playwright-report/
 test-results/
-.vercel/
+qa/
+*.tsbuildinfo
+.DS_Store
 .env*
 !.env.example
-pnpm-debug.log*
+.vercel/

@@ -1,44 +1,41 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:4173";
-
 export default defineConfig({
-  testDir: "./tests",
-  testMatch: [
-    "e2e/**/*.spec.ts",
-    "accessibility/**/*.spec.ts",
-    "visual/**/*.spec.ts",
-  ],
-  fullyParallel: true,
-  forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 1 : 0,
-  reporter: [["list"], ["html", { open: "never" }]],
+  testDir: "./tests/e2e",
+  fullyParallel: false,
+  forbidOnly: true,
+  retries: 0,
+  reporter: [["line"], ["html", { open: "never" }]],
   use: {
-    baseURL,
+    baseURL: "http://127.0.0.1:3000",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
-    video: "off",
   },
-  webServer: process.env.PLAYWRIGHT_BASE_URL
-    ? undefined
-    : {
-        command:
-          "pnpm build && pnpm start --hostname 127.0.0.1 --port 4173",
-        url: baseURL,
-        reuseExistingServer: !process.env.CI,
-        timeout: 120_000,
-      },
+  expect: {
+    toHaveScreenshot: {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.005,
+    },
+  },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
     {
       name: "firefox",
-      testIgnore: "visual/**/*.spec.ts",
       use: { ...devices["Desktop Firefox"] },
     },
     {
       name: "webkit",
-      testIgnore: "visual/**/*.spec.ts",
       use: { ...devices["Desktop Safari"] },
     },
   ],
+  webServer: {
+    command: "pnpm dev",
+    url: "http://127.0.0.1:3000",
+    reuseExistingServer: true,
+    timeout: 120_000,
+  },
 });

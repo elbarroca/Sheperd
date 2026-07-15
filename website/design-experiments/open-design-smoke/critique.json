@@ -1,0 +1,26 @@
+{
+  "kind": "critique-panel",
+  "score": 4,
+  "axes": {
+    "clarity": {
+      "score": 5,
+      "notes": "The hero states the review posture directly, and the page contains exactly three evidence categories."
+    },
+    "hierarchy": {
+      "score": 4,
+      "notes": "The asymmetric hero leads into a single structured evidence list and a quiet boundary note."
+    },
+    "typography": {
+      "score": 4,
+      "notes": "Neutral Modern type tokens create a restrained hierarchy with mono numbering for record structure."
+    },
+    "motion": {
+      "score": 4,
+      "notes": "Motion is intentionally limited to CTA feedback because the brief calls for a calm integration smoke."
+    },
+    "brand": {
+      "score": 4,
+      "notes": "The page stays within the Neutral Modern palette, spacing, radius, and accent budget."
+    }
+  }
+}
