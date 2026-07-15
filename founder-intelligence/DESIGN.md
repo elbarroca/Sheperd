@@ -29,13 +29,13 @@ The private dashboard retains its denser analytical typography and status colors
 
 A private founder control room, not a public marketing site. The supplied SheperD reference establishes the visual language: near-black navy, electric-blue signal, crisp white analytical surfaces, compact navigation, and connected decision modules.
 
-The product preserves that energy while prioritizing auditability and dense research navigation.
+The product preserves that energy while prioritizing decision speed, auditability, and source retrieval.
 
 ## Design read
 
-- Variance: 5/10
-- Motion: 4/10
-- Density: 7/10
+- Variance: 4/10
+- Motion: 2/10
+- Density: 5/10
 - Primary accent: electric blue
 - Core rhythm: dark control header and hero, then light evidence workspace
 
@@ -44,14 +44,14 @@ The product preserves that energy while prioritizing auditability and dense rese
 Every primary view follows this order:
 
 1. Page thesis and current boundary.
-2. Decision-critical summary.
-3. Core message and golden nuggets.
-4. Flow, map, chart, or evidence visualization.
-5. Supporting detail and source traceability.
+2. Decision or action that follows.
+3. Evidence visualization or operating flow.
+4. Supporting detail behind progressive disclosure.
+5. Full source traceability.
 
-The founder Brief leads with `Prepared to learn. Not cleared to scale.`, then contrasts strong internal preparation with weak external proof. Five evidence-state-labelled golden nuggets provide the 60-second read. The complete `studied → found → founder move → Michael move` trail remains available through progressive disclosure before deeper charts and files.
+The first viewport must answer two questions: what does this mean, and what should happen next. Large page titles stop at 48px, descriptions stay adjacent to their headings, and secondary data never competes with the decision.
 
-Navigation uses founder tasks: Brief, Decision map, Operating plan, Evidence library, and Ricardo notes.
+Navigation is limited to four founder tasks: Competitors, Market, Michael, and Knowledge map.
 
 ## Visual language
 
@@ -61,39 +61,33 @@ Navigation uses founder tasks: Brief, Decision map, Operating plan, Evidence lib
 - Red means blocked or unsafe.
 - Green means permitted inside the current boundary.
 - Amber means a decision or approval is required.
-- Panels use a 14px radius, controls use an 8px radius, and status labels may use pills.
-- Fine borders carry structure; restrained shadows lift only major analytical surfaces.
+- Panels use an 8px radius and controls use a 6px radius.
+- Fine borders carry structure; shadows are reserved for the interactive graph nodes.
 - The interface uses one dark-to-light theme rhythm rather than independent themed sections.
-- The signature analytical element is the preparation-versus-proof tension: the visual system places strong research/GTM design beside weak market evidence/readiness and states plainly that preparation does not prove demand.
+- The signature analytical element is the evidence route from claim to source. Preparation never appears as proof of demand.
 
 ## Typography
 
 - Product copy uses the native Avenir Next stack with Segoe UI and Arial fallbacks.
-- Page titles are large, sentence case, and tightly tracked to echo the supplied reference without using all caps.
+- Page titles are sentence case, tightly tracked, and constrained to 32px to 48px.
 - Body copy is at least 16px in decision-critical areas.
 - Metadata remains legible and passes contrast requirements.
 - Monospace is reserved for IDs, source paths, and numeric indices.
 
 ## Source library
 
-- The catalog lists all 88 admitted files, including the two template files with no indexable section body.
-- File metadata loads with the page; full section text loads only after selection.
-- Folder, layer, text, tag, and evidence-state filtering never mutates source data.
-- Empty, loading, malformed-response, network-error, and copy-failure states are explicit.
-- The selected file exposes its full repository path, indexed word count, section count, evidence-state count, and every retrievable section.
+- The catalog lists all 92 admitted files and keeps arbitrary filesystem paths outside the public reader.
+- Lexical search returns sourced passages only and links every result to its full admitted document.
+- Search never upgrades evidence, generates claims, or hides an empty, malformed, or network-error state.
+- The selected file exposes its admitted path, indexed word count, section count, evidence state, and retrievable sections.
 
 ## Visualization rules
 
-- Decision readiness uses a radar chart backed by four exact score values.
-- Corpus shape compares file coverage and section depth by knowledge layer.
-- Evidence state uses a donut chart backed by direct source-ledger counts.
-- Every chart has an accessible exact-data disclosure.
-- Decision flow is a semantic ordered list.
-- Blocker and ownership maps remain meaningful as nested lists without connector lines.
-- Planning scores use native meters plus named bands and a method disclosure.
-- Priority matrix is supplementary; the accessible ranked list carries the same decision.
-- Research synthesis uses semantic ordered cards with explicit founder and Michael consequences; it is not a decorative mind map.
-- Michael's operating loop reconciles all 45 workflows and keeps the approval-gated execution step visually and textually distinct.
+- The competitor chart communicates one positioning hypothesis and carries an explicit evidence boundary.
+- The market route is a semantic ordered list with source-backed proof signals.
+- The knowledge graph is paired with search and a semantic file index so it is never the only route to a source.
+- Dense provider, source, and workstream detail uses progressive disclosure where hiding it improves the default scan.
+- Michael's action block keeps owner, approver, completion evidence, and source visible without interaction.
 
 ## Interaction and accessibility
 
@@ -106,12 +100,11 @@ Navigation uses founder tasks: Brief, Decision map, Operating plan, Evidence lib
 
 ## Responsive behavior
 
-- Wide screens use a compact sticky top control bar and a centered 1260px workspace.
-- Tablet screens preserve the top bar while reducing icon and label density.
-- Small screens use a two-row header with a horizontally scrollable task rail that centers the active view.
-- Charts, maps, score cards, analysis rows, and search results collapse to one column.
-- The source catalog becomes a bounded file list followed by the full source reader.
-- Dense tables remain horizontally scrollable inside a labeled focusable region.
+- Wide screens use a compact sticky top control bar and a centered 1180px workspace.
+- Tablet screens preserve all four navigation choices in one task row.
+- Small screens use a compact identity row plus a horizontally scrollable task rail that centers the active view.
+- Charts, maps, signals, workstreams, and search results collapse without horizontal page overflow.
+- The semantic file index remains available below the graph for keyboard, screen reader, and small-screen access.
 
 ## Rerun inputs
 

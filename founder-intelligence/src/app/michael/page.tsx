@@ -40,7 +40,7 @@ export default function MichaelPage() {
 
       <section className="focus-section" aria-labelledby="tasks-title">
         <div className="focus-heading">
-          <div><p className="focus-label">Eight workstreams</p><h2 id="tasks-title">What Michael does, where AI helps, and who decides</h2></div>
+          <div><h2 id="tasks-title">What Michael does, where AI helps, and who decides</h2></div>
           <SourceLink path={MICHAEL_ROLE_SOURCE_PATH} label="Read role charter" />
         </div>
         <div className="task-table" role="table" aria-label="Michael workstreams and AI support">
@@ -60,7 +60,7 @@ export default function MichaelPage() {
 
       <section className="focus-section ai-boundary" aria-labelledby="ai-title">
         <div className="focus-heading">
-          <div><p className="focus-label">AI operating rule</p><h2 id="ai-title">Automate preparation, never authority</h2></div>
+          <div><h2 id="ai-title">Automate preparation, never authority</h2></div>
           <SourceLink path={AI_SOURCE_PATH} label="Read AI opportunity register" />
         </div>
         <div className="ai-lanes">

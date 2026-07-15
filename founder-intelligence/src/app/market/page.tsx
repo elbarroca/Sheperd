@@ -24,7 +24,7 @@ export default function MarketPage() {
 
       <section className="focus-section market-proof" aria-labelledby="proof-signals-title">
         <div className="focus-heading">
-          <div><p className="focus-label">Proof signals</p><h2 id="proof-signals-title">What the public evidence actually establishes</h2></div>
+          <div><h2 id="proof-signals-title">What the public evidence actually establishes</h2></div>
           <SourceLink path={MARKET_SOURCE_PATH} label="Read complete market map" />
         </div>
         <div className="market-signal-grid">
@@ -38,25 +38,27 @@ export default function MarketPage() {
             </article>
           ))}
         </div>
-        <div className="evidence-shelf">
-          <header><h3>Source shelf</h3><p>Reports, papers, and public problem language used in the market conclusion.</p></header>
-          {marketEvidenceGroups.map((group) => (
-            <article key={group.label}>
-              <h4>{group.label}</h4>
-              <p>{group.boundary}</p>
-              <ul>
-                {group.links.map((link) => (
-                  <li key={link.url}><a href={link.url} target="_blank" rel="noreferrer">{link.label}<ArrowSquareOutIcon size={14} aria-hidden="true" /></a></li>
-                ))}
-              </ul>
-            </article>
-          ))}
-        </div>
+        <details className="evidence-shelf">
+          <summary><span><strong>Inspect the source shelf</strong><small>Reports, papers, and public problem language behind this conclusion.</small></span><span>{marketEvidenceGroups.reduce((sum, group) => sum + group.links.length, 0)} links</span></summary>
+          <div className="evidence-shelf-grid">
+            {marketEvidenceGroups.map((group) => (
+              <article key={group.label}>
+                <h4>{group.label}</h4>
+                <p>{group.boundary}</p>
+                <ul>
+                  {group.links.map((link) => (
+                    <li key={link.url}><a href={link.url} target="_blank" rel="noreferrer">{link.label}<ArrowSquareOutIcon size={14} aria-hidden="true" /></a></li>
+                  ))}
+                </ul>
+              </article>
+            ))}
+          </div>
+        </details>
       </section>
 
       <section className="focus-section" aria-labelledby="friction-title">
         <div className="focus-heading">
-          <div><p className="focus-label">Market struggle</p><h2 id="friction-title">The hard part is turning disruption into a defensible decision</h2></div>
+          <div><h2 id="friction-title">The hard part is turning disruption into a defensible decision</h2></div>
           <p>A delay can create an invoice. It does not automatically make that invoice invalid or recoverable.</p>
         </div>
         <ol className="market-route">
@@ -73,7 +75,7 @@ export default function MarketPage() {
 
       <section className="focus-section" aria-labelledby="timing-title">
         <div className="focus-heading">
-          <div><p className="focus-label">Market timing</p><h2 id="timing-title">Good time to learn, wrong time to claim scale</h2></div>
+          <div><h2 id="timing-title">Good time to learn, wrong time to claim scale</h2></div>
         </div>
         <div className="timing-grid">
           {marketTiming.map((item) => (

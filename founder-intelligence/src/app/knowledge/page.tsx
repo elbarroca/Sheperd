@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { JSX } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { ResearchSearch } from "@/components/research-search";
 import { VaultGraph } from "@/components/vault-graph";
 import { researchFileHref } from "@/lib/content";
 import { getKnowledgeCatalog, getKnowledgeFile, getKnowledgeSummary } from "@/lib/knowledge";
@@ -37,13 +38,15 @@ export default async function KnowledgePage({ searchParams }: KnowledgePageProps
       <PageHeader
         eyebrow="Knowledge map"
         title="Every research page, connected to its source."
-        description="Open the vault by folder, reveal all admitted pages, and read the full indexed document without exposing arbitrary filesystem paths."
+        description="Search the admitted evidence, follow its connections, and read the full indexed document without exposing arbitrary filesystem paths."
         meta={<><span>Admitted corpus</span><strong>{summary.sourceFiles} pages</strong><small>{summary.chunks} indexed sections</small></>}
       />
 
+      <ResearchSearch />
+
       <section className="focus-section" aria-labelledby="map-title">
         <div className="focus-heading">
-          <div><p className="focus-label">Interactive vault</p><h2 id="map-title">From company context to source evidence</h2></div>
+          <div><h2 id="map-title">See how company context connects to source evidence</h2></div>
           <p>Choose a folder, then a page. The full document opens below and the URL remains shareable.</p>
         </div>
         <VaultGraph files={files} />
@@ -77,7 +80,7 @@ export default async function KnowledgePage({ searchParams }: KnowledgePageProps
 
       <section className="focus-section document-index" aria-labelledby="index-title">
         <div className="focus-heading">
-          <div><p className="focus-label">Accessible index</p><h2 id="index-title">All {files.length} pages</h2></div>
+          <div><h2 id="index-title">Browse all {files.length} pages</h2></div>
           <p>The list mirrors the graph for keyboard, screen reader, and small-screen access.</p>
         </div>
         <div className="folder-index">

@@ -1,14 +1,16 @@
 "use client";
 
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import type { KnowledgeLayer, SearchResult } from "@/lib/types";
+import { researchFileHref } from "@/lib/content";
 import { LayerBadge } from "./layer-badge";
 
 const suggestedQueries = [
   "What blocks external activation?",
+  "What evidence is missing for TAM?",
   "What does Michael own?",
-  "Which claims remain unverified?",
-  "What does the 16-week plan overstate?",
+  "Which competitor category owns recovery?",
 ];
 
 interface SearchPayload {
@@ -54,7 +56,7 @@ function isSearchPayload(value: unknown): value is SearchPayload {
 export function ResearchSearch() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
-  const [status, setStatus] = useState("Ask across the admitted D0/D1 research corpus.");
+  const [status, setStatus] = useState("Search returns sourced passages from the admitted corpus.");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
@@ -78,7 +80,7 @@ export function ResearchSearch() {
     setLoading(true);
     setError(null);
     setHasSearched(true);
-    setStatus("Searching the local vector index.");
+    setStatus("Searching the admitted evidence index.");
 
     try {
       const response = await fetch(`/api/search?q=${encodeURIComponent(normalized)}`, { signal: controller.signal });
@@ -88,7 +90,7 @@ export function ResearchSearch() {
       setResults(rawPayload.results);
       setStatus(rawPayload.results.length === 0
         ? "No sourced sections matched this question."
-        : `${rawPayload.results.length} sourced sections ranked by lexical similarity.`);
+        : `${rawPayload.results.length} sourced passages found. Open the document to validate the full context.`);
     } catch (caughtError) {
       if (caughtError instanceof DOMException && caughtError.name === "AbortError") return;
       setResults([]);
@@ -108,14 +110,13 @@ export function ResearchSearch() {
   }
 
   return (
-    <section className="search-workbench" aria-labelledby="search-title" aria-busy={loading}>
+    <section className="focus-section corpus-search" aria-labelledby="search-title" aria-busy={loading}>
       <div className="search-intro">
-        <p className="eyebrow">Local evidence retrieval</p>
-        <h2 id="search-title">Ask a question, then inspect the source</h2>
-        <p>Similarity finds relevant sections. It never upgrades an evidence state or produces a company claim.</p>
+        <h2 id="search-title">Find the evidence behind a decision</h2>
+        <p>Search finds relevant passages. It never upgrades an evidence state or turns a passage into a company claim.</p>
       </div>
       <form className="search-form" onSubmit={submit}>
-        <label htmlFor="research-query">Search the SheperD intelligence corpus</label>
+        <label htmlFor="research-query">What do you want to verify?</label>
         <div className="search-control">
           <input
             id="research-query"
@@ -123,9 +124,9 @@ export function ResearchSearch() {
             onChange={(event) => setQuery(event.target.value)}
             minLength={2}
             maxLength={160}
-            placeholder="What must be true before outreach?"
+            placeholder="For example, what must be true before outreach?"
           />
-          <button type="submit" disabled={loading}>{loading ? "Searching" : "Search evidence"}</button>
+          <button type="submit" disabled={loading}>{loading ? "Searching" : "Search"}</button>
         </div>
         <div className="query-chips" aria-label="Suggested questions">
           {suggestedQueries.map((suggestion) => (
@@ -147,16 +148,11 @@ export function ResearchSearch() {
             <div className="result-meta">
               <LayerBadge layer={result.layer} />
               <span>{result.evidenceStatus.replaceAll("-", " ")}</span>
-              <span>{Math.round(result.score * 100)}% lexical match</span>
             </div>
             <h3>{result.title}</h3>
             <p className="result-section">{result.section}</p>
             <p className="result-excerpt">{result.text}</p>
-            <details>
-              <summary>Inspect full source section</summary>
-              <p>{result.text}</p>
-              <code>{result.path}</code>
-            </details>
+            <Link className="result-source-link" href={researchFileHref(result.path)}>Read full document</Link>
           </article>
         ))}
       </div>

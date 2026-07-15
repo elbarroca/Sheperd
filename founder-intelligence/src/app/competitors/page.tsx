@@ -8,6 +8,11 @@ import { competitorProfiles, COMPETITOR_SOURCE_PATH } from "@/lib/focused-conten
 export const metadata: Metadata = { title: "Competitors" };
 
 const categoryOrder = ["recovery", "audit", "enterprise"] as const;
+const categoryGuidance = {
+  recovery: "Closest buyer expectation. Compare case quality, speed, and realized net outcomes first.",
+  audit: "Broader workflow alternatives. SheperD must win on D&D depth, not platform breadth.",
+  enterprise: "System-of-record incumbents. Integrate with them rather than claim replacement.",
+} satisfies Record<(typeof categoryOrder)[number], string>;
 
 export default function CompetitorsPage() {
   return (
@@ -21,7 +26,7 @@ export default function CompetitorsPage() {
 
       <section className="focus-section position-section" aria-labelledby="position-title">
         <div className="focus-heading">
-          <div><p className="focus-label">Current position</p><h2 id="position-title">Narrow expertise, with a traceable operating layer</h2></div>
+          <div><h2 id="position-title">Narrow expertise, with a traceable operating layer</h2></div>
           <p>The intended position sits between specialist recovery and broader audit tooling. That is a hypothesis until comparable customer evidence exists.</p>
         </div>
         <div className="position-layout">
@@ -37,15 +42,18 @@ export default function CompetitorsPage() {
 
       <section className="focus-section" aria-labelledby="field-title">
         <div className="focus-heading">
-          <div><p className="focus-label">Competitive field</p><h2 id="field-title">What buyers can choose today</h2></div>
+          <div><h2 id="field-title">What buyers can choose today</h2></div>
           <p>Prices and outcomes are captured as displayed public signals. They are not independently verified.</p>
         </div>
         <div className="competitor-groups">
           {categoryOrder.map((category) => {
             const profiles = competitorProfiles.filter((profile) => profile.category === category);
             return (
-              <section key={category} className="competitor-group" aria-labelledby={`category-${category}`}>
-                <header><h3 id={`category-${category}`}>{profiles[0]?.categoryLabel}</h3><span>{profiles.length}</span></header>
+              <details key={category} className="competitor-group" open={category === "recovery"}>
+                <summary>
+                  <span><strong id={`category-${category}`}>{profiles[0]?.categoryLabel}</strong><small>{categoryGuidance[category]}</small></span>
+                  <span>{profiles.length}</span>
+                </summary>
                 <div className="competitor-list">
                   {profiles.map((profile) => (
                     <article key={profile.id} className="competitor-row">
@@ -59,7 +67,7 @@ export default function CompetitorsPage() {
                     </article>
                   ))}
                 </div>
-              </section>
+              </details>
             );
           })}
         </div>
@@ -67,7 +75,7 @@ export default function CompetitorsPage() {
 
       <section className="focus-section proof-section" aria-labelledby="proof-title">
         <div className="focus-heading">
-          <div><p className="focus-label">What must be proven</p><h2 id="proof-title">The moat is evidence, not the category label</h2></div>
+          <div><h2 id="proof-title">The moat is evidence, not the category label</h2></div>
         </div>
         <ol className="proof-list">
           <li><strong>Case quality</strong><span>More complete evidence with fewer reviewer corrections.</span></li>
