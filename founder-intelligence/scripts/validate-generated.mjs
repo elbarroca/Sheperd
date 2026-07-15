@@ -35,11 +35,32 @@ require(dashboard.sources.length === 42, "source ledger count must remain 42");
 require(dashboard.blockers.length === 12, "blocker count must remain 12");
 require(dashboard.blockers.every((row) => row.current_state === "blocked"), "a blocker was silently promoted");
 require(dashboard.experiments.length === 8, "experiment count must remain 8");
+const founderActionFields = [
+  "experiment_id",
+  "name",
+  "owner",
+  "approver",
+  "execution_state",
+  "eligibility",
+  "outcome_event",
+  "quality_metric",
+  "continue_threshold",
+  "stop_threshold",
+  "canonical_source",
+];
+require(
+  dashboard.experiments.every((row) => founderActionFields.every((field) => typeof row[field] === "string" && row[field].trim())),
+  "founder action data is incomplete",
+);
 require(
   dashboard.experiments.filter((row) => !row.execution_state.startsWith("blocked")).map((row) => row.experiment_id).join(",") ===
     "EXP-001,EXP-002,EXP-003",
   "experiment allowlist drifted",
 );
+const primaryAction = dashboard.experiments.find((row) => row.experiment_id === "EXP-001");
+require(primaryAction?.owner === "Michael", "EXP-001 owner must remain Michael");
+require(primaryAction?.approver === "Avi", "EXP-001 approver must remain Avi");
+require(primaryAction?.canonical_source?.endsWith(".md"), "EXP-001 canonical source is missing");
 
 if (issues.length) {
   console.error(`FAIL: ${issues.length} generated-data issue(s)`);

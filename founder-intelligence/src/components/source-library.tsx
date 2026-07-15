@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type JSX, useMemo, useRef, useState } from "react";
 import { CopyIcon } from "@phosphor-icons/react/dist/csr/Copy";
 import { FileTextIcon } from "@phosphor-icons/react/dist/csr/FileText";
 import { FolderOpenIcon } from "@phosphor-icons/react/dist/csr/FolderOpen";
@@ -11,6 +11,7 @@ import { LayerBadge } from "./layer-badge";
 interface SourceLibraryProps {
   files: KnowledgeFileSummary[];
   initialFile: KnowledgeFileDetail;
+  requestedFileMissing?: boolean;
 }
 
 interface FilePayload {
@@ -67,7 +68,7 @@ function formatCount(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
-export function SourceLibrary({ files, initialFile }: SourceLibraryProps) {
+export function SourceLibrary({ files, initialFile, requestedFileMissing = false }: SourceLibraryProps): JSX.Element {
   const folders = useMemo(() => [...new Set(files.map((file) => file.folder))].sort(), [files]);
   const layers = useMemo(() => [...new Set(files.flatMap((file) => file.layers))].sort(), [files]);
   const [query, setQuery] = useState("");
@@ -182,6 +183,13 @@ export function SourceLibrary({ files, initialFile }: SourceLibraryProps) {
           <span>of {files.length} files</span>
         </div>
       </div>
+
+      {requestedFileMissing ? (
+        <div className="source-request-error" role="alert">
+          <strong>Document not found in the admitted corpus</strong>
+          <span>The evidence library opened its default file instead. Use a source link from the dashboard or select a document below.</span>
+        </div>
+      ) : null}
 
       <div className="library-workspace">
         <div className="file-index" aria-label="Research files">

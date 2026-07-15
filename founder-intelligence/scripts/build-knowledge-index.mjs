@@ -339,7 +339,7 @@ function main() {
   const knowledge = {
     contractVersion: 1,
     method: VECTOR_CONTRACT.method,
-    boundary: "D0/D1 internal research only; no customer records or external embedding service",
+    boundary: "Public read-only D0/D1 research brief; no customer records or external embedding service",
     sourceDate,
     sourceFiles: files.length,
     files: manifests,

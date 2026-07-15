@@ -54,4 +54,11 @@ describe("knowledge catalog", () => {
       { layer: "source", files: 1, chunks: 1 },
     ]);
   });
+
+  it("resolves files only from the admitted catalog", () => {
+    const catalog = buildKnowledgeCatalog(chunks);
+
+    expect(catalog.find((file) => file.path === "../../etc/passwd")).toBeUndefined();
+    expect(catalog.find((file) => file.path === "/Users/example/private.txt")).toBeUndefined();
+  });
 });

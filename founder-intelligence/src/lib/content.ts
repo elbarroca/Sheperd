@@ -1,3 +1,38 @@
+import type { BriefLens } from "./types";
+
+export const MICHAEL_PLAN_SOURCE_PATH = "10_Sources/Source - 16 Week Engagement Plan.md";
+
+export function researchFileHref(path: string): string {
+  return `/research?file=${encodeURIComponent(path)}`;
+}
+
+export const briefLenses: readonly BriefLens[] = [
+  {
+    id: "company",
+    label: "Company truth",
+    finding: "The vision is clear. Authority, product truth, ownership, and operating proof are not complete.",
+    implication: "Michael can prepare the commercial system, but cannot represent SheperD independently yet.",
+    nextAction: "Admit the entity, engagement, owners, product truth, and approved claims.",
+    sourcePath: "06_Research/Company and Founder Dossier.md",
+  },
+  {
+    id: "industry",
+    label: "Industry truth",
+    finding: "D&D recovery is a material problem, but eligibility, economics, and outcomes remain case-specific.",
+    implication: "Messaging must show uncertainty and keep domain conclusions with qualified reviewers.",
+    nextAction: "Approve the route boundary, reviewer, claims, and commercial truth table.",
+    sourcePath: "06_Research/Industry Regulatory and Competitive Dossier.md",
+  },
+  {
+    id: "goals",
+    label: "16-week goal",
+    finding: "The learner-to-leader arc is useful as a learning plan, not as a proven forecast.",
+    implication: "Time does not unlock outreach or scale. Evidence and an explicit decision do.",
+    nextAction: "Use three evidence gates: safe start, bounded cohort, repeatability audit.",
+    sourcePath: MICHAEL_PLAN_SOURCE_PATH,
+  },
+];
+
 export const phases = [
   {
     period: "Weeks 0-2",
