@@ -85,6 +85,39 @@ export interface KnowledgeLayerStat {
   chunks: number;
 }
 
+export type BriefLensId = "company" | "industry" | "goals";
+
+export interface BriefLens {
+  id: BriefLensId;
+  label: string;
+  finding: string;
+  implication: string;
+  nextAction: string;
+  sourcePath: string;
+}
+
+export type FounderActionLane = "do-now" | "prepare-internally" | "not-yet";
+
+export interface FounderAction {
+  experimentId: string;
+  title: string;
+  owner: string;
+  approver: string;
+  lane: FounderActionLane;
+  requiredEvidence: string;
+  doneWhen: string;
+  continueThreshold: string;
+  stopRule: string;
+  sourcePath: string;
+}
+
+export interface FounderActionPlan {
+  primary: FounderAction;
+  doNow: FounderAction[];
+  prepareInternally: FounderAction[];
+  notYet: FounderAction[];
+}
+
 export interface Experiment {
   experimentId: string;
   name: string;

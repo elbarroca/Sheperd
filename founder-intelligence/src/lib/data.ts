@@ -1,7 +1,7 @@
 import "server-only";
 
 import dashboardJson from "@/generated/dashboard-data.json";
-import type { Blocker, Experiment } from "./types";
+import type { Blocker, Experiment, FounderAction, FounderActionLane, FounderActionPlan } from "./types";
 
 interface SourceRow {
   source_id: string;
@@ -14,6 +14,14 @@ interface ExperimentRow {
   experiment_id: string;
   name: string;
   primary_hypothesis: string;
+  owner: string;
+  approver: string;
+  eligibility: string;
+  outcome_event: string;
+  quality_metric: string;
+  continue_threshold: string;
+  stop_threshold: string;
+  canonical_source: string;
   execution_state: string;
   learning_value: string;
   evidence_readiness: string;
@@ -71,6 +79,38 @@ function parseScore(value: string, field: string): number {
   return parsed;
 }
 
+function getActionLane(executionState: string): FounderActionLane {
+  if (executionState === "prepare-now") return "do-now";
+  if (executionState === "synthetic-only") return "prepare-internally";
+  return "not-yet";
+}
+
+function formatAccountability(value: string): string {
+  return value
+    .split(" and ")
+    .map((item) => {
+      if (item === "Michael") return "GTM lead — Michael";
+      if (item === "Avi") return "Founder — Avi";
+      return item;
+    })
+    .join(" · ");
+}
+
+function toFounderAction(row: ExperimentRow): FounderAction {
+  return {
+    experimentId: row.experiment_id,
+    title: row.name,
+    owner: formatAccountability(row.owner),
+    approver: formatAccountability(row.approver),
+    lane: getActionLane(row.execution_state),
+    requiredEvidence: row.eligibility,
+    doneWhen: `${row.outcome_event}. ${row.quality_metric}.`,
+    continueThreshold: row.continue_threshold,
+    stopRule: row.stop_threshold,
+    sourcePath: row.canonical_source,
+  };
+}
+
 export function getOverviewData() {
   return {
     sourceDate: dashboard.sourceDate,
@@ -106,6 +146,19 @@ export function getExperiments(): Experiment[] {
     risk: parseScore(row.risk, "risk"),
     effort: parseScore(row.effort, "effort"),
   }));
+}
+
+export function getFounderActionPlan(): FounderActionPlan {
+  const actions = dashboard.experiments.map(toFounderAction);
+  const primary = actions.find((action) => action.experimentId === "EXP-001");
+  if (!primary) throw new Error("EXP-001 is required for the founder action plan.");
+
+  return {
+    primary,
+    doNow: actions.filter((action) => action.lane === "do-now"),
+    prepareInternally: actions.filter((action) => action.lane === "prepare-internally"),
+    notYet: actions.filter((action) => action.lane === "not-yet"),
+  };
 }
 
 export function getBlockers(): Blocker[] {

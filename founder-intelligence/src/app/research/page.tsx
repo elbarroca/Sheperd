@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
+import type { JSX } from "react";
 import { KnowledgeMap } from "@/components/knowledge-map";
 import { PageHeader } from "@/components/page-header";
 import { ResearchSearch } from "@/components/research-search";
@@ -9,10 +10,18 @@ import { getKnowledgeCatalog, getKnowledgeFile, getKnowledgeSummary } from "@/li
 
 export const metadata: Metadata = { title: "Evidence library" };
 
-export default function ResearchPage() {
+interface ResearchPageProps {
+  searchParams: Promise<{ file?: string | string[] }>;
+}
+
+export default async function ResearchPage({ searchParams }: ResearchPageProps): Promise<JSX.Element> {
   const summary = getKnowledgeSummary();
   const files = getKnowledgeCatalog();
-  const initialFile = files[0] ? getKnowledgeFile(files[0].path) : null;
+  const requestedValue = (await searchParams).file;
+  const requestedPath = typeof requestedValue === "string" ? requestedValue : null;
+  const requestedFile = requestedPath ? getKnowledgeFile(requestedPath) : null;
+  const requestedFileMissing = requestedValue !== undefined && requestedFile === null;
+  const initialFile = requestedFile ?? (files[0] ? getKnowledgeFile(files[0].path) : null);
   if (!initialFile) throw new Error("The admitted knowledge corpus is empty.");
 
   return (
@@ -47,7 +56,7 @@ export default function ResearchPage() {
         <div><dt>External calls</dt><dd>0</dd></div>
       </dl>
       <KnowledgeMap stats={summary.layerStats} />
-      <SourceLibrary files={files} initialFile={initialFile} />
+      <SourceLibrary files={files} initialFile={initialFile} requestedFileMissing={requestedFileMissing} />
       <ResearchSearch />
       <section className="method-note section-block" aria-labelledby="method-title">
         <p className="eyebrow">Retrieval boundary</p>

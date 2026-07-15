@@ -11,10 +11,10 @@ import { UsersFourIcon } from "@phosphor-icons/react/dist/csr/UsersFour";
 
 const links = [
   { href: "/", label: "Brief", icon: SquaresFourIcon },
-  { href: "/improvements", label: "Decision map", icon: GraphIcon },
+  { href: "/improvements", label: "Decisions", icon: GraphIcon },
   { href: "/mikey", label: "Operating plan", icon: UsersFourIcon },
-  { href: "/research", label: "Evidence library", icon: FilesIcon },
-  { href: "/ricardo", label: "Ricardo notes", icon: NotePencilIcon },
+  { href: "/research", label: "Evidence", icon: FilesIcon },
+  { href: "/ricardo", label: "Analysis", icon: NotePencilIcon },
 ];
 
 export function Navigation() {
