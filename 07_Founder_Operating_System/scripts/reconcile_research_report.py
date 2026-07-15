@@ -21,6 +21,7 @@ STATUS_COLORS = {
     "unverified": "#B42318",
     "internal-proposal": "#475569",
     "internal-observation": "#1D4ED8",
+    "anecdotal": "#7C2D12",
 }
 
 
@@ -37,19 +38,21 @@ def source_table_body(rows: list[dict[str, str]]) -> str:
     rendered: list[str] = []
     for row in rows:
         source = html.escape(row["url_path"])
+        status = html.escape(row["evidence_status"])
+        status_color = STATUS_COLORS.get(status, "#334E68")
         if row["url_path"].startswith(("http://", "https://")):
             source = (
                 f'<a href="{source}" rel="noopener noreferrer">'
                 f'{html.escape(row["author_publisher"])}</a>'
             )
-        status = html.escape(row["evidence_status"])
         rendered.append(
             f'<tr data-evidence="{status}" data-authority="{html.escape(row["authority"])}" '
             f'data-confidence="{html.escape(row["confidence"])}">'
             f'<td>{html.escape(row["source_id"])}</td>'
             f'<td>{html.escape(row["title"])}</td>'
             f'<td>{html.escape(row["authority"])}</td>'
-            f'<td><span class="tag ev-{status}">{status}</span></td>'
+            f'<td><span class="tag ev-{status}" style="color:{status_color}">'
+            f'{status}</span></td>'
             f'<td>{html.escape(row["confidence"])}</td>'
             f'<td>{html.escape(row["checked_date"])}</td>'
             f'<td>{source}</td>'
@@ -100,6 +103,38 @@ def evidence_chart(rows: list[dict[str, str]]) -> str:
     return "".join(fragments)
 
 
+def evidence_legend(rows: list[dict[str, str]]) -> str:
+    """Render the source-status legend from the same canonical rows."""
+
+    counts = Counter(row["evidence_status"] for row in rows)
+    items = "".join(
+        f'<li><span class="swatch" style="background:{color}"></span>'
+        f'{html.escape(status)} <strong>{counts[status]}</strong></li>'
+        for status, color in STATUS_COLORS.items()
+        if counts.get(status)
+    )
+    return f'<ul class="legend">{items}</ul>'
+
+
+def evidence_data_table(rows: list[dict[str, str]]) -> str:
+    """Render exact evidence-state counts and shares for non-visual access."""
+
+    counts = Counter(row["evidence_status"] for row in rows)
+    total = len(rows)
+    body = "".join(
+        f'<tr><th scope="row">{html.escape(status)}</th><td>{counts[status]}</td>'
+        f'<td>{counts[status] / total:.1%}</td></tr>'
+        for status in STATUS_COLORS
+        if counts.get(status)
+    )
+    return (
+        '<details><summary>Evidence chart data table</summary><div class="table-wrap">'
+        '<table><caption>Evidence states, count and share</caption><thead><tr>'
+        f'<th>State</th><th>Rows</th><th>Share</th></tr></thead><tbody>{body}'
+        '</tbody></table></div></details>'
+    )
+
+
 def replace_once(text: str, pattern: str, replacement: str, label: str) -> str:
     """Replace one required report fragment or fail closed."""
 
@@ -126,6 +161,18 @@ def reconcile() -> None:
         r'aria-labelledby="evidence-chart-title evidence-chart-desc">.*?</svg>',
         evidence_chart(rows),
         "evidence chart",
+    )
+    report = replace_once(
+        report,
+        r'<ul class="legend">.*?</ul>',
+        evidence_legend(rows),
+        "evidence legend",
+    )
+    report = replace_once(
+        report,
+        r'<details><summary>Evidence chart data table</summary>.*?</details>',
+        evidence_data_table(rows),
+        "evidence data table",
     )
     report = replace_once(
         report,

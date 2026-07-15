@@ -31,7 +31,7 @@ require(
   !/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(serializedGeneratedData),
   "email-shaped value entered generated data",
 );
-require(dashboard.sources.length === 42, "source ledger count must remain 42");
+require(dashboard.sources.length === 53, "source ledger count must remain 53");
 require(dashboard.blockers.length === 12, "blocker count must remain 12");
 require(dashboard.blockers.every((row) => row.current_state === "blocked"), "a blocker was silently promoted");
 require(dashboard.experiments.length === 8, "experiment count must remain 8");
@@ -68,4 +68,4 @@ if (issues.length) {
   process.exit(1);
 }
 
-console.log(`PASS: ${knowledge.sourceFiles} files, ${knowledge.chunks.length} chunks, 42 sources, 12 blockers, 8 experiments.`);
+console.log(`PASS: ${knowledge.sourceFiles} files, ${knowledge.chunks.length} chunks, 53 sources, 12 blockers, 8 experiments.`);

@@ -4,7 +4,7 @@ import knowledge from "../generated/knowledge-index.json";
 
 describe("generated founder intelligence", () => {
   it("preserves the admitted evidence and blocker counts", () => {
-    expect(dashboard.sources).toHaveLength(42);
+    expect(dashboard.sources).toHaveLength(53);
     expect(dashboard.blockers).toHaveLength(12);
     expect(dashboard.blockers.every((row) => row.current_state === "blocked")).toBe(true);
   });
@@ -57,5 +57,25 @@ describe("generated founder intelligence", () => {
     expect(sections.has("Next steps")).toBe(true);
     expect(text).toContain("Live Sales Execution");
     expect(text).toContain("not an executed agreement");
+  });
+
+  it("indexes the canonical market evidence map and its public source notes", () => {
+    const requiredPaths = [
+      "06_Research/Market Evidence and Source Map.md",
+      "10_Sources/Source - Industry Congestion and Market Reports - 2026-07-15.md",
+      "10_Sources/Source - Research Papers and Community Evidence - 2026-07-15.md",
+      "10_Sources/Source - Competitor and Public Pain Signals - 2026-07-15.md",
+    ];
+    const admittedPaths = new Set(knowledge.files.map((file) => file.path));
+    const sourceMapText = knowledge.chunks
+      .filter((chunk) => chunk.path === requiredPaths[0])
+      .map((chunk) => chunk.text)
+      .join(" ");
+
+    expect(requiredPaths.every((path) => admittedPaths.has(path))).toBe(true);
+    expect(sourceMapText).toContain("problem materiality = supported");
+    expect(sourceMapText).toContain("TAM");
+    expect(sourceMapText).toContain("unknown");
+    expect(sourceMapText).toContain("239,231");
   });
 });

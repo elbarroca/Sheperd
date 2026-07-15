@@ -25,12 +25,13 @@ EXPECTED_EXPERIMENT_STATES = {
     "EXP-008": "blocked-security",
 }
 EXPECTED_SOURCE_STATES = {
-    "verified": 17,
-    "company-claim": 15,
-    "mixed": 6,
-    "unverified": 2,
+    "verified": 22,
+    "company-claim": 17,
+    "mixed": 8,
+    "unverified": 3,
     "internal-proposal": 1,
     "internal-observation": 1,
+    "anecdotal": 1,
 }
 REMOTE_ASSET = re.compile(r"(?:src|href)=[\"'](?:https?:)?//", re.IGNORECASE)
 
@@ -84,7 +85,7 @@ def main() -> int:
 
     source_rows = read_csv("06_Research/data/source-ledger.csv")
     source_states = Counter(row["evidence_status"] for row in source_rows)
-    require(len(source_rows) == 42, "P1", "source ledger row count is not 42")
+    require(len(source_rows) == 53, "P1", "source ledger row count is not 53")
     require(dict(source_states) == EXPECTED_SOURCE_STATES, "P1", "source-state totals drifted")
 
     manifest = read_csv("07_Founder_Operating_System/data/artifact_manifest.csv")

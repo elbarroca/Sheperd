@@ -6,11 +6,11 @@ Verified locally on **2026-07-15** against the committed D0/D1 research snapshot
 
 | Gate | Result | Evidence |
 |---|---|---|
-| Generated-data contract | Pass | 88 file manifests, 767 chunks, 1,200 terms, 42 sources, 12 blockers, 8 experiments |
-| Complete catalog contract | Pass | 88/88 files visible; two short templates preserved with explicit zero-section states |
+| Generated-data contract | Pass | 92 file manifests, 828 chunks, 1,200 terms, 53 sources, 12 blockers, 8 experiments |
+| Complete catalog contract | Pass | 92/92 files visible; two short templates preserved with explicit zero-section states |
 | ESLint | Pass | `pnpm lint` |
 | Strict TypeScript | Pass | `pnpm typecheck` |
-| Unit/data tests | Pass | 8 files, 17 tests via `pnpm test` |
+| Unit/data tests | Pass | 10 files, 24 tests via `pnpm test` |
 | Impeccable anti-pattern scan | Pass | `npx --yes impeccable detect src/`; zero findings |
 | Production build | Pass | Next.js 16.2.10; 5 product views and 2 dynamic local APIs |
 
@@ -27,7 +27,7 @@ Verified locally on **2026-07-15** against the committed D0/D1 research snapshot
 Verified with the Codex in-app browser against the local Next.js development server.
 
 - All five product routes passed at 407, 768, 1024, and 1440 pixel widths: one H1, visible hold state, visible active navigation, and zero page-level horizontal overflow.
-- The Evidence library exposed 88 of 88 admitted files.
+- The original browser pass exposed 88 of 88 then-admitted files.
 - Filtering for `Ricardo` returned one file and lazy-loaded all eight indexed sections.
 - The zero-section Decision Record template returned an explicit, traceable empty state.
 - Source-path copy changed to a confirmed `Path copied` state.
@@ -63,6 +63,13 @@ See [COMPREHENSION_AUDIT.md](./COMPREHENSION_AUDIT.md) for the step-by-step audi
 - `/api/files` accepts only exact admitted source paths and fails closed for missing or unknown paths.
 - `/api/search` retains bounded local lexical retrieval and makes no external call.
 - No customer data, CRM, analytics, email, publishing, or embedding provider was connected.
+
+## Market evidence extension verification
+
+- The deterministic catalog admits 92 of 92 files, including the canonical market map and three dated source notes.
+- The valid market-map deep link returned HTTP 200 and rendered the title, problem-materiality boundary, TAM boundary, and importer-universe context.
+- A traversal-shaped invalid file parameter returned HTTP 200 with `Document not found in the admitted corpus`; no arbitrary file content was returned.
+- Fresh visual browser automation was blocked by the local-URL security policy, so this extension makes no new visual-browser claim.
 
 ## External release state
 

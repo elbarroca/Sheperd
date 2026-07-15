@@ -53,7 +53,7 @@ The separate rule pass verifies:
 - Only EXP-001–003 are eligible for internal preparation or synthetic-only work.
 - EXP-004–008 remain external, publication, or security blocked.
 - Content is only `internal-outline` or `blocked`.
-- The 42-row evidence ledger retains its exact controlled-state distribution.
+- The 53-row evidence ledger retains its exact controlled-state distribution.
 - Every external draft family uses `DRAFT - HUMAN REVIEW REQUIRED`.
 - No remote asset, file upload, customer-data store, or external connector exists.
 - Read-only SQL and transparent ranking cannot override activation gates.
