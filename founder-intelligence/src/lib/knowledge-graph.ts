@@ -29,6 +29,7 @@ export function buildKnowledgeNeighborhood(
   if (!filesByPath.has(activePath)) return { nodes: [], edges: [] };
 
   const depthByPath = new Map<string, number>([[activePath, 0]]);
+  const routeEdges: KnowledgeGraphEdge[] = [];
   const queue = [activePath];
 
   while (queue.length > 0 && depthByPath.size < maxFiles) {
@@ -47,23 +48,19 @@ export function buildKnowledgeNeighborhood(
     for (const neighbor of neighbors) {
       if (depthByPath.has(neighbor.path)) continue;
       depthByPath.set(neighbor.path, depth + 1);
+      routeEdges.push(file.outgoingLinks.includes(neighbor.path)
+        ? { source: path, target: neighbor.path }
+        : { source: neighbor.path, target: path });
       queue.push(neighbor.path);
       if (depthByPath.size >= maxFiles) break;
     }
   }
 
-  const visiblePaths = new Set(depthByPath.keys());
   const nodes = [...depthByPath.entries()]
     .map(([path, depth]) => ({ path, depth }))
     .sort((left, right) => left.depth - right.depth
       || connectionCount(filesByPath.get(right.path)!) - connectionCount(filesByPath.get(left.path)!)
       || left.path.localeCompare(right.path));
-  const edges = nodes.flatMap(({ path }) => {
-    const file = filesByPath.get(path);
-    return (file?.outgoingLinks ?? [])
-      .filter((target) => visiblePaths.has(target))
-      .map((target) => ({ source: path, target }));
-  });
 
-  return { nodes, edges };
+  return { nodes, edges: routeEdges };
 }

@@ -34,10 +34,16 @@ describe("knowledge graph", () => {
     expect(graph.nodes.find((node) => node.path === "A.md")?.depth).toBe(0);
     expect(graph.edges).toEqual([
       { source: "A.md", target: "B.md" },
-      { source: "A.md", target: "C.md" },
-      { source: "B.md", target: "D.md" },
       { source: "D.md", target: "A.md" },
+      { source: "A.md", target: "C.md" },
     ]);
+  });
+
+  it("shows one admitted route per visible file instead of every cross-link", () => {
+    const graph = buildKnowledgeNeighborhood(files, "A.md", 2);
+
+    expect(graph.edges).toHaveLength(graph.nodes.length - 1);
+    expect(graph.edges).not.toContainEqual({ source: "B.md", target: "D.md" });
   });
 
   it("rejects unknown roots and honors the file cap", () => {

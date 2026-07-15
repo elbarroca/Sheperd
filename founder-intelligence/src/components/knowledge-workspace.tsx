@@ -4,12 +4,14 @@ import { type JSX, type ReactNode, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { XIcon } from "@phosphor-icons/react/dist/csr/X";
 import type { KnowledgeFileDetail, KnowledgeFileSummary, KnowledgeLayer } from "@/lib/types";
+import { DocumentReaderDialog } from "./document-reader-dialog";
 import { VaultGraph } from "./vault-graph";
 
 interface KnowledgeWorkspaceProps {
   files: KnowledgeFileSummary[];
   initialFiles: KnowledgeFileDetail[];
   initialActivePath: string;
+  initialReaderOpen?: boolean;
   invalidRequest?: boolean;
   searchSlot?: ReactNode;
 }
@@ -69,14 +71,11 @@ function groupFiles(files: KnowledgeFileSummary[]): [string, KnowledgeFileSummar
   return [...groups.entries()].sort((left, right) => left[0].localeCompare(right[0]));
 }
 
-function formatLayer(value: string): string {
-  return value.replaceAll("-", " ");
-}
-
 export function KnowledgeWorkspace({
   files,
   initialFiles,
   initialActivePath,
+  initialReaderOpen = false,
   invalidRequest = false,
   searchSlot,
 }: KnowledgeWorkspaceProps): JSX.Element {
@@ -84,16 +83,14 @@ export function KnowledgeWorkspace({
   const pathname = usePathname();
   const [openFiles, setOpenFiles] = useState(initialFiles);
   const [activePath, setActivePath] = useState<string | null>(initialActivePath);
+  const [readerOpen, setReaderOpen] = useState(initialReaderOpen);
   const [loadingPath, setLoadingPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(
     invalidRequest ? "One or more requested documents were not part of the admitted corpus." : null,
   );
   const cacheRef = useRef(new Map(initialFiles.map((file) => [file.path, file])));
-  const fileSummaries = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
   const grouped = useMemo(() => groupFiles(files), [files]);
   const activeFile = openFiles.find((file) => file.path === activePath) ?? null;
-  const activeSummary = activePath ? fileSummaries.get(activePath) ?? null : null;
-  const activeTabIndex = openFiles.findIndex((file) => file.path === activePath);
 
   function syncUrl(nextFiles: KnowledgeFileDetail[], nextActivePath: string | null): void {
     const params = new URLSearchParams();
@@ -105,6 +102,7 @@ export function KnowledgeWorkspace({
 
   function activateFile(path: string): void {
     setActivePath(path);
+    setReaderOpen(true);
     setError(null);
     syncUrl(openFiles, path);
   }
@@ -136,6 +134,7 @@ export function KnowledgeWorkspace({
       const nextFiles = [...openFiles, nextFile];
       setOpenFiles(nextFiles);
       setActivePath(path);
+      setReaderOpen(true);
       syncUrl(nextFiles, path);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "The document could not be opened safely.");
@@ -152,27 +151,9 @@ export function KnowledgeWorkspace({
       : activePath;
     setOpenFiles(nextFiles);
     setActivePath(nextActivePath);
+    if (!nextActivePath) setReaderOpen(false);
     setError(null);
     syncUrl(nextFiles, nextActivePath);
-  }
-
-  function relationshipList(paths: string[], emptyLabel: string): JSX.Element {
-    if (paths.length === 0) return <p>{emptyLabel}</p>;
-    return (
-      <ul>
-        {paths.map((path) => {
-          const file = fileSummaries.get(path);
-          return (
-            <li key={path}>
-              <button type="button" onClick={() => void openFile(path)}>
-                <strong>{file?.title ?? path}</strong>
-                <small>{file?.folder.replaceAll("_", " ") ?? "Admitted source"}</small>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    );
   }
 
   return (
@@ -180,7 +161,7 @@ export function KnowledgeWorkspace({
       <section className="focus-section" aria-labelledby="map-title">
         <div className="focus-heading">
           <div><h2 id="map-title">Follow the links between files</h2></div>
-          <p>Every line is an admitted Obsidian link. Select a file to open it without losing the documents already in your dock.</p>
+          <p>Select a file to open its full text. The map shows focused routes, while the reader preserves every admitted link and source path.</p>
         </div>
         <VaultGraph
           files={files}
@@ -192,79 +173,51 @@ export function KnowledgeWorkspace({
 
       <section className="focus-section knowledge-dock" aria-labelledby="dock-title">
         <header className="knowledge-dock-heading">
-          <div><h2 id="dock-title">Document dock</h2><p>Open, switch, and close up to four source documents.</p></div>
+          <div><h2 id="dock-title">Open documents</h2><p>Select any document to read it in a focused window.</p></div>
           <strong>{openFiles.length} / {MAX_OPEN_FILES} open</strong>
         </header>
 
         {openFiles.length > 0 ? (
-          <div className="document-tabs" role="tablist" aria-label="Open research documents">
+          <ul className="document-shelf" aria-label="Open research documents">
             {openFiles.map((file, index) => (
-              <div key={file.path} className="document-tab" data-active={file.path === activePath}>
+              <li key={file.path} className="document-shelf-item" data-active={file.path === activePath && readerOpen}>
                 <button
                   type="button"
-                  role="tab"
-                  id={`document-tab-${index + 1}`}
-                  aria-selected={file.path === activePath}
-                  aria-controls="active-document-panel"
+                  className="document-shelf-open"
                   onClick={() => activateFile(file.path)}
                 >
-                  <small>Page {index + 1}</small>
-                  <span>{file.title}</span>
+                  <small>Document {index + 1}</small>
+                  <strong>{file.title}</strong>
+                  <code>{file.path}</code>
                 </button>
-                <button type="button" className="document-tab-close" onClick={() => closeFile(file.path)} aria-label={`Close ${file.title}`}>
-                  <XIcon size={15} aria-hidden="true" />
+                <button type="button" className="document-shelf-close" onClick={() => closeFile(file.path)} aria-label={`Remove ${file.title} from open documents`}>
+                  <XIcon size={17} aria-hidden="true" />
                 </button>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         ) : null}
 
         {error ? <p className="knowledge-dock-error" role="alert">{error}</p> : null}
         {loadingPath ? <p className="knowledge-dock-loading" role="status">Opening document…</p> : null}
 
-        {activeFile && activeSummary ? (
-          <article
-            id="active-document-panel"
-            className="document-reader"
-            role="tabpanel"
-            aria-labelledby={activeTabIndex >= 0 ? `document-tab-${activeTabIndex + 1}` : undefined}
-          >
-            <header className="document-header">
-              <div><p className="focus-label">Active source</p><h3>{activeFile.title}</h3><p>{activeFile.path}</p></div>
-              <dl>
-                <div><dt>Layer</dt><dd>{formatLayer(activeFile.primaryLayer)}</dd></div>
-                <div><dt>Sections</dt><dd>{activeFile.sectionCount}</dd></div>
-                <div><dt>Words</dt><dd>{activeFile.wordCount.toLocaleString("en-US")}</dd></div>
-              </dl>
-            </header>
-            <div className="document-relationships" aria-label="Document relationships">
-              <details open>
-                <summary><span>Links to other files</span><small>{activeSummary.outgoingLinks.length}</small></summary>
-                {relationshipList(activeSummary.outgoingLinks, "This file has no admitted outgoing links.")}
-              </details>
-              <details>
-                <summary><span>Linked from other files</span><small>{activeSummary.incomingLinks.length}</small></summary>
-                {relationshipList(activeSummary.incomingLinks, "No admitted file links back to this document.")}
-              </details>
-            </div>
-            <div className="document-sections">
-              {activeFile.sections.length > 0 ? activeFile.sections.map((section, index) => (
-                <details key={section.id} open={index === 0}>
-                  <summary><span>{section.section}</span><small>{formatLayer(section.evidenceStatus)}</small></summary>
-                  <div className="document-text">{section.text}</div>
-                </details>
-              )) : (
-                <div className="document-empty"><strong>No indexable section text</strong><p>The file remains admitted and connected, but its body has no retrievable section yet.</p></div>
-              )}
-            </div>
-          </article>
-        ) : (
+        {openFiles.length === 0 ? (
           <div className="document-dock-empty">
             <strong>No documents open</strong>
             <p>Select a graph node or use the file index below.</p>
           </div>
-        )}
+        ) : null}
       </section>
+
+      <DocumentReaderDialog
+        error={error}
+        file={activeFile}
+        files={files}
+        isOpen={readerOpen && activeFile !== null}
+        loadingPath={loadingPath}
+        onClose={() => setReaderOpen(false)}
+        onOpenFile={(path) => void openFile(path)}
+      />
 
       {searchSlot}
 

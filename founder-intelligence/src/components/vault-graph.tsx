@@ -33,7 +33,7 @@ function nodeLabel(file: KnowledgeFileSummary): ReactNode {
   return (
     <span>
       <strong>{file.title}</strong>
-      <small>{file.outgoingLinks.length} links out · {file.incomingLinks.length} backlinks</small>
+      <small>{file.path}</small>
     </span>
   );
 }
@@ -51,7 +51,7 @@ function buildGraph(
   openPaths: string[],
 ): { nodes: VaultNode[]; edges: Edge[] } {
   const filesByPath = new Map(files.map((file) => [file.path, file]));
-  const neighborhood = buildKnowledgeNeighborhood(files, rootPath, depth, depth === 1 ? 14 : 30);
+  const neighborhood = buildKnowledgeNeighborhood(files, rootPath, depth, depth === 1 ? 12 : 14);
   const ringMembers = new Map<number, string[]>();
 
   for (const node of neighborhood.nodes) {
@@ -64,10 +64,10 @@ function buildGraph(
     const ring = ringMembers.get(node.depth) ?? [node.path];
     const index = ring.indexOf(node.path);
     const angle = ring.length === 1 ? 0 : -Math.PI / 2 + (index * Math.PI * 2) / ring.length;
-    const radius = node.depth * 460;
+    const radius = node.depth * 420;
     const position = node.depth === 0
       ? { x: 0, y: 0 }
-      : { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius * 0.72 };
+      : { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius * 0.5 };
     const stateClass = node.path === rootPath
       ? "vault-node-active"
       : openPaths.includes(node.path) ? "vault-node-open" : "";
@@ -111,18 +111,20 @@ export function VaultGraph({ files, activePath, openPaths, onOpenFile }: VaultGr
           <button type="button" onClick={() => setDepth(1)} aria-pressed={depth === 1}>Direct links</button>
           <button type="button" onClick={() => setDepth(2)} aria-pressed={depth === 2}>Two steps</button>
         </div>
-        <span>{graph.nodes.length} files · {graph.edges.length} admitted links</span>
+        <span>{graph.nodes.length} files / {graph.edges.length} visible links</span>
       </div>
+      <p className="vault-graph-note">Focused routes only. Open a file to see every outgoing link and backlink with its full path.</p>
       <div className="vault-graph" aria-label="Interactive map of admitted Obsidian file links">
         <ReactFlow<VaultNode>
+          key={`${rootPath}:${depth}`}
           nodes={graph.nodes}
           edges={graph.edges}
           onNodeClick={handleNodeClick}
           nodesDraggable={false}
           nodesConnectable={false}
           fitView
-          fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }}
-          minZoom={0.62}
+          fitViewOptions={{ padding: 0.28, maxZoom: 1.1 }}
+          minZoom={0.55}
           maxZoom={1.8}
           deleteKeyCode={null}
         >
