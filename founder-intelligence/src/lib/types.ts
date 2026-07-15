@@ -28,9 +28,19 @@ export interface KnowledgeIndex {
   boundary: string;
   sourceDate: string;
   sourceFiles: number;
+  files?: KnowledgeFileManifest[];
   vocabulary: string[];
   idf: number[];
   chunks: KnowledgeChunk[];
+}
+
+export interface KnowledgeFileManifest {
+  path: string;
+  title: string;
+  layer: KnowledgeLayer;
+  evidenceStatus: string;
+  confidentiality: string;
+  tags: string[];
 }
 
 export interface SearchResult {
@@ -42,6 +52,37 @@ export interface SearchResult {
   evidenceStatus: string;
   text: string;
   score: number;
+}
+
+export interface KnowledgeFileSummary {
+  path: string;
+  title: string;
+  folder: string;
+  primaryLayer: KnowledgeLayer;
+  layers: KnowledgeLayer[];
+  evidenceStatuses: string[];
+  confidentiality: string[];
+  tags: string[];
+  sectionCount: number;
+  wordCount: number;
+}
+
+export interface KnowledgeFileSection {
+  id: string;
+  section: string;
+  layer: KnowledgeLayer;
+  evidenceStatus: string;
+  text: string;
+}
+
+export interface KnowledgeFileDetail extends KnowledgeFileSummary {
+  sections: KnowledgeFileSection[];
+}
+
+export interface KnowledgeLayerStat {
+  layer: KnowledgeLayer;
+  files: number;
+  chunks: number;
 }
 
 export interface Experiment {

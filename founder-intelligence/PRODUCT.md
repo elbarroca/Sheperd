@@ -14,6 +14,7 @@ In under five minutes, a founder should be able to answer:
 2. Why is external activation still on hold?
 3. Which decision should happen next?
 4. Which source and evidence state support each conclusion?
+5. Where is the underlying file, and what does its indexed section actually say?
 
 ## Product principles
 
@@ -22,6 +23,8 @@ In under five minutes, a founder should be able to answer:
 - Observed counts outrank planning scores.
 - Eligibility outranks weighted priority.
 - Every chart must support a decision and remain understandable as text.
+- The complete admitted corpus must remain browsable, not merely searchable.
+- File retrieval stays local and lazy so depth does not compromise first-load clarity.
 - Progressive disclosure should reveal evidence without hiding the decision.
 - No interface control can upgrade evidence or unlock external execution.
 
@@ -37,3 +40,5 @@ Calm, direct, plain English, and evidence-first. Avoid hype, slogans, false prec
 - Score bars presented as objective probability.
 - Decorative charts that do not change a decision.
 - Hidden hold status on small screens.
+- Charts without exact-data fallbacks.
+- Conclusions that do not expose a source path.

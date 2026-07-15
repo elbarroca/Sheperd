@@ -1,13 +1,17 @@
 import Link from "next/link";
 import { DecisionFlow } from "@/components/decision-flow";
 import { EvidenceTide } from "@/components/evidence-tide";
+import { IntelligenceCharts } from "@/components/intelligence-charts";
 import { PageHeader } from "@/components/page-header";
 import { ScoreGrid } from "@/components/score-grid";
+import { DirectionalArrow } from "@/components/ui-icons";
 import { phases } from "@/lib/content";
 import { getOverviewData } from "@/lib/data";
+import { getKnowledgeSummary } from "@/lib/knowledge";
 
 export default function FounderBriefPage() {
   const overview = getOverviewData();
+  const knowledge = getKnowledgeSummary();
   const internallyAllowed = Object.entries(overview.experimentStates)
     .filter(([state]) => state === "prepare-now" || state === "synthetic-only")
     .reduce((sum, [, count]) => sum + count, 0);
@@ -16,10 +20,11 @@ export default function FounderBriefPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Founder brief"
-        title="Strong plan. Not ready to activate."
-        description="The research system and commercial design are strong. Authority, market proof, and safe execution are not yet admitted."
-        meta={<><span>Evidence snapshot</span><strong>{overview.sourceDate}</strong></>}
+        eyebrow="Private founder brief"
+        title="All the evidence. One founder view."
+        description="Turn SheperD's full research corpus into decisions without hiding uncertainty, ownership, or the source behind a conclusion."
+        actions={<><Link className="primary-action" href="/research">Explore all sources <DirectionalArrow /></Link><Link className="secondary-action" href="/improvements">Review open gates</Link></>}
+        meta={<><span>Current posture</span><strong>Hold external activation</strong><small>Evidence snapshot {overview.sourceDate}</small></>}
       />
 
       <section className="decision-snapshot" aria-labelledby="decision-snapshot-title">
@@ -50,6 +55,23 @@ export default function FounderBriefPage() {
           <p>Strong preparation does not cancel weak external evidence.</p>
         </div>
         <ScoreGrid scores={overview.scores} />
+      </section>
+
+      <IntelligenceCharts scores={overview.scores} layerStats={knowledge.layerStats} sourceStates={overview.sourceStates} />
+
+      <section className="source-portal section-block" aria-labelledby="source-portal-title">
+        <div className="source-portal-copy">
+          <p className="eyebrow">Research control room</p>
+          <h2 id="source-portal-title">From every file to the founder consequence</h2>
+          <p>Browse the full corpus, read every indexed section, filter by layer, and search across the evidence without sending company context to an external service.</p>
+          <Link href="/research">Open the evidence library <DirectionalArrow /></Link>
+        </div>
+        <dl className="source-portal-metrics">
+          <div><dt>Source files</dt><dd>{knowledge.sourceFiles}</dd></div>
+          <div><dt>Indexed sections</dt><dd>{knowledge.chunks}</dd></div>
+          <div><dt>Vault folders</dt><dd>{knowledge.folders}</dd></div>
+          <div><dt>External retrieval calls</dt><dd>0</dd></div>
+        </dl>
       </section>
 
       <EvidenceTide counts={overview.sourceStates} />

@@ -11,6 +11,7 @@ describe("generated founder intelligence", () => {
 
   it("excludes the public website from the private knowledge corpus", () => {
     expect(knowledge.sourceFiles).toBeGreaterThanOrEqual(80);
+    expect(knowledge.files).toHaveLength(knowledge.sourceFiles);
     expect(knowledge.chunks.length).toBeGreaterThanOrEqual(300);
     expect(knowledge.chunks.some((chunk) => chunk.path.startsWith("website/"))).toBe(false);
   });

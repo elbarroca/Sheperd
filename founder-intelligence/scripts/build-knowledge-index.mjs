@@ -225,6 +225,30 @@ function csvChunks(path, raw) {
   });
 }
 
+function fileManifest(path, raw) {
+  if (extname(path).toLowerCase() === ".md") {
+    const { attributes } = parseFrontmatter(raw);
+    return {
+      path,
+      title: attributes.title || path.split("/").at(-1).replace(/\.md$/i, ""),
+      layer: classifyLayer(path),
+      evidenceStatus: attributes.evidence_status || "unknown",
+      confidentiality: attributes.confidentiality || "internal",
+      tags: Array.isArray(attributes.tags) ? attributes.tags : [],
+    };
+  }
+
+  const firstRow = parseCsv(raw)[0] ?? {};
+  return {
+    path,
+    title: path.split("/").at(-1).replace(/\.csv$/i, "").replaceAll("-", " "),
+    layer: classifyLayer(path),
+    evidenceStatus: firstRow.evidence_status || firstRow.current_state || "structured-data",
+    confidentiality: "internal",
+    tags: [],
+  };
+}
+
 function tokenize(text) {
   return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
     .filter((term) => term.length > 1 && !STOP_WORDS.has(term));
@@ -303,9 +327,11 @@ function main() {
     return;
   }
   const files = CORPUS_ROOTS.flatMap((root) => walk(join(REPO_ROOT, root)));
+  const manifests = [];
   const chunks = files.flatMap((file) => {
     const path = normalizePath(relative(REPO_ROOT, file));
     const raw = readFileSync(file, "utf8");
+    manifests.push(fileManifest(path, raw));
     return extname(file).toLowerCase() === ".csv" ? csvChunks(path, raw) : markdownChunks(path, raw);
   });
   const vectorData = buildVectors(chunks);
@@ -316,6 +342,7 @@ function main() {
     boundary: "D0/D1 internal research only; no customer records or external embedding service",
     sourceDate,
     sourceFiles: files.length,
+    files: manifests,
     vocabulary: vectorData.vocabulary,
     idf: vectorData.idf,
     chunks: vectorData.chunks,

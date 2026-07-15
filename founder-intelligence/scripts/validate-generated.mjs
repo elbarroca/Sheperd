@@ -16,6 +16,9 @@ function require(condition, message) {
 require(knowledge.contractVersion === 1, "knowledge contract version must be 1");
 require(knowledge.method === "deterministic-local-tfidf-sparse-v1", "unexpected vectorization method");
 require(knowledge.sourceFiles >= 80, "expected at least 80 admitted source files");
+require(Array.isArray(knowledge.files), "knowledge file manifest is missing");
+require(knowledge.files.length === knowledge.sourceFiles, "knowledge file manifest count drifted");
+require(knowledge.files.every((file) => file.path && file.title && file.layer), "knowledge file manifest is incomplete");
 require(knowledge.chunks.length >= 300, "expected at least 300 knowledge chunks");
 require(knowledge.vocabulary.length >= 500, "expected at least 500 vector terms");
 require(knowledge.chunks.every((chunk) => chunk.id && chunk.path && chunk.text), "knowledge chunk is incomplete");

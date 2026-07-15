@@ -6,33 +6,42 @@ Verified locally on **2026-07-15** against the committed D0/D1 research snapshot
 
 | Gate | Result | Evidence |
 |---|---|---|
-| Generated-data contract | Pass | 88 files, 767 chunks, 1,200 terms, 42 sources, 12 blockers, 8 experiments |
+| Generated-data contract | Pass | 88 file manifests, 767 chunks, 1,200 terms, 42 sources, 12 blockers, 8 experiments |
+| Complete catalog contract | Pass | 88/88 files visible; two short templates preserved with explicit zero-section states |
 | ESLint | Pass | `pnpm lint` |
 | Strict TypeScript | Pass | `pnpm typecheck` |
-| Unit/data tests | Pass | 4 files, 8 tests via `pnpm test` |
-| Impeccable anti-pattern scan | Pass | `npx impeccable detect src/`; no findings |
-| Production build | Pass | Next.js 16.2.10; 5 product views, one dynamic search route |
+| Unit/data tests | Pass | 5 files, 10 tests via `pnpm test` |
+| Impeccable anti-pattern scan | Pass | `npx --yes impeccable detect src/`; zero findings |
+| Production build | Pass | Next.js 16.2.10; 5 product views and 2 dynamic local APIs |
+
+## Visual QA
+
+- The supplied 407x869 reference and a 407x869 implementation capture were compared side by side.
+- The implementation preserves the reference's navy-to-light rhythm, electric-blue signal, compact control bar, framed metrics, and embedded analytical surfaces.
+- The composition deliberately replaces the public acquisition form and wolf illustration with the private dashboard's hold posture, source navigation, and founder decision content.
+- Desktop chart and source-library views were inspected at 1440px; mobile hero, knowledge map, filters, file index, and file reader were inspected at 407px.
+- A fresh browser tab produced zero console warnings or errors.
 
 ## Browser verification
 
 Verified with the Codex in-app browser against the local Next.js development server.
 
-- The founder brief led with external hold, 12 open gates, 3 internal tests, 0 external tests, 17/42 verified sources, and the next founder decision.
-- The decision map rendered six clusters containing all twelve unique gate IDs.
-- Ownership, decision-flow, evidence-mix, gated-timeline, source-analysis, and priority-matrix visualizations retained semantic list, table, meter, or disclosure fallbacks.
-- Query `What blocks external activation?` returned 12 ranked sections with evidence state, knowledge layer, lexical similarity, a full-source disclosure, and selectable repository path.
-- All five product views rendered at 320, 768, 1024, and 1440 pixel widths without page-level or navigation-level horizontal overflow.
-- External hold remained visible at every checked viewport, and all four priority controls exposed unique labels.
+- All five product routes passed at 407, 768, 1024, and 1440 pixel widths: one H1, visible hold state, visible active navigation, and zero page-level horizontal overflow.
+- The Evidence library exposed 88 of 88 admitted files.
+- Filtering for `Ricardo` returned one file and lazy-loaded all eight indexed sections.
+- The zero-section Decision Record template returned an explicit, traceable empty state.
+- Source-path copy changed to a confirmed `Path copied` state.
+- Query `What blocks external activation?` returned 12 ranked source sections.
+- All three new charts expose exact-data disclosures and disable animation for reduced-motion users.
 
 ## Production boundary checks
 
-- `/` returned `200` with `private, no-store`, `noindex, nofollow, noarchive`, frame denial, restricted permissions, and a production CSP without `unsafe-eval`.
-- `/api/search` returned 12 results for the verified query.
-- A one-character query failed closed with `400` and a bounded validation message.
-- `robots` metadata and response headers both prevent indexing; this is not a substitute for access control.
+- `/` remains private, uncached, noindex, frame-denied, and governed by the existing production CSP.
+- `/api/files` accepts only exact admitted source paths and fails closed for missing or unknown paths.
+- `/api/search` retains bounded local lexical retrieval and makes no external call.
+- No customer data, CRM, analytics, email, publishing, or embedding provider was connected.
 
 ## Not verified externally
 
 - No Vercel project was created or deployed.
-- Vercel Deployment Protection and any future authenticated production access must be verified after deployment.
-- No customer data, CRM, analytics, email, publishing, or embedding provider was connected.
+- Vercel Deployment Protection and future authenticated production access must be verified after deployment.

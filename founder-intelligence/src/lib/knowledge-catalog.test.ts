@@ -1,0 +1,57 @@
+import { describe, expect, it } from "vitest";
+import { buildKnowledgeCatalog, buildKnowledgeFileDetail, buildKnowledgeLayerStats } from "./knowledge-catalog";
+import type { KnowledgeChunk } from "./types";
+
+const chunks: KnowledgeChunk[] = [
+  {
+    id: "one",
+    path: "06_Research/source.md",
+    title: "Source",
+    section: "Claim",
+    layer: "research",
+    evidenceStatus: "verified",
+    confidentiality: "internal",
+    tags: ["evidence"],
+    text: "A verified research statement.",
+    vector: [],
+  },
+  {
+    id: "two",
+    path: "06_Research/source.md",
+    title: "Source",
+    section: "Limit",
+    layer: "source",
+    evidenceStatus: "mixed",
+    confidentiality: "internal",
+    tags: ["evidence", "limit"],
+    text: "A material limitation remains visible.",
+    vector: [],
+  },
+];
+
+describe("knowledge catalog", () => {
+  it("groups chunks into a deterministic file summary", () => {
+    const catalog = buildKnowledgeCatalog(chunks);
+
+    expect(catalog).toHaveLength(1);
+    expect(catalog[0]).toMatchObject({
+      folder: "06_Research",
+      sectionCount: 2,
+      primaryLayer: "research",
+      evidenceStatuses: ["mixed", "verified"],
+      tags: ["evidence", "limit"],
+    });
+  });
+
+  it("returns complete sections and accurate layer statistics", () => {
+    const catalog = buildKnowledgeCatalog(chunks);
+    const detail = buildKnowledgeFileDetail(chunks, catalog[0]);
+    const stats = buildKnowledgeLayerStats(chunks, catalog);
+
+    expect(detail.sections.map((section) => section.id)).toEqual(["one", "two"]);
+    expect(stats).toEqual([
+      { layer: "research", files: 1, chunks: 1 },
+      { layer: "source", files: 1, chunks: 1 },
+    ]);
+  });
+});
