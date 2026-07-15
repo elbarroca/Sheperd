@@ -15,7 +15,7 @@ tags:
 # Industry, Regulatory, and Competitive Dossier
 
 > [!abstract] Decision answer
-> U.S. D&D audit/recovery is a material, evidence-heavy process governed by invoice content, short timing rules, contracts/tariffs, operational facts, and route-specific procedures. Current primary sources support factual audit, deadline discipline, evidence assembly, and reviewed dispute support—not blanket refund claims, automated legal conclusions, or a recoverable-market percentage. Evidence status: `mixed`; confidence: high on current rules and low on addressable economics. Sources: SRC-002–003, SRC-006–012, SRC-019–022, SRC-030–038.
+> U.S. D&D audit/recovery is a material, evidence-heavy process governed by invoice content, short timing rules, contracts/tariffs, operational facts, and route-specific procedures. Current primary sources support factual audit, deadline discipline, evidence assembly, and reviewed dispute support—not blanket refund claims, automated legal conclusions, or a recoverable-market percentage. Evidence status: `mixed`; confidence: high on current rules and low on addressable economics. Sources: SRC-002–003, SRC-006–012, SRC-019–022, SRC-030–042.
 
 > [!warning] Boundary
 > This dossier is operational research, not legal advice. Case eligibility, proper-party liability, accrual, applicability, reasonableness, route, remedy, filing, and settlement require the current rule, governing terms, facts, and named reviewer.
@@ -126,8 +126,14 @@ Every row is vendor-controlled `company-claim`; confidence is medium on displaye
 | MiraLedger | Importers/logistics | Tariff audit, dispute packs, recovery/prevention queue | Pilot/volume plans; quote | Unnamed pilots; legal language | Maturity/outcomes unverified |
 | Intelligent Audit | Enterprise shippers | Broad multimodal freight audit | Enterprise quote | Anonymized 24% reduction case | Audit-point counts vary; D&D is one accessorial |
 | GoComet | Global-trade teams | Visibility, procurement, tracking, D&D prevention | Basic tracker free; advanced quote | Broad supply-chain outcomes | Prevention alternative, not recovery validation |
+| Dockline | Drayage finance/operations | Broad invoice audit and dispute-ready evidence | No public price observed | Contract, terminal, and equipment verification claims | Performance, customers, and maturity unverified |
+| Portside Recovery | Australia importers | Specialist D&D dispute recovery | 30% success fee with displayed cap | Specialist workflow claims | Adjacent geography; not U.S. legal or market proof |
 
 SheperD must prove—not merely claim—better comparable recovery, faster evidence-to-dispute and dispute-to-credit cycles, lower customer workload, accepted audit trail, secure intake, carrier/port depth, and net economics.
+
+## Demand-evidence boundary
+
+Current public search exposes active official guidance, carrier/forwarder dispute instructions, audit/recovery vendors, and practitioner questions across invoice requirements, evidence, timing, pricing, and port disruptions. This supports a content-question backlog only. It does not establish search volume, buyer intent, budget, willingness to pay, segment fit, or SheperD conversion. Exact demand metrics require admitted Search Console/Keyword Planner data and controlled cohort evidence. Source: SRC-042; evidence status: `mixed`; confidence: high on the limitation.
 
 ## Advertising substantiation
 

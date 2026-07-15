@@ -35,6 +35,7 @@ The public surfaces communicate a sharp recovery promise, but unresolved product
 - Add FAQ for eligibility, deadlines, rejection, reissued invoices, security, and workload.
 - Use proof only with customer permission and methodology.
 - Route each persona to the same primary CTA with appropriate supporting detail.
+- Replace the dollar-recovery calculator with an evidence-readiness or invoice-readiness pack until its methodology, population, error bounds, reviewer, approval, and expiry are admitted.
 
 ## P2 — demand generation
 
@@ -43,6 +44,7 @@ The public surfaces communicate a sharp recovery promise, but unresolved product
 - Build CFO, supply-chain, and operations content pillars.
 - Use CTA/UTM attribution and measure qualified inquiries, not impressions.
 - Pursue podcasts/speaking only after the company truth and proof pack are stable.
+- Use the 12-week conditional backlog and approval/expiry/rollback workflow in [[03_GTM/Content and Distribution System]].
 
 ## Observed defects
 
@@ -56,6 +58,8 @@ The public surfaces communicate a sharp recovery promise, but unresolved product
 ## Content rule
 
 Do not publish case studies, recovery numbers, error rates, customer claims, or “AI” capabilities until the supporting evidence and permissions are recorded.
+
+Current public search exposes relevant question and content themes, but exact query volume and SheperD demand remain unknown. Do not use search-result counts as demand evidence. See [[10_Sources/Source - GTM Market and Demand Scan - 2026-07-15]].
 
 ## Sources
 

@@ -73,3 +73,38 @@ Every rate must be sliceable by warm/cold, account segment, persona, channel, me
 - Report sample size beside percentages.
 - Do not call small-sample differences statistically reliable.
 - Preserve lost and no-decision records; they are learning, not cleanup.
+- Version stage, cohort, message, and metric definitions; do not silently restate history after a schema change.
+- Reconcile source-record counts to the scorecard before interpreting movement.
+- Separate active work, elapsed wait, approval latency, rework, and exception time.
+- A missing value remains `unknown`; it is never zero or excluded without a recorded reason.
+
+## Measurement contract
+
+Every metric record includes:
+
+`metric_id · definition_version · numerator · denominator · unit · event time · reporting period · cohort/segment/persona/channel/message/source · sample · exclusions · owner · system/query version · confidence · correction state`
+
+No rate is reported without numerator, denominator, and sample. No before/after difference is called causal when cohort composition, eligibility, period, channel, or message changed.
+
+## Experiment decision contract
+
+For each experiment record quality, active time, wait time, submission friction, false positives, missed opportunities, incident state, and capacity impact beside the primary outcome. Then choose exactly one:
+
+- `continue`: predefined gate and evidence threshold met; same variable/version may continue;
+- `change`: evidence is usable but threshold is not met; change one named variable;
+- `stop`: permission, claim, privacy, capacity, quality, or economic gate failed, or learning no longer justifies exposure.
+
+The first cohort without a baseline is measurement-only. Warm, cold, partner, and inbound cohorts are never blended.
+
+## Optimization loop
+
+1. Admit cohort/message/source/permission.
+2. Execute only after approval.
+3. Capture all activity, outcome, objection, loss/no-decision, time, wait, and friction events.
+4. Reconcile CRM and scorecard.
+5. Change one variable.
+6. Compare equivalent cohorts and report sample/exclusions.
+7. Record continue/change/stop.
+8. Update playbooks only from admitted evidence.
+
+Prioritization scores in [[07_Founder_Operating_System/README|Founder Operating System]] are transparent internal heuristics. They do not establish lift, ROI, repeatability, optimization, or permission.

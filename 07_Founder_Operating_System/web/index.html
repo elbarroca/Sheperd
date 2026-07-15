@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Local evidence-controlled SheperD founder decision workspace"
+    />
+    <title>SheperD Founder Operating System</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to decision workspace</a>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">SHEPERD · FOUNDER CONTROL ROOM</p>
+        <h1>Evidence before motion.</h1>
+      </div>
+      <div class="state-lock" role="status">
+        <span aria-hidden="true"></span>
+        Research-only · external activation blocked
+      </div>
+    </header>
+
+    <nav class="section-nav" aria-label="Workspace sections">
+      <a href="#overview">Overview</a>
+      <a href="#explorer">Data explorer</a>
+      <a href="#query">Query</a>
+      <a href="#priorities">Priority lab</a>
+      <a href="#rules">Decision rules</a>
+    </nav>
+
+    <main id="main">
+      <section id="overview" class="hero-grid" aria-labelledby="overview-title">
+        <div class="hero-copy">
+          <p class="section-label">Current frontier</p>
+          <h2 id="overview-title">The operating system improved. The market evidence did not.</h2>
+          <p>
+            Query admitted sources, blockers, workflows, experiments, measurements, and planning
+            models. Every rank remains subordinate to its evidence, permission, capacity, and human
+            approval gate.
+          </p>
+        </div>
+        <aside class="next-decision" aria-labelledby="next-decision-title">
+          <p class="section-label">Next highest-value decision</p>
+          <h2 id="next-decision-title">Founder truth-and-gates workshop</h2>
+          <p>Admit or reject GAP-001–012. Record one explicit activation GO or NO-GO.</p>
+        </aside>
+      </section>
+
+      <section aria-labelledby="scores-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-label">Internal planning scores</p>
+            <h2 id="scores-title">Four separate truths</h2>
+          </div>
+          <p class="section-note">Scores are not launch approval or performance claims.</p>
+        </div>
+        <div id="score-cards" class="score-grid" aria-live="polite"></div>
+      </section>
+
+      <section class="chart-grid" aria-label="Evidence and experiment distributions">
+        <article class="panel">
+          <p class="section-label">Evidence ledger</p>
+          <h2>Source states</h2>
+          <div id="source-chart" class="bar-chart"></div>
+        </article>
+        <article class="panel">
+          <p class="section-label">Experiment register</p>
+          <h2>Execution states</h2>
+          <div id="experiment-chart" class="bar-chart"></div>
+        </article>
+      </section>
+
+      <section id="explorer" aria-labelledby="explorer-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-label">Structured evidence</p>
+            <h2 id="explorer-title">Data explorer</h2>
+          </div>
+          <label class="field compact">
+            Dataset
+            <select id="table-select"></select>
+          </label>
+        </div>
+        <div id="table-meta" class="table-meta"></div>
+        <div id="table-preview" class="table-shell" tabindex="0"></div>
+      </section>
+
+      <section id="query" class="query-grid" aria-labelledby="query-title">
+        <div>
+          <p class="section-label">Read-only SQLite</p>
+          <h2 id="query-title">Ask the admitted data directly</h2>
+          <p>
+            One bounded <code>SELECT</code> or <code>WITH</code> query. No mutations, comments,
+            attachments, customer data, or external access.
+          </p>
+          <label class="field">
+            SQL query
+            <textarea id="sql-input" rows="8" spellcheck="false">SELECT blocker_id, gate, owner, next_action
+FROM blockers
+WHERE current_state = 'blocked'
+ORDER BY blocker_id</textarea>
+          </label>
+          <button id="run-query" type="button">Run read-only query</button>
+          <p id="query-status" class="status-text" role="status"></p>
+        </div>
+        <div id="query-results" class="table-shell" tabindex="0"></div>
+      </section>
+
+      <section id="priorities" aria-labelledby="priority-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-label">Transparent planning heuristic</p>
+            <h2 id="priority-title">Priority lab</h2>
+          </div>
+          <p class="section-note">Blocked work stays blocked regardless of score.</p>
+        </div>
+        <div class="priority-layout">
+          <form id="weight-form" class="weight-panel">
+            <label>
+              <span>Learning value</span>
+              <output id="learning-output">35</output>
+              <input id="learning-weight" type="range" min="0" max="100" value="35" />
+            </label>
+            <label>
+              <span>Evidence readiness</span>
+              <output id="readiness-output">35</output>
+              <input id="readiness-weight" type="range" min="0" max="100" value="35" />
+            </label>
+            <label>
+              <span>Lower risk</span>
+              <output id="risk-output">20</output>
+              <input id="risk-weight" type="range" min="0" max="100" value="20" />
+            </label>
+            <label>
+              <span>Lower effort</span>
+              <output id="effort-output">10</output>
+              <input id="effort-weight" type="range" min="0" max="100" value="10" />
+            </label>
+            <button type="submit">Re-rank planning options</button>
+          </form>
+          <div>
+            <p id="ranking-warning" class="warning-copy"></p>
+            <div id="ranking-results" class="ranking-list" aria-live="polite"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="rules" class="rules-grid" aria-labelledby="rules-title">
+        <div>
+          <p class="section-label">Non-negotiable</p>
+          <h2 id="rules-title">Decision rules</h2>
+        </div>
+        <ul>
+          <li>Missing owner, permission, secure path, approver, baseline, or rollback blocks work.</li>
+          <li>Warm, cold, partner, and inbound cohorts never share a denominator.</li>
+          <li>Active time, wait, rework, and exceptions stay separate.</li>
+          <li>Small samples never become proven, repeatable, optimized, or scalable claims.</li>
+          <li>D2 belongs in an approved CRM. D3 remains outside this workspace and AI.</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer>
+      <p>Local D0/D1 decision support · no external connectors · no customer data</p>
+    </footer>
+  </body>
+</html>

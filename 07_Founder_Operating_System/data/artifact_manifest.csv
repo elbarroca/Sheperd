@@ -1,0 +1,12 @@
+artifact_id,path,purpose,canonical,owner,state
+ART-001,03_GTM/SheperD GTM Validation and Optimization - Control Note.md,Control state decisions blockers experiments and cadence,yes,Michael,active
+ART-002,02_Domain/Market and Competitive Landscape.md,Market buyer category competitor and demand evidence,yes,Michael,active
+ART-003,03_GTM/ICP and Stakeholder Personas.md,Buyer and account admission hypotheses,yes,Michael,hypothesis
+ART-004,03_GTM/Sales and Objection Playbook.md,Positioning offer qualification objection and safe message system,yes,Michael,draft-blocked
+ART-005,03_GTM/Content and Distribution System.md,Website content backlog draft families and publication controls,yes,Michael,draft-blocked
+ART-006,90_Templates/GTM Operator Kit.md,Implementation-ready internal templates,yes,Michael,ready-internal
+ART-007,04_Operations/CRM Data Model.md,CRM object event field and control contract,yes,Michael,proposed
+ART-008,04_Operations/Operating Cadence and KPI Dictionary.md,Metric and decision definitions,yes,Michael,proposed
+ART-009,05_AI/AI Enablement Roadmap.md,Deterministic copilot and future-agent layers,yes,Michael,proposed-blocked
+ART-010,07_Founder_Operating_System/README.md,Founder query visualization and optimization guide,yes,Michael,active
+ART-011,07_Founder_Operating_System/QA_REPORT.md,Reproducible engineering browser and adversarial acceptance record,yes,Michael,accepted-internal

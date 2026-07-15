@@ -18,6 +18,34 @@ Use AI first for retrieval, drafting, summarization, and quality control. Use de
 
 No workflow below is active. [[05_AI/Human Approval Policy]] is still proposed; Avi plus the relevant legal/privacy, product/security, and domain owners must approve it before any pilot.
 
+## Layered control model
+
+| Layer | Scope | Current state | Release boundary |
+|---|---|---|---|
+| 0 — deterministic controls | Claim/source/expiry; permission/DNC; required fields; duplicate candidates; routing; timers; attribution; KPI reconciliation; capacity/approval alerts | Designed; synthetic tests only | Append pass/block/exception/proposal; never execute material action |
+| 1 — reviewed copilots | Cited research/account briefs; meeting prep; structured notes; CRM drafts; objections; content; metric narratives | Designed; blocked | `DRAFT - HUMAN REVIEW REQUIRED`; least privilege; named approval |
+| 2 — future monitored internal agents | Approved D0/D1 aggregation; experiment comparison; stale-evidence monitoring; backlog/decision proposals | Not approved | Requires bounded state machine, tools, owner, audit, synthetic failures, fallback, rollback |
+| 3 — prohibited until separate approval | Auto-send/publish; qualification/stage; data acceptance; eligibility/recovery; pricing/contracts; filing; irreversible mutation | Prohibited | Human-only; no connector or execution permission |
+
+## Universal workflow contract
+
+Every deterministic, copilot, or future-agent workflow must record:
+
+1. Owner and accountable approver.
+2. Purpose, trigger, eligibility, exclusion, and stop condition.
+3. Permission, tools/systems, and least-privilege scope.
+4. Allowed data class, region, subprocessor, and retention.
+5. Versioned inputs, sources, rules/prompts/models, and output schema.
+6. Human review and prohibited actions.
+7. Audit log, correction, override, incident, and expiry.
+8. Manual baseline, pilot sample, quality, active-time, and wait metrics.
+9. False-positive and missed-opportunity cost.
+10. Continue/change/stop threshold.
+11. Fallback and rollback.
+12. Decision date and evidence state.
+
+Missing any item blocks the workflow. A prompt cannot substitute for absent technical permission or connector controls.
+
 ## Data classes
 
 - **D0 — public:** public sources and approved public claims.
@@ -55,6 +83,8 @@ For each workflow:
 6. Use least-privilege access.
 7. Decide continue/change/stop before expanding.
 8. Record owner, data class, tool, permissions, success threshold, rollback, and state change.
+9. Use `DRAFT - HUMAN REVIEW REQUIRED` exactly for every assisted output.
+10. Preserve active time, review time, wait, false positives, missed alerts, overrides, and incidents separately.
 
 ## Initial stack shape
 
@@ -73,6 +103,10 @@ For each workflow:
 - False alert and missed-alert rates.
 - User confidence and override rate.
 - Privacy/security incidents: target zero.
+
+## Future-agent admission test
+
+Layer 2 remains blocked until Layer 0 passes critical-gate recall on approved synthetic failures, Layer 1 demonstrates citation/quality and review value on permitted records, owners and retention are approved, and the bounded agent has no external/material execution tool. One failure involving sensitive data, unsupported regulatory meaning, unauthorized action, or material record mutation stops the pilot and returns the process to the manual fallback.
 
 ## Related
 

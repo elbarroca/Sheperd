@@ -19,3 +19,10 @@
 **/.vercel/
 **/*.tsbuildinfo
 **/pnpm-debug.log*
+
+# Python build, environment, and tool output
+**/.venv/
+**/__pycache__/
+**/.mypy_cache/
+**/.ruff_cache/
+**/*.py[cod]

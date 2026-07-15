@@ -14,14 +14,14 @@ tags:
 # QA and Acceptance Report
 
 > [!abstract] Acceptance result
-> The exact 14-artifact research package passed the evidence, vault, CSV, formula, cross-reference, privacy, offline-browser, interaction, accessibility, responsive, print, no-JavaScript, link, lint, typecheck, and test gates on 2026-07-15. Independent adversarial review found no P0, 11 P1, and 4 P2 defects; every P1 and P2 was repaired and the affected gates were rerun. There are **zero unresolved P0/P1 findings**. This accepts the research package, not external activation: SheperD remains **research-only / external activation blocked**.
+> The exact 14-artifact research package passed the evidence, vault, CSV, formula, cross-reference, privacy, offline-browser, interaction, accessibility, responsive, print, no-JavaScript, link, lint, typecheck, and test gates on 2026-07-15. Independent adversarial review found no P0, 11 P1, and 4 P2 defects; every P1 and P2 was repaired and the affected gates were rerun. The later GTM extension and founder workspace also passed their scoped engineering, browser, data, and fail-closed review. There are **zero unresolved P0/P1 findings**. This accepts the internal artifacts, not external activation: SheperD remains **research-only / external activation blocked**.
 
 ## Acceptance summary
 
 | Gate | Result | Evidence |
 |---|---|---|
 | Exact artifact contract | Pass | 14/14 files exist; no extra file exists under `06_Research/` |
-| Evidence and legal boundaries | Pass | 38 source rows; controlled evidence states; current Part 541, §41301, route, Evergreen, and FTC boundaries preserved |
+| Evidence and legal boundaries | Pass | 42 source rows; controlled evidence states; current Part 541, §41301, route, Evergreen, FTC, FMC audit, port-volume, and GTM source boundaries preserved |
 | Vault integrity | Pass | YAML parsed; internal wikilinks resolved; dated source notes follow the property contract |
 | Workflow coverage | Pass | 45/45 workflows; Week 0, 16/16 weeks, 4/4 gates, 8/8 workstreams; every row classified |
 | Step and AI traceability | Pass | Stable workflow-step IDs; 26/26 opportunities resolve to same-class steps; no bounded-agent step is active |
@@ -56,7 +56,7 @@ The validator checks exact artifacts, YAML, wikilinks, CSV width/schema/IDs/refe
 
 | Dataset | Rows | Controlled result |
 |---|---:|---|
-| `source-ledger.csv` | 38 | 15 verified; 14 company-claim; 5 mixed; 2 unverified; 1 internal-proposal; 1 internal-observation |
+| `source-ledger.csv` | 42 | 17 verified; 15 company-claim; 6 mixed; 2 unverified; 1 internal-proposal; 1 internal-observation |
 | `workflows.csv` | 45 | 25 blocked; 8 needs-owner; 8 mapped; 4 out-of-scope |
 | `ai-opportunities.csv` | 26 | 10 deterministic; 9 assisted; 7 human-only; 0 bounded-agent |
 | `time-savings.csv` | 30 | 10 models × low/base/high |
@@ -90,6 +90,23 @@ The seventh bounded assignment was independent and did not author the reviewed m
 | Four dated source notes lacked `updated` | P2 | Added `updated: 2026-07-15`; scanned every source checked that day | YAML/property scan |
 | Evergreen summary contained an unsupported delay-cost clause | P2 | Removed the unsupported clause while preserving the fact-specific boundary | Dossier review |
 | HQ final links were absent | P2 | Added only after the package passed QA | Wikilink validator |
+
+## GTM extension acceptance — 2026-07-15
+
+The GTM extension added the validation control note, current market/demand scan, buyer and channel refinements, claims, content and operator templates, experiment and measurement registers, AI controls, and the local founder query/visualization/ranking workspace. Its reproducible record is [[07_Founder_Operating_System/QA_REPORT]].
+
+| Gate | Result |
+|---|---|
+| Python lint | Pass: Ruff |
+| Strict typecheck | Pass: mypy over 8 source files |
+| Unit and HTTP tests | Pass: 8/8 |
+| Scoped vault/data validator | Pass: 470 checks |
+| Fail-closed adversarial rules | Pass: 22 checks; P0=0; P1=0 |
+| Research-report reconciliation | Pass: 42 embedded source rows equal the current ledger |
+| Browser interaction and health | Pass: explorer/query/ranker; 0 console warnings/errors; 0 overlays; 0 external resources |
+| Responsive inspection | Pass: 1280×720 and 390×844; no document overflow; mobile score/title defect repaired and retested |
+
+The GTM scores are separate planning assessments: research system `9.3/10`, GTM design `9.2/10`, real market evidence `1.8/10`, and safe execution readiness `3.3/10`. Only the system/design scores improved; no market-validation claim was promoted.
 
 ## Link and access fallbacks
 

@@ -1,0 +1,13 @@
+week,asset_hypothesis,primary_question,primary_evidence,required_gate,current_state,canonical_source
+1,Invoice-readiness checklist,What must be present?,SRC-002 and reviewer,claims-and-product,internal-outline,03_GTM/Content and Distribution System.md
+2,Evidence chronology explainer,Which records establish the timeline?,SRC-039 and reviewer,claims,internal-outline,03_GTM/Content and Distribution System.md
+3,Route comparison,What escalation options differ?,SRC-021,domain-legal,internal-outline,03_GTM/Content and Distribution System.md
+4,Finance reconciliation worksheet,How do cash credit waiver and cancellation differ?,Approved KPI and outcome definitions,finance-commercial,blocked,03_GTM/Content and Distribution System.md
+5,Secure-intake explainer,What happens before files move?,Approved privacy and security pack,privacy-security,blocked,03_GTM/Content and Distribution System.md
+6,Prevention versus recovery guide,When should a team track audit dispute or outsource?,SRC-042 and product truth,claims-and-product,internal-outline,03_GTM/Content and Distribution System.md
+7,CFO FAQ,How are fee effort proof and timing handled?,Approved commercial terms,commercial-legal,blocked,03_GTM/Content and Distribution System.md
+8,Logistics FAQ,How are facts and carrier relationships handled?,Demonstrated workflow,product-and-domain,blocked,03_GTM/Content and Distribution System.md
+9,AP and data checklist,How is submission friction reduced?,Approved intake checklist and SLA,product-security,blocked,03_GTM/Content and Distribution System.md
+10,Partner briefing,What makes a safe referral?,Approved partner terms and SLA,commercial-privacy,blocked,03_GTM/Content and Distribution System.md
+11,Product truth page,What is service MVP pilot and roadmap?,Founder demo and truth table,product-and-Avi,blocked,03_GTM/Content and Distribution System.md
+12,Evidence-backed case format,What proof is publication safe?,Admitted case and permission,customer-legal-Avi,blocked,03_GTM/Content and Distribution System.md

@@ -4,6 +4,7 @@ type: scorecard
 status: draft
 owner: Michael
 week_ending: "{{date}}"
+updated: 2026-07-15
 evidence_status: internal-data
 confidentiality: internal
 tags:
@@ -40,6 +41,13 @@ Outcome reasons: won / lost / no decision / disqualified / no response / incompl
 | Request → valid submission | | | |
 | Submission → result | | | |
 
+## Active time, wait, and friction
+
+| Workflow/cohort | Active minutes | Wait days | Missing-item loops | Approval latency | Sample | Source |
+|---|---:|---:|---:|---:|---:|---|
+
+Never report wait reduction as labor savings.
+
 ## Quality
 
 - CRM completeness:
@@ -52,6 +60,16 @@ Outcome reasons: won / lost / no decision / disqualified / no response / incompl
 - Supported:
 - Rejected:
 - Unknown:
+
+## Evidence and capacity gates
+
+- Product/data backlog and SLA:
+- Reviewer backlog and SLA:
+- Claim/source expiries:
+- Privacy/security incidents:
+- New work added:
+- Work stopped/deferred:
+- New activation allowed: yes/no — reason:
 
 ## Continue / change / stop
 

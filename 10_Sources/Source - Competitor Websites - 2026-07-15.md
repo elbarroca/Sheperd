@@ -26,6 +26,8 @@ tags:
 - [MiraLedger](https://www.miraledger.io/): carrier-invoice audit, dispute packs, and recovery reporting.
 - [Intelligent Audit](https://www.intelligentaudit.com/case-studies/reducing-demurrage-and-detention-costs-through-invoice-validation): broader freight audit with a vendor-reported D&D case study.
 - [GoComet](https://www.gocomet.com/solutions/reduce-supply-chain-costs): prevention/visibility alternative.
+- [Dockline](https://docklineai.com/): broad drayage invoice audit, contract checking, terminal-data verification, and dispute-ready evidence.
+- [Portside Recovery](https://portsiderecovery.com/): adjacent Australia-focused specialist recovery model; not direct U.S. evidence.
 
 ## Public pricing and proof signals
 
@@ -38,6 +40,8 @@ tags:
 | MiraLedger | Pilot and volume plans; quote required | Unnamed pilots and outcome language unverified |
 | Intelligent Audit | Enterprise pricing not public | Anonymized case and audit-point counts vary across pages |
 | GoComet | Basic tracker free; advanced plans by quote | Broad prevention claims do not validate D&D recovery |
+| Dockline | No public price observed in this scan | Product, integrations, customer use, and outcomes unverified |
+| Portside Recovery | 30% success fee with a displayed per-dispute cap | Australia-focused vendor claims; geography and legal context differ |
 
 ## Limitation
 

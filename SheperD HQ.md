@@ -61,6 +61,7 @@ Current operating state: [[04_Operations/Weekly Scorecards/2026-07-13 - Activati
 
 - Website handoff: [[website/README|Website engineering handoff]]
 - Deep research: [[06_Research/SheperD Deep Research - Control Note|Control note]] · [[06_Research/SheperD Interactive Report.html|Standalone interactive report]]
+- GTM validation: [[03_GTM/SheperD GTM Validation and Optimization - Control Note|GTM control note]] · [[07_Founder_Operating_System/README|Founder query and visualization workspace]]
 - Autonomous goals: [[06_Goals/Goal 1 - Deep Intelligence and AI Operations]] · [[06_Goals/Goal 2 - 10 of 10 Next.js Website]]
 - Company: [[01_Company/Company Brief]] · [[01_Company/Product and Business Model]] · [[01_Company/Founder - Avi Manaim]]
 - Evidence: [[01_Company/Claims and Evidence Register]] · [[01_Company/Open Questions and Diligence]]

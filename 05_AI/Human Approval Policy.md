@@ -46,7 +46,14 @@ tags:
 
 ## Output labels
 
-Every AI draft must visibly state `DRAFT — HUMAN REVIEW REQUIRED`, list its sources, and flag missing evidence. No system should remove that label before approval.
+Every AI draft must visibly state `DRAFT - HUMAN REVIEW REQUIRED`, list its sources, claim IDs where external wording is involved, data class, owner, approver, and missing evidence. No system should remove that label before approval.
+
+## Tool and connector rule
+
+- Drafting workflows have no send, publish, file, stage-change, qualification, data-acceptance, pricing, deletion, or merge permission.
+- Deterministic checks append pass/block/exception results only.
+- Human approval is action-specific, wording/version-specific, channel-specific, dated, and expiring; one approval never becomes blanket authority.
+- A missing owner, approver, permission, approved tool, retention rule, baseline, threshold, fallback, audit log, or rollback blocks the workflow.
 
 ## Incident rule
 
