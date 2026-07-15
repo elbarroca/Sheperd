@@ -46,6 +46,7 @@ export default async function KnowledgePage({ searchParams }: KnowledgePageProps
         files={files}
         initialFiles={initialFiles}
         initialActivePath={initialActivePath}
+        initialReaderOpen={validFiles.length > 0}
         invalidRequest={invalidRequest}
         searchSlot={<ResearchSearch />}
       />
