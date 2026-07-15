@@ -100,7 +100,7 @@ The GTM extension added the validation control note, current market/demand scan,
 | Python lint | Pass: Ruff |
 | Strict typecheck | Pass: mypy over 8 source files |
 | Unit and HTTP tests | Pass: 8/8 |
-| Scoped vault/data validator | Pass: 470 checks |
+| Scoped vault/data validator | Pass: 472 checks |
 | Fail-closed adversarial rules | Pass: 22 checks; P0=0; P1=0 |
 | Research-report reconciliation | Pass: 42 embedded source rows equal the current ledger |
 | Browser interaction and health | Pass: explorer/query/ranker; 0 console warnings/errors; 0 overlays; 0 external resources |
