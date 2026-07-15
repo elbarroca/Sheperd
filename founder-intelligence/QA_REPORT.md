@@ -10,7 +10,7 @@ Verified locally on **2026-07-15** against the committed D0/D1 research snapshot
 | Complete catalog contract | Pass | 88/88 files visible; two short templates preserved with explicit zero-section states |
 | ESLint | Pass | `pnpm lint` |
 | Strict TypeScript | Pass | `pnpm typecheck` |
-| Unit/data tests | Pass | 7 files, 15 tests via `pnpm test` |
+| Unit/data tests | Pass | 8 files, 17 tests via `pnpm test` |
 | Impeccable anti-pattern scan | Pass | `npx --yes impeccable detect src/`; zero findings |
 | Production build | Pass | Next.js 16.2.10; 5 product views and 2 dynamic local APIs |
 
@@ -36,6 +36,8 @@ Verified with the Codex in-app browser against the local Next.js development ser
 - The founder Brief now exposes five traceable research questions with separate founder and Michael consequences.
 - The operating plan reconciles all 45 workflows and exposes the five-step `Admit → Route → Prepare → Execute after GO → Decide` loop.
 - The new comprehension surfaces passed at 390px with one H1, semantic ordered/definition-list structure, and zero document-level horizontal overflow.
+- The revised Brief exposes one executive thesis, a preparation-versus-proof comparison, and five evidence-state-labelled golden nuggets before the full research detail.
+- All five routes were rechecked at 1440px and 390px: one H1, one active navigation item, and zero document-level horizontal overflow on every route.
 
 ## Live brand sync
 

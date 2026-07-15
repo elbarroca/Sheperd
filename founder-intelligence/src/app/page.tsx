@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { DecisionFlow } from "@/components/decision-flow";
 import { EvidenceTide } from "@/components/evidence-tide";
+import { ExecutiveReadout } from "@/components/executive-readout";
 import { IntelligenceCharts } from "@/components/intelligence-charts";
 import { PageHeader } from "@/components/page-header";
 import { ResearchSynthesis } from "@/components/research-synthesis";
@@ -22,8 +23,8 @@ export default function FounderBriefPage() {
     <>
       <PageHeader
         eyebrow="Private founder brief"
-        title="All the evidence. One founder view."
-        description="Turn SheperD's full research corpus into decisions without hiding uncertainty, ownership, or the source behind a conclusion."
+        title="Prepared to learn. Not cleared to scale."
+        description="The research system and GTM design are strong. Market proof, authority, and safe execution are not. This brief shows what founders must decide and what Michael can prepare now."
         actions={<><Link className="primary-action" href="/research">Explore all sources <DirectionalArrow /></Link><Link className="secondary-action" href="/improvements">Review open gates</Link></>}
         meta={<><span>Current posture</span><strong>Hold external activation</strong><small>Evidence snapshot {overview.sourceDate}</small></>}
       />
@@ -47,6 +48,8 @@ export default function FounderBriefPage() {
           <Link href="/improvements">Open the decision map <span aria-hidden="true">→</span></Link>
         </div>
       </section>
+
+      <ExecutiveReadout scores={overview.scores} />
 
       <ResearchSynthesis />
 

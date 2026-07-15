@@ -28,6 +28,7 @@ Open `http://localhost:3000`.
 
 - Founder brief with current posture, observed facts, next decision, and a gated operating flow.
 - Five-question research synthesis showing what was studied, what was found, and the separate founder and Michael consequences.
+- 60-second executive readout with the core thesis, preparation-versus-proof contrast, and five evidence-state-labelled golden nuggets.
 - Screenshot-informed control-room UI with a compact task bar, responsive active navigation, and a dark-to-light analytical rhythm.
 - Live `sheperd.io` brand provenance with the exact public dog-head mark, wordmark casing, observed design tokens, and explicit company-claim boundary.
 - Complete 88-file evidence library with folder/layer filtering, lazy section retrieval, full source paths, and explicit empty states.

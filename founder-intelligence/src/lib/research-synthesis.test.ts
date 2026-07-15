@@ -8,6 +8,7 @@ describe("research synthesis", () => {
 
     for (const theme of researchThemes) {
       expect(theme.question.length).toBeGreaterThan(20);
+      expect(theme.executiveTakeaway.length).toBeGreaterThan(60);
       expect(theme.finding.length).toBeGreaterThan(40);
       expect(theme.founderMove.length).toBeGreaterThan(30);
       expect(theme.michaelMove.length).toBeGreaterThan(30);

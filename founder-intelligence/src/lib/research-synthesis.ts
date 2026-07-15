@@ -4,6 +4,7 @@ export type ResearchTheme = {
   id: string;
   theme: string;
   question: string;
+  executiveTakeaway: string;
   studied: string;
   finding: string;
   founderMove: string;
@@ -17,6 +18,7 @@ export const researchThemes: readonly ResearchTheme[] = [
     id: "RS-01",
     theme: "Company truth",
     question: "What company and mandate are we actually operating?",
+    executiveTakeaway: "The brand is visible; legal authority, ownership, and operating proof are incomplete.",
     studied: "Entity, founder role, authority, product state, claims, security, economics, and delivery capacity.",
     finding: "The SheperD brand and founder direction are visible. The legal and operating proof pack is not complete enough for external activation.",
     founderMove: "Admit named owners, demonstrations, dated decisions, and signed authority—or keep each gate blocked.",
@@ -28,6 +30,7 @@ export const researchThemes: readonly ResearchTheme[] = [
     id: "RS-02",
     theme: "Problem and domain",
     question: "Is D&D recovery a real, addressable problem?",
+    executiveTakeaway: "The recovery problem is material, but eligibility, economics, and outcomes stay case-specific.",
     studied: "D&D rules, invoice evidence, deadlines, dispute routes, buyer pain, competitors, and claim boundaries.",
     finding: "The process is material and evidence-heavy. Eligibility, route, recovery, and economics remain case-specific and reviewer-dependent.",
     founderMove: "Approve exact positioning and reviewed claims. Do not promise blanket eligibility, recovery, or automation.",
@@ -39,6 +42,7 @@ export const researchThemes: readonly ResearchTheme[] = [
     id: "RS-03",
     theme: "Market learning",
     question: "Who should SheperD learn from first?",
+    executiveTakeaway: "The GTM learning system is specified; demand, willingness to pay, and delivery economics are not proven.",
     studied: "ICP, personas, journey, channels, partners, CRM, content, cohorts, and commercial experiments.",
     finding: "The commercial learning system is well specified. Demand, willingness to pay, conversion, and delivery economics are not yet proven by comparable cohorts.",
     founderMove: "Authorize one bounded cohort only after the activation gates pass and capacity is named.",
@@ -50,6 +54,7 @@ export const researchThemes: readonly ResearchTheme[] = [
     id: "RS-04",
     theme: "Operating system",
     question: "Can Michael run this without absorbing specialist authority?",
+    executiveTakeaway: "Michael can orchestrate GTM and RevOps, but specialists must retain material approval rights.",
     studied: "Forty-five workflows across safe start, knowledge, GTM, delivery, learning, and governance.",
     finding: "Eight workflows are mapped internally, 25 are blocked, eight need an owner, and four sit outside Michael's independent scope.",
     founderMove: "Name owners, approvers, tools, response SLAs, and capacity before assigning outcome accountability.",
@@ -61,6 +66,7 @@ export const researchThemes: readonly ResearchTheme[] = [
     id: "RS-05",
     theme: "AI and automation",
     question: "Where can automation help without creating hidden risk?",
+    executiveTakeaway: "Automation should begin with deterministic controls; no AI pilot or measured benefit exists.",
     studied: "Deterministic controls, reviewed drafts, human-only decisions, data classes, and modeled time savings.",
     finding: "No AI pilot is active and the benefit is not measured. Deterministic gates come first; D3 and material actions stay human-only.",
     founderMove: "Approve policy, tool, data path, owner, baseline, logging, retention, and rollback before any pilot.",

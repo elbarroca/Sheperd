@@ -43,12 +43,13 @@ The product preserves that energy while prioritizing auditability and dense rese
 
 Every primary view follows this order:
 
-1. Page purpose and current boundary.
+1. Page thesis and current boundary.
 2. Decision-critical summary.
-3. Flow, map, chart, or evidence visualization.
-4. Supporting detail and source traceability.
+3. Core message and golden nuggets.
+4. Flow, map, chart, or evidence visualization.
+5. Supporting detail and source traceability.
 
-The founder Brief adds a five-question synthesis immediately after the current decision posture. It translates the corpus into `studied → found → founder move → Michael move` before exposing deeper charts and files.
+The founder Brief leads with `Prepared to learn. Not cleared to scale.`, then contrasts strong internal preparation with weak external proof. Five evidence-state-labelled golden nuggets provide the 60-second read. The complete `studied → found → founder move → Michael move` trail remains available through progressive disclosure before deeper charts and files.
 
 Navigation uses founder tasks: Brief, Decision map, Operating plan, Evidence library, and Ricardo notes.
 
@@ -63,6 +64,7 @@ Navigation uses founder tasks: Brief, Decision map, Operating plan, Evidence lib
 - Panels use a 14px radius, controls use an 8px radius, and status labels may use pills.
 - Fine borders carry structure; restrained shadows lift only major analytical surfaces.
 - The interface uses one dark-to-light theme rhythm rather than independent themed sections.
+- The signature analytical element is the preparation-versus-proof tension: the visual system places strong research/GTM design beside weak market evidence/readiness and states plainly that preparation does not prove demand.
 
 ## Typography
 
