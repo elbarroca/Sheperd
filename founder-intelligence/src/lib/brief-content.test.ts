@@ -15,7 +15,7 @@ describe("founder brief content", () => {
 
   it("creates a shareable deep link for the complete plan", () => {
     expect(researchFileHref(MICHAEL_PLAN_SOURCE_PATH)).toBe(
-      "/research?file=10_Sources%2FSource%20-%2016%20Week%20Engagement%20Plan.md",
+      "/knowledge?file=10_Sources%2FSource%20-%2016%20Week%20Engagement%20Plan.md",
     );
   });
 });

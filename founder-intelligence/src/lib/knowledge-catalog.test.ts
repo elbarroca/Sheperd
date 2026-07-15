@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildKnowledgeCatalog, buildKnowledgeFileDetail, buildKnowledgeLayerStats } from "./knowledge-catalog";
+import {
+  buildKnowledgeCatalog,
+  buildKnowledgeFileDetail,
+  buildKnowledgeLayerStats,
+  findAdmittedKnowledgeFile,
+} from "./knowledge-catalog";
 import type { KnowledgeChunk } from "./types";
 
 const chunks: KnowledgeChunk[] = [
@@ -30,6 +35,11 @@ const chunks: KnowledgeChunk[] = [
 ];
 
 describe("knowledge catalog", () => {
+  it("rejects paths outside the admitted corpus", () => {
+    const catalog = buildKnowledgeCatalog(chunks);
+    expect(findAdmittedKnowledgeFile(catalog, "../../.env.local")).toBeNull();
+    expect(findAdmittedKnowledgeFile(catalog, "/etc/passwd")).toBeNull();
+  });
   it("groups chunks into a deterministic file summary", () => {
     const catalog = buildKnowledgeCatalog(chunks);
 

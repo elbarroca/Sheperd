@@ -121,6 +121,13 @@ export function buildKnowledgeFileDetail(
   };
 }
 
+export function findAdmittedKnowledgeFile(
+  catalog: KnowledgeFileSummary[],
+  path: string,
+): KnowledgeFileSummary | null {
+  return catalog.find((file) => file.path === path) ?? null;
+}
+
 export function buildKnowledgeLayerStats(
   chunks: KnowledgeChunk[],
   catalog: KnowledgeFileSummary[],

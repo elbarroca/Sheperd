@@ -149,3 +149,39 @@ export interface Blocker {
   current_state: string;
   next_action: string;
 }
+
+export type CompetitorCategory = "recovery" | "audit" | "enterprise";
+
+export interface CompetitorProfile {
+  id: string;
+  name: string;
+  url: string;
+  category: CompetitorCategory;
+  categoryLabel: string;
+  specialization: number;
+  workflowBreadth: number;
+  offer: string;
+  pricingSignal: string;
+  evidenceBoundary: string;
+}
+
+export interface MarketSignal {
+  id: string;
+  value: string;
+  label: string;
+  meaning: string;
+  boundary: string;
+  url?: string;
+}
+
+export type MichaelTaskState = "prepare-now" | "approval-gated";
+
+export interface MichaelTask {
+  id: string;
+  workstream: string;
+  outcome: string;
+  aiAssist: string;
+  humanDecision: string;
+  state: MichaelTaskState;
+  sourcePath: string;
+}

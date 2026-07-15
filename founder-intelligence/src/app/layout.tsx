@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
 import { SHEPERD_BRAND } from "@/lib/brand";
+import "@xyflow/react/dist/style.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -8,7 +9,7 @@ export const metadata: Metadata = {
     default: `${SHEPERD_BRAND.name} Founder Intelligence`,
     template: `%s | ${SHEPERD_BRAND.name} Intelligence`,
   },
-  description: "Evidence-controlled research, Ricardo interpretation, and founder decisions for SheperD.",
+  description: "Competitor, market, operating, and source intelligence for SheperD.",
   icons: {
     icon: [
       { url: "/favicon.svg", type: "image/svg+xml" },

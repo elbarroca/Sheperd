@@ -1,7 +1,12 @@
 import "server-only";
 
 import knowledgeJson from "@/generated/knowledge-index.json";
-import { buildKnowledgeCatalog, buildKnowledgeFileDetail, buildKnowledgeLayerStats } from "./knowledge-catalog";
+import {
+  buildKnowledgeCatalog,
+  buildKnowledgeFileDetail,
+  buildKnowledgeLayerStats,
+  findAdmittedKnowledgeFile,
+} from "./knowledge-catalog";
 import type { KnowledgeFileDetail, KnowledgeFileSummary, KnowledgeIndex, SearchResult } from "./types";
 import { searchIndex } from "./vector-search";
 
@@ -31,7 +36,7 @@ export function getKnowledgeCatalog(): KnowledgeFileSummary[] {
 }
 
 export function getKnowledgeFile(path: string): KnowledgeFileDetail | null {
-  const summary = catalog.find((file) => file.path === path);
+  const summary = findAdmittedKnowledgeFile(catalog, path);
   return summary ? buildKnowledgeFileDetail(knowledge.chunks, summary) : null;
 }
 

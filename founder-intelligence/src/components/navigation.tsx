@@ -6,15 +6,13 @@ import { usePathname } from "next/navigation";
 import { FilesIcon } from "@phosphor-icons/react/dist/csr/Files";
 import { GraphIcon } from "@phosphor-icons/react/dist/csr/Graph";
 import { NotePencilIcon } from "@phosphor-icons/react/dist/csr/NotePencil";
-import { SquaresFourIcon } from "@phosphor-icons/react/dist/csr/SquaresFour";
 import { UsersFourIcon } from "@phosphor-icons/react/dist/csr/UsersFour";
 
 const links = [
-  { href: "/", label: "Brief", icon: SquaresFourIcon },
-  { href: "/improvements", label: "Decisions", icon: GraphIcon },
-  { href: "/mikey", label: "Operating plan", icon: UsersFourIcon },
-  { href: "/research", label: "Evidence", icon: FilesIcon },
-  { href: "/ricardo", label: "Analysis", icon: NotePencilIcon },
+  { href: "/competitors", label: "Competitors", icon: UsersFourIcon },
+  { href: "/market", label: "Market", icon: GraphIcon },
+  { href: "/michael", label: "Michael", icon: NotePencilIcon },
+  { href: "/knowledge", label: "Knowledge map", icon: FilesIcon },
 ];
 
 export function Navigation() {
@@ -32,7 +30,7 @@ export function Navigation() {
   return (
     <nav ref={navRef} className="side-nav" aria-label="Founder intelligence sections">
       {links.map((link) => {
-        const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
+        const active = pathname.startsWith(link.href);
         const Icon = link.icon;
         return (
           <Link

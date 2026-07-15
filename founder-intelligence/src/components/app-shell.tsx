@@ -10,7 +10,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <a className="skip-link" href="#main-content">Skip to content</a>
       <header className="topbar">
         <div className="topbar-inner">
-          <Link className="brand-lockup" href="/" aria-label={`${SHEPERD_BRAND.name} founder intelligence home`}>
+          <Link className="brand-lockup" href="/competitors" aria-label={`${SHEPERD_BRAND.name} founder intelligence home`}>
             <Image className="brand-mark" src={SHEPERD_BRAND.logo.path} alt="" width={47} height={36} priority />
             <div>
               <p className="brand-name">{SHEPERD_BRAND.name}</p>

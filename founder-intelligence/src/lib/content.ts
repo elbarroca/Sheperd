@@ -3,7 +3,7 @@ import type { BriefLens } from "./types";
 export const MICHAEL_PLAN_SOURCE_PATH = "10_Sources/Source - 16 Week Engagement Plan.md";
 
 export function researchFileHref(path: string): string {
-  return `/research?file=${encodeURIComponent(path)}`;
+  return `/knowledge?file=${encodeURIComponent(path)}`;
 }
 
 export const briefLenses: readonly BriefLens[] = [
