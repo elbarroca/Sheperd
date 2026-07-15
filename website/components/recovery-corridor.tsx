@@ -200,7 +200,6 @@ export function RecoveryCorridor() {
                 fill
                 sizes="(max-width: 820px) calc(100vw - 40px), 52vw"
                 quality={90}
-                loading="eager"
                 alt="Import containers, terminal handling equipment, and a tractor operating in a marine container yard at blue hour."
               />
               <div className="container-journey-caption">
