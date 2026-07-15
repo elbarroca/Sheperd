@@ -137,6 +137,35 @@ export interface RankedExperiment extends Experiment {
   priorityScore: number;
 }
 
+export type DecisionRoomExecutionState =
+  | "prepare-now"
+  | "synthetic-only"
+  | "blocked-external"
+  | "blocked-publication"
+  | "blocked-security";
+
+export type DecisionRoomExperimentDecision = "continue" | "change" | "stop";
+
+export interface DecisionRoomExperiment {
+  experimentId: string;
+  name: string;
+  hypothesis: string;
+  segment: string;
+  persona: string;
+  channel: string;
+  messageVersion: string;
+  cohort: string;
+  executionState: DecisionRoomExecutionState;
+  expectedLearning: string;
+  decisionDate: string;
+  continueThreshold: string;
+  changeThreshold: string;
+  stopThreshold: string;
+  result: string | null;
+  decision: DecisionRoomExperimentDecision | null;
+  sourcePath: string;
+}
+
 export interface PriorityWeights {
   learningValue: number;
   evidenceReadiness: number;
