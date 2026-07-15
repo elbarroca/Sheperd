@@ -1,6 +1,6 @@
 # SheperD Founder Intelligence
 
-Private, Vercel-ready briefing dashboard for Michael to share with Avi and the founders. It condenses the admitted SheperD research, Ricardo's interpretation, Michael's workflow implications, and the prioritized improvement system without mixing those layers.
+Public, read-only Vercel briefing dashboard for Michael to share with Avi and the founders. It condenses the admitted SheperD research, Ricardo's interpretation, Michael's workflow implications, and the prioritized improvement system without mixing those layers.
 
 Operating state: **research-only / external activation blocked**.
 
@@ -10,7 +10,7 @@ Operating state: **research-only / external activation blocked**.
 |---|---|
 | `../context/` | Curated founder brief, Ricardo notes, and knowledge contract |
 | `../website/` | Public marketing website; separate project and deployment |
-| `../founder-intelligence/` | This private dashboard |
+| `../founder-intelligence/` | This public read-only dashboard |
 | Root numbered folders | Canonical research vault |
 
 The dashboard is a generated view. Canonical truth remains in the root Markdown and CSV artifacts.
@@ -65,6 +65,6 @@ pnpm build
 - No database, CRM, email, analytics, publishing, or AI connector.
 - Read-only search; no Server Actions or data mutations.
 - `noindex` metadata and response headers.
-- Vercel Deployment Protection is required before founder sharing.
+- Public Vercel access is enabled by explicit user authorization on 2026-07-15.
 
 See [PRODUCT.md](./PRODUCT.md), [DESIGN.md](./DESIGN.md), [COMPREHENSION_AUDIT.md](./COMPREHENSION_AUDIT.md), [DEPLOYMENT.md](./DEPLOYMENT.md), [DATA_CONTRACT.md](./DATA_CONTRACT.md), and [QA_REPORT.md](./QA_REPORT.md).

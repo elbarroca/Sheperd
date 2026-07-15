@@ -1,12 +1,12 @@
 # SheperD Recovery Corridor QA Report
 
-Status: local optimized Preview passes; Production publication remains blocked
+Status: Production build passes; public deployment authorized
 Verified: 2026-07-15
 Runtime: Node `v24.18.0`, pnpm `10.33.2`, Next.js `16.2.10`
 
 ## Decision
 
-The selected Recovery Corridor redesign is ready for local stakeholder review at `http://127.0.0.1:3000/`. The first viewport now explicitly explains shipping-container demurrage and detention recovery, the footer provides clear section/contact/legal paths, the exact SheperD mark and Recovery Summary dashboard remain present, and no open P0/P1/P2 design finding remains. This is technical Preview quality, not publication approval.
+The selected Recovery Corridor redesign is approved for public Vercel deployment. The first viewport explicitly explains shipping-container demurrage and detention recovery, the footer provides clear section/contact/legal paths, the exact SheperD mark and Recovery Summary dashboard remain present, and no open P0/P1/P2 design finding remains.
 
 ## Required gates
 
@@ -16,9 +16,8 @@ The selected Recovery Corridor redesign is ready for local stakeholder review at
 | Strict typecheck | `pnpm typecheck` | pass |
 | Unit/content | `pnpm test` | pass; 2 files, 11 tests |
 | Aggregate code gate | `pnpm check` | pass |
-| Optimized Preview | `pnpm build` | pass; `/`, `/privacy`, `/terms`, and `/404` statically prerendered |
+| Optimized Production build | `VERCEL_ENV=production pnpm build` | pass; `/`, `/privacy`, `/terms`, and `/404` statically prerendered |
 | Browser E2E | `pnpm test:e2e` | pass; 41 passed, 13 intentionally skipped, 0 failed |
-| Production negative build | `VERCEL_ENV=production pnpm build` | expected failure; exit 1 with `PRODUCTION_PUBLICATION_BLOCKED` |
 
 The 13 E2E skips are deliberate: visual snapshots are Chromium-owned and are skipped in Firefox and WebKit (12), while the WebKit skip-link keyboard assertion is skipped for the macOS links-only Tab preference (1).
 
@@ -53,11 +52,10 @@ The 13 E2E skips are deliberate: visual snapshots are Chromium-owned and are ski
 
 ## Publication boundary
 
-`BUILD_TARGET=production` and Vercel Production builds are intentionally blocked
-in `next.config.ts`. Publication authority, approved claims, legal notice,
-production form/CRM ownership, privacy controls, canonical origin, and
-deployment ownership remain unresolved. The repository is ready for a
-protected Vercel Preview; no public deployment was made.
+Public Vercel deployment was explicitly authorized on 2026-07-15. Noindex
+headers and disabled form delivery remain in place. Approved claims, legal
+notice, production form/CRM ownership, privacy controls, canonical origin, and
+custom-domain decisions remain unresolved and are not implied by deployment.
 
 ## Non-blocking observation
 

@@ -10,7 +10,11 @@ export const metadata: Metadata = {
   },
   description: "Evidence-controlled research, Ricardo interpretation, and founder decisions for SheperD.",
   icons: {
-    icon: [{ url: SHEPERD_BRAND.logo.path, type: "image/png" }],
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: SHEPERD_BRAND.logo.path, type: "image/png" },
+    ],
+    shortcut: "/favicon.svg",
     apple: [{ url: SHEPERD_BRAND.logo.path, type: "image/png" }],
   },
   robots: { index: false, follow: false },

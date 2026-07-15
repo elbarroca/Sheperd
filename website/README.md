@@ -2,7 +2,7 @@
 
 The Recovery Corridor is the public-facing SheperD website. It explains the
 shipping-container demurrage and detention recovery workflow while keeping
-unapproved publication and data collection fail-closed.
+form delivery disabled until its separate intake approvals are complete.
 
 ## Local setup
 
@@ -31,7 +31,8 @@ server-only delivery values in `DEPLOYMENT.md` are complete.
 
 ## Deployment boundary
 
-Deploy this directory as its own protected Vercel Preview project. Production
-builds are intentionally rejected until the legal, claims, privacy, contact,
-ownership, and publication gates in `docs/FACTS-AND-CONSTRAINTS.md` resolve.
-See `DEPLOYMENT.md` and the repository-level `../VERCEL.md` for exact settings.
+Deploy this directory as its own public Vercel project with Root Directory
+`website`. Publication was explicitly authorized on 2026-07-15. The unresolved
+legal, claims, privacy, contact, and ownership risks remain recorded in
+`docs/FACTS-AND-CONSTRAINTS.md`. See `DEPLOYMENT.md` and `../VERCEL.md` for the
+exact settings.

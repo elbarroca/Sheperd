@@ -18,7 +18,7 @@ Verified locally on **2026-07-15** against the committed D0/D1 research snapshot
 
 - The supplied 407x869 reference and a 407x869 implementation capture were compared side by side.
 - The implementation preserves the reference's navy-to-light rhythm, electric-blue signal, compact control bar, framed metrics, and embedded analytical surfaces.
-- The composition deliberately replaces the public acquisition form and wolf illustration with the private dashboard's hold posture, source navigation, and founder decision content.
+- The composition deliberately replaces the public acquisition form and wolf illustration with the read-only dashboard's hold posture, source navigation, and founder decision content.
 - Desktop chart and source-library views were inspected at 1440px; mobile hero, knowledge map, filters, file index, and file reader were inspected at 407px.
 - A fresh browser tab produced zero console warnings or errors.
 
@@ -59,12 +59,12 @@ See [COMPREHENSION_AUDIT.md](./COMPREHENSION_AUDIT.md) for the step-by-step audi
 
 ## Production boundary checks
 
-- `/` remains private, uncached, noindex, frame-denied, and governed by the existing production CSP.
+- `/` is public, uncached, noindex, frame-denied, and governed by the existing production CSP.
 - `/api/files` accepts only exact admitted source paths and fails closed for missing or unknown paths.
 - `/api/search` retains bounded local lexical retrieval and makes no external call.
 - No customer data, CRM, analytics, email, publishing, or embedding provider was connected.
 
-## Not verified externally
+## External release state
 
-- No Vercel project was created or deployed.
-- Vercel Deployment Protection and future authenticated production access must be verified after deployment.
+- The Vercel project uses Root Directory `founder-intelligence`, Node.js 24.x, and Production branch `main`.
+- Deployment Protection is disabled by explicit user authorization; anonymous Production access must be verified after deployment.

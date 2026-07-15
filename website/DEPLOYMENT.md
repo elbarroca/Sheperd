@@ -1,23 +1,23 @@
 # SheperD Website Deployment
 
-Status: repository-ready Vercel Preview; Production publication remains blocked
+Status: public Vercel Production deployment authorized
 Checked: 2026-07-15
 
 ## Vercel project
 
 - Repository: `https://github.com/elbarroca/Sheperd`
-- Production branch: `production` (reserved; do not create yet)
-- Deployment Protection: Standard Protection with Vercel Authentication
+- Production branch: `main`
+- Deployment Protection: disabled; all generated URLs are public
 - Root Directory: `website`
 - Framework: Next.js
 - Install command: `pnpm install --frozen-lockfile`
 - Build command: `pnpm build`
 - Node.js: 24.x
 
-Pushes to `main` intentionally create protected Preview deployments. The normal
-build creates the evidence-safe, noindex application. Production builds remain
-fail-closed with
-`PRODUCTION_PUBLICATION_BLOCKED` until the publication gates are approved.
+Pushes to `main` create public Production deployments. The application keeps
+noindex headers and form delivery disabled. Publication was explicitly
+authorized on 2026-07-15; the unresolved evidence and legal risks remain
+recorded below.
 
 The repository-level two-project setup is documented in `../VERCEL.md`.
 
@@ -54,7 +54,7 @@ Do not place the Resend API key in a `NEXT_PUBLIC_` variable or commit a local
 environment file. If either the server flag or any required server value is
 missing, the API returns a non-delivery response and sends nothing.
 
-## Production blockers
+## Unresolved publication risks
 
 1. Verified legal entity, publishable brand identity, and publication owner.
 2. Approved company/product positioning and exact claim evidence with named approvers and dates.
@@ -62,6 +62,6 @@ missing, the API returns a non-delivery response and sends nothing.
 4. Approved CTA/contact destination and response owner.
 5. Canonical origin, indexing, metadata, analytics decision, deployment target, and explicit deploy/domain/DNS authority.
 
-The complete blocker contract is in `docs/FACTS-AND-CONSTRAINTS.md`. A successful
-Vercel build proves technical deployability only; it does not approve public
-Production publication, domain attachment, indexing, or data collection.
+The complete evidence contract is in `docs/FACTS-AND-CONSTRAINTS.md`. Public
+deployment does not approve indexing, domain attachment, form delivery,
+analytics, or unsupported claims.

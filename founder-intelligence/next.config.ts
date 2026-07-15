@@ -1,11 +1,5 @@
 import type { NextConfig } from "next";
 
-if (process.env.VERCEL_ENV === "production") {
-  throw new Error(
-    "FOUNDER_INTELLIGENCE_PRODUCTION_BLOCKED: protected Preview access must be verified before any production deployment.",
-  );
-}
-
 const scriptSources = [
   "'self'",
   "'unsafe-inline'",

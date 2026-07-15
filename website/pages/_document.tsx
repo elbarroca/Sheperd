@@ -6,6 +6,19 @@ export default function Document() {
       <Head>
         <meta name="color-scheme" content="dark light" />
         <meta name="theme-color" content="#041426" />
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link
+          rel="icon"
+          href="/brand/sheperd-favicon-32.png"
+          type="image/png"
+          sizes="32x32"
+        />
+        <link
+          rel="apple-touch-icon"
+          href="/brand/sheperd-apple-touch-icon.png"
+          sizes="180x180"
+        />
+        <link rel="manifest" href="/site.webmanifest" />
       </Head>
       <body>
         <noscript>

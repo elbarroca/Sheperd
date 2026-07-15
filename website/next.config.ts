@@ -2,15 +2,6 @@ import type { NextConfig } from "next";
 
 const isDevelopment = process.env.NODE_ENV === "development";
 
-if (
-  process.env.BUILD_TARGET === "production" ||
-  process.env.VERCEL_ENV === "production"
-) {
-  throw new Error(
-    "PRODUCTION_PUBLICATION_BLOCKED: publication authority, approved claims, legal notice, and production ownership remain unresolved.",
-  );
-}
-
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
