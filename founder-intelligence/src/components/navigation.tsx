@@ -4,11 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const links = [
-  { href: "/", label: "Founder brief", mark: "FB" },
-  { href: "/research", label: "Research", mark: "RX" },
-  { href: "/mikey", label: "Mikey workflow", mark: "MW" },
-  { href: "/ricardo", label: "Ricardo notes", mark: "RN" },
-  { href: "/improvements", label: "Priority lab", mark: "PL" },
+  { href: "/", label: "Brief", mark: "01" },
+  { href: "/improvements", label: "Decision map", mark: "02" },
+  { href: "/mikey", label: "Operating plan", mark: "03" },
+  { href: "/research", label: "Evidence", mark: "04" },
+  { href: "/ricardo", label: "Analysis", mark: "05" },
 ];
 
 export function Navigation() {

@@ -1,31 +1,38 @@
-const order = ["verified", "mixed", "company-claim", "internal-proposal", "internal-observation", "unverified"];
+import { summarizeEvidence } from "@/lib/evidence";
 
 export function EvidenceTide({ counts }: { counts: Record<string, number> }) {
-  const total = Object.values(counts).reduce((sum, value) => sum + value, 0) || 1;
+  const summary = summarizeEvidence(counts);
+
   return (
-    <section className="tide-card" aria-labelledby="evidence-tide-title">
+    <section className="tide-card" aria-labelledby="evidence-mix-title">
       <div className="section-heading compact-heading">
         <div>
-          <p className="eyebrow">Evidence tide line</p>
-          <h2 id="evidence-tide-title">What the current brief is made of</h2>
+          <p className="eyebrow">Evidence mix</p>
+          <h2 id="evidence-mix-title">What the brief can actually support</h2>
         </div>
-        <span className="metric-id">{total} sources</span>
+        <span className="metric-id">{summary.total} sources</span>
       </div>
-      <div className="tide-line" role="img" aria-label={order.map((state) => `${state}: ${counts[state] ?? 0}`).join(", ")}>
-        {order.map((state) => {
-          const count = counts[state] ?? 0;
-          return count ? <span key={state} className={`tide-segment state-${state}`} style={{ width: `${(count / total) * 100}%` }} /> : null;
-        })}
-      </div>
-      <div className="tide-legend">
-        {order.map((state) => (
-          <div key={state} className="legend-item">
-            <span className={`legend-swatch state-${state}`} aria-hidden="true" />
-            <span>{state.replaceAll("-", " ")}</span>
-            <strong>{counts[state] ?? 0}</strong>
+      {summary.total === 0 ? (
+        <p className="empty-state">No admitted sources are available yet.</p>
+      ) : (
+        <>
+          <div className="tide-line" aria-hidden="true">
+            {summary.rows.map((row) => row.count > 0 ? (
+              <span key={row.state} className={`tide-segment state-${row.state}`} style={{ width: `${row.percentage}%` }} />
+            ) : null)}
           </div>
-        ))}
-      </div>
+          <div className="evidence-table" role="table" aria-label="Evidence states by count and percentage">
+            {summary.rows.map((row) => (
+              <div key={row.state} className="legend-item" role="row">
+                <span className={`legend-swatch state-${row.state}`} aria-hidden="true" />
+                <span role="cell">{row.state.replaceAll("-", " ")}</span>
+                <strong role="cell">{row.count}</strong>
+                <span role="cell">{Math.round(row.percentage)}%</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </section>
   );
 }

@@ -5,7 +5,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: {
     default: "SheperD Founder Intelligence",
-    template: "%s · SheperD Intelligence",
+    template: "%s | SheperD Intelligence",
   },
   description: "Evidence-controlled research, Ricardo interpretation, and founder decisions for SheperD.",
   robots: { index: false, follow: false },

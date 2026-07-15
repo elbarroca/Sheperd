@@ -1,22 +1,13 @@
 import "server-only";
 
 import dashboardJson from "@/generated/dashboard-data.json";
-import type { Experiment } from "./types";
+import type { Blocker, Experiment } from "./types";
 
 interface SourceRow {
   source_id: string;
   evidence_status: string;
   confidence: string;
   title: string;
-}
-
-interface BlockerRow {
-  blocker_id: string;
-  gate: string;
-  decision_question: string;
-  owner: string;
-  current_state: string;
-  next_action: string;
 }
 
 interface ExperimentRow {
@@ -52,7 +43,7 @@ interface DashboardData {
     safeExecutionReadiness: number;
   };
   sources: SourceRow[];
-  blockers: BlockerRow[];
+  blockers: Blocker[];
   experiments: ExperimentRow[];
   workflows: WorkflowRow[];
   aiOpportunities: AiOpportunityRow[];
@@ -117,6 +108,6 @@ export function getExperiments(): Experiment[] {
   }));
 }
 
-export function getBlockers(): BlockerRow[] {
+export function getBlockers(): Blocker[] {
   return dashboard.blockers;
 }

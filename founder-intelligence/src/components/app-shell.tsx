@@ -17,15 +17,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span className="hold-light" aria-hidden="true" />
           <div>
             <strong>External hold</strong>
-            <span>Research-only · D0/D1</span>
+            <span>Research only, D0/D1</span>
           </div>
         </div>
         <Navigation />
-        <div className="sidebar-foot">
-          <span>Briefing build</span>
-          <strong>2026.07.15</strong>
-          <span>No external connectors</span>
-        </div>
       </aside>
       <main id="main-content" className="main-content">{children}</main>
     </div>

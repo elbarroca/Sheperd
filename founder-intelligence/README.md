@@ -26,14 +26,13 @@ Open `http://localhost:3000`.
 
 ## What it includes
 
-- Founder brief with four separate planning scores.
-- Evidence-state, workflow, AI-control, and experiment visualizations.
-- All twelve activation blockers.
-- Avi's source plan versus the admitted gated plan.
-- Michael's role, eight-axis workflow, and 16-week implications.
-- Ricardo's clearly labeled strategic interpretation.
-- A transparent experiment priority lab that cannot unblock external work.
-- Local TF-IDF vector retrieval across the admitted D0/D1 corpus.
+- Founder brief with current posture, observed facts, next decision, and a gated operating flow.
+- Evidence mix with direct counts and clearly labeled planning heuristics.
+- Six decision clusters covering all twelve activation blockers.
+- Michael's stakeholder ownership map, responsibility boundary, and sixteen-week operating path.
+- Ricardo's source-to-interpretation-to-consequence analysis.
+- A dependency-first experiment queue whose weights cannot unlock external work.
+- Local TF-IDF retrieval with explicit loading, empty, error, and source inspection states.
 
 ## Rebuild the knowledge index
 
@@ -62,4 +61,4 @@ pnpm build
 - `noindex` metadata and response headers.
 - Vercel Deployment Protection is required before founder sharing.
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md), [DATA_CONTRACT.md](./DATA_CONTRACT.md), and [QA_REPORT.md](./QA_REPORT.md).
+See [PRODUCT.md](./PRODUCT.md), [DESIGN.md](./DESIGN.md), [DEPLOYMENT.md](./DEPLOYMENT.md), [DATA_CONTRACT.md](./DATA_CONTRACT.md), and [QA_REPORT.md](./QA_REPORT.md).

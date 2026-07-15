@@ -1,4 +1,5 @@
-import { Distribution } from "@/components/distribution";
+import Link from "next/link";
+import { DecisionFlow } from "@/components/decision-flow";
 import { EvidenceTide } from "@/components/evidence-tide";
 import { PageHeader } from "@/components/page-header";
 import { ScoreGrid } from "@/components/score-grid";
@@ -7,71 +8,72 @@ import { getOverviewData } from "@/lib/data";
 
 export default function FounderBriefPage() {
   const overview = getOverviewData();
+  const internallyAllowed = Object.entries(overview.experimentStates)
+    .filter(([state]) => state === "prepare-now" || state === "synthetic-only")
+    .reduce((sum, [, count]) => sum + count, 0);
+  const verifiedSources = overview.sourceStates.verified ?? 0;
+
   return (
     <>
       <PageHeader
-        eyebrow="Founder brief · decision view"
-        title="What can we responsibly decide now?"
-        description="The research and GTM system are strong. Market proof and execution authority are not. This view keeps those truths separate."
-        meta={<><span>Source date</span><strong>{overview.sourceDate}</strong></>}
+        eyebrow="Founder brief"
+        title="Strong plan. Not ready to activate."
+        description="The research system and commercial design are strong. Authority, market proof, and safe execution are not yet admitted."
+        meta={<><span>Evidence snapshot</span><strong>{overview.sourceDate}</strong></>}
       />
 
-      <section className="decision-ribbon" aria-label="Next highest-value decision">
-        <div>
-          <span className="ribbon-index">NEXT / 01</span>
-          <div><p>Founder truth-and-gates workshop</p><span>Admit or reject GAP-001–012 and record one external-activation GO or NO-GO.</span></div>
+      <section className="decision-snapshot" aria-labelledby="decision-snapshot-title">
+        <div className="posture-block">
+          <span>Current posture</span>
+          <strong id="decision-snapshot-title">Hold external activation</strong>
+          <p>Twelve authority, evidence, safety, and capacity gates remain unresolved.</p>
         </div>
-        <strong>HOLD</strong>
+        <dl className="decision-facts">
+          <div><dt>Open gates</dt><dd>{overview.counts.blockers}</dd></div>
+          <div><dt>Internal tests</dt><dd>{internallyAllowed}</dd></div>
+          <div><dt>External tests</dt><dd>0</dd></div>
+          <div><dt>Verified sources</dt><dd>{verifiedSources}/{overview.counts.sources}</dd></div>
+        </dl>
+        <div className="next-decision">
+          <span>Next founder decision</span>
+          <h2>Run the truth and gates workshop</h2>
+          <p>Admit, reject, or keep incomplete every gate. Record one external activation go or no-go.</p>
+          <Link href="/improvements">Open the decision map <span aria-hidden="true">→</span></Link>
+        </div>
       </section>
 
-      <ScoreGrid scores={overview.scores} />
+      <DecisionFlow />
+
+      <section className="section-block" aria-labelledby="score-heading">
+        <div className="section-heading">
+          <div><p className="eyebrow">Planning signal</p><h2 id="score-heading">Separate system quality from market proof</h2></div>
+          <p>Strong preparation does not cancel weak external evidence.</p>
+        </div>
+        <ScoreGrid scores={overview.scores} />
+      </section>
+
       <EvidenceTide counts={overview.sourceStates} />
 
-      <section className="section-block">
+      <section className="section-block" aria-labelledby="timeline-title">
         <div className="section-heading">
-          <div><p className="eyebrow">Source plan versus admitted plan</p><h2>Ambition remains. Certainty is corrected.</h2></div>
-          <p>Avi’s learner → builder → leader arc is preserved; every phase now has an evidence gate.</p>
+          <div><p className="eyebrow">Gated operating path</p><h2 id="timeline-title">The sixteen-week plan advances only with evidence</h2></div>
+          <p>Time does not open the next phase. An explicit decision does.</p>
         </div>
-        <div className="phase-route">
+        <ol className="gated-timeline">
           {phases.map((phase, index) => (
-            <article key={phase.period} className="phase-card">
-              <div className="phase-marker"><span>{String(index + 1).padStart(2, "0")}</span></div>
-              <p className="metric-id">{phase.period}</p>
-              <h3>{phase.admittedLabel}</h3>
-              <p>{phase.detail}</p>
-              <div className="source-translation"><span>Source</span><strong>{phase.sourceLabel}</strong></div>
-              <span className={`state-pill state-${phase.state}`}>{phase.state.replaceAll("-", " ")}</span>
-            </article>
+            <li key={phase.period}>
+              <span className="timeline-index">{String(index + 1).padStart(2, "0")}</span>
+              <div><span>{phase.period}</span><h3>{phase.admittedLabel}</h3><p>{phase.detail}</p></div>
+              <strong className={`state-pill state-${phase.state}`}>{phase.state.replaceAll("-", " ")}</strong>
+            </li>
           ))}
-        </div>
-      </section>
-
-      <section className="chart-grid section-block">
-        <Distribution eyebrow="Execution register" title="Experiment states" counts={overview.experimentStates} />
-        <Distribution eyebrow="Workflow atlas" title="Coverage states" counts={overview.workflowStates} />
-        <Distribution eyebrow="AI register" title="Human-control classes" counts={overview.aiClasses} />
-      </section>
-
-      <section className="section-block">
-        <div className="section-heading">
-          <div><p className="eyebrow">Activation manifest</p><h2>Twelve blockers. None silently promoted.</h2></div>
-          <p>Every gate has a decision question, owner, and next evidence action.</p>
-        </div>
-        <div className="blocker-grid">
-          {overview.blockers.map((blocker) => (
-            <article key={blocker.blocker_id} className="blocker-card">
-              <div className="blocker-head"><code>{blocker.blocker_id}</code><span>{blocker.gate}</span></div>
-              <h3>{blocker.decision_question}</h3>
-              <dl><div><dt>Owner</dt><dd>{blocker.owner}</dd></div><div><dt>Next</dt><dd>{blocker.next_action}</dd></div></dl>
-            </article>
-          ))}
-        </div>
+        </ol>
       </section>
 
       <section className="layer-contract section-block" aria-labelledby="layer-title">
-        <div><p className="eyebrow">Interpretation contract</p><h2 id="layer-title">One dashboard. Three visible layers.</h2></div>
+        <div><p className="eyebrow">Interpretation contract</p><h2 id="layer-title">Three layers stay visibly separate</h2></div>
         <article><span className="layer-number">F</span><h3>Fact</h3><p>Source, evidence state, confidence, date, and limitation.</p></article>
-        <article><span className="layer-number">R</span><h3>Ricardo</h3><p>Interpretation and recommendation—never presented as company truth.</p></article>
+        <article><span className="layer-number">R</span><h3>Ricardo</h3><p>Interpretation and recommendation, never company truth.</p></article>
         <article><span className="layer-number">D</span><h3>Decision</h3><p>Named approver, scope, date, consequence, and revisit condition.</p></article>
       </section>
     </>

@@ -66,3 +66,12 @@ export interface PriorityWeights {
   lowerRisk: number;
   lowerEffort: number;
 }
+
+export interface Blocker {
+  blocker_id: string;
+  gate: string;
+  decision_question: string;
+  owner: string;
+  current_state: string;
+  next_action: string;
+}

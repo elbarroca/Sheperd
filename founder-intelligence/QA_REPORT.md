@@ -9,18 +9,20 @@ Verified locally on **2026-07-15** against the committed D0/D1 research snapshot
 | Generated-data contract | Pass | 88 files, 767 chunks, 1,200 terms, 42 sources, 12 blockers, 8 experiments |
 | ESLint | Pass | `pnpm lint` |
 | Strict TypeScript | Pass | `pnpm typecheck` |
-| Unit/data tests | Pass | 3 files, 6 tests via `pnpm test` |
-| Production build | Pass | Next.js 16.2.10; 5 static views, one dynamic search route |
+| Unit/data tests | Pass | 4 files, 8 tests via `pnpm test` |
+| Impeccable anti-pattern scan | Pass | `npx impeccable detect src/`; no findings |
+| Production build | Pass | Next.js 16.2.10; 5 product views, one dynamic search route |
 
 ## Browser verification
 
 Verified with the Codex in-app browser against the local Next.js development server.
 
-- Desktop founder brief rendered meaningful content with five navigation links, no framework overlay, no horizontal page overflow, and no fresh console warnings or errors.
-- Navigation to Research succeeded through the visible application link.
-- Query `What blocks external activation?` returned 12 ranked sections with evidence state, knowledge layer, similarity, and original repository path.
-- Founder brief, Research, Mikey workflow, Ricardo notes, and Priority lab rendered at a 390 × 844 viewport without page-level horizontal overflow or framework overlays.
-- Priority controls exposed unique accessible names for all four range inputs.
+- The founder brief led with external hold, 12 open gates, 3 internal tests, 0 external tests, 17/42 verified sources, and the next founder decision.
+- The decision map rendered six clusters containing all twelve unique gate IDs.
+- Ownership, decision-flow, evidence-mix, gated-timeline, source-analysis, and priority-matrix visualizations retained semantic list, table, meter, or disclosure fallbacks.
+- Query `What blocks external activation?` returned 12 ranked sections with evidence state, knowledge layer, lexical similarity, a full-source disclosure, and selectable repository path.
+- All five product views rendered at 320, 768, 1024, and 1440 pixel widths without page-level or navigation-level horizontal overflow.
+- External hold remained visible at every checked viewport, and all four priority controls exposed unique labels.
 
 ## Production boundary checks
 

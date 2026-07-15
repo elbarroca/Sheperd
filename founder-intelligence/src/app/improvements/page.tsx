@@ -1,27 +1,45 @@
 import type { Metadata } from "next";
+import { BlockerMap } from "@/components/blocker-map";
 import { PageHeader } from "@/components/page-header";
 import { PriorityLab } from "@/components/priority-lab";
 import { improvementBacklog } from "@/lib/content";
-import { getExperiments } from "@/lib/data";
+import { getBlockers, getExperiments } from "@/lib/data";
 
-export const metadata: Metadata = { title: "Priority lab" };
+export const metadata: Metadata = { title: "Decision map" };
 
 export default function ImprovementsPage() {
   const experiments = getExperiments();
+  const blockers = getBlockers();
+
   return (
     <>
       <PageHeader
-        eyebrow="Priority lab · transparent planning"
-        title="Optimize the sequence—not the story."
-        description="Change visible planning weights and inspect the order. A high score cannot override authority, evidence, security, capacity, or human approval."
-        meta={<><span>Execution allowlist</span><strong>EXP-001–003 only</strong></>}
+        eyebrow="Decision map"
+        title="Resolve dependencies before tuning priorities."
+        description="The founder team first clears authority, product truth, claims, security, capacity, and publication gates. Weighted planning starts only inside that boundary."
+        meta={<><span>External activation</span><strong>On hold</strong></>}
       />
+      <BlockerMap blockers={blockers} />
       <PriorityLab experiments={experiments} />
-      <section className="section-block">
-        <div className="section-heading"><div><p className="eyebrow">Improvement backlog</p><h2>What raises decision quality next.</h2></div><p>These are operating recommendations, not expected-value forecasts.</p></div>
-        <div className="improvement-table" role="table" aria-label="Improvement backlog">
-          <div className="improvement-row table-head" role="row"><span>Area</span><span>Improvement</span><span>Gate</span><span>State</span></div>
-          {improvementBacklog.map((item) => <div key={item.id} className="improvement-row" role="row"><span><code>{item.id}</code>{item.area}</span><strong>{item.title}</strong><span>{item.gate}</span><em>{item.state.replaceAll("-", " ")}</em></div>)}
+      <section className="section-block" aria-labelledby="backlog-title">
+        <div className="section-heading">
+          <div><p className="eyebrow">Improvement backlog</p><h2 id="backlog-title">Six moves raise decision quality next</h2></div>
+          <p>These are operating recommendations, not expected-value forecasts.</p>
+        </div>
+        <div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable improvement backlog">
+          <table className="improvement-table">
+            <thead><tr><th>Area</th><th>Improvement</th><th>Gate</th><th>State</th></tr></thead>
+            <tbody>
+              {improvementBacklog.map((item) => (
+                <tr key={item.id}>
+                  <td><code>{item.id}</code><span>{item.area}</span></td>
+                  <td>{item.title}</td>
+                  <td>{item.gate}</td>
+                  <td><span className={`state-pill state-${item.state}`}>{item.state.replaceAll("-", " ")}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
     </>
