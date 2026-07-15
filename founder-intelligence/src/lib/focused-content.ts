@@ -1,9 +1,27 @@
-import type { CompetitorProfile, MarketSignal, MichaelTask } from "./types";
+import type {
+  CompetitorProfile,
+  MarketSignal,
+  MichaelGtmPlay,
+  MichaelPhaseSummary,
+  MichaelPillar,
+  MichaelTask,
+  MichaelWeek,
+} from "./types";
 
 export const COMPETITOR_SOURCE_PATH = "10_Sources/Source - Competitor Websites - 2026-07-15.md";
 export const MARKET_SOURCE_PATH = "06_Research/Market Evidence and Source Map.md";
 export const MICHAEL_ROLE_SOURCE_PATH = "03_GTM/Michael Role Charter.md";
 export const AI_SOURCE_PATH = "06_Research/AI Opportunity Register.md";
+export const OPERATING_PLAN_SOURCE_PATH = "03_GTM/16-Week Operating Plan.md";
+export const ICP_SOURCE_PATH = "03_GTM/ICP and Stakeholder Personas.md";
+export const SALES_SOURCE_PATH = "03_GTM/Sales and Objection Playbook.md";
+export const PARTNER_SOURCE_PATH = "03_GTM/Partner Strategy.md";
+export const JOURNEY_SOURCE_PATH = "03_GTM/Customer Journey and Funnel.md";
+export const CONTENT_SOURCE_PATH = "03_GTM/Content and Distribution System.md";
+export const CRM_SOURCE_PATH = "04_Operations/CRM Data Model.md";
+export const CADENCE_SOURCE_PATH = "04_Operations/Operating Cadence and KPI Dictionary.md";
+export const CLAIMS_SOURCE_PATH = "01_Company/Claims and Evidence Register.md";
+export const INDUSTRY_SOURCE_PATH = "06_Research/Industry Regulatory and Competitive Dossier.md";
 
 export const competitorProfiles = [
   {
@@ -357,3 +375,391 @@ export const michaelTasks = [
     sourcePath: "10_Sources/Source - 16 Week Engagement Plan.md",
   },
 ] satisfies readonly MichaelTask[];
+
+export const michaelPillars = [
+  {
+    id: "domain",
+    label: "Domain",
+    objective: "Know the D&D workflow, evidence burden, route boundaries, and unanswered questions.",
+    optimization: "Retrieve exact sources before interpreting a claim or case.",
+    sourcePath: INDUSTRY_SOURCE_PATH,
+  },
+  {
+    id: "value",
+    label: "Value and journey",
+    objective: "Turn one buyer problem into a testable intake-to-decision journey.",
+    optimization: "Fix the narrowest measured bottleneck before widening the offer.",
+    sourcePath: JOURNEY_SOURCE_PATH,
+  },
+  {
+    id: "crm",
+    label: "CRM and data",
+    objective: "Record source, permission, owner, stage, next action, blocker, and message version.",
+    optimization: "Keep the Week 2 system synthetic and minimal until data access is approved.",
+    sourcePath: CRM_SOURCE_PATH,
+  },
+  {
+    id: "sales-assets",
+    label: "Sales assets",
+    objective: "Prepare claim-controlled discovery, objection, and evidence-readiness materials.",
+    optimization: "Every external sentence needs an approved claim or must stay a question.",
+    sourcePath: SALES_SOURCE_PATH,
+  },
+  {
+    id: "content",
+    label: "Content",
+    objective: "Answer real buyer questions with sources, boundaries, and one useful next step.",
+    optimization: "Draft internally while the external message gate is closed.",
+    sourcePath: CONTENT_SOURCE_PATH,
+  },
+  {
+    id: "segments",
+    label: "Accounts and partners",
+    objective: "Prioritize evidence-rich importers and qualified referral paths without inventing pain.",
+    optimization: "Use the 14-point research score and preserve source, permission, and exclusions.",
+    sourcePath: ICP_SOURCE_PATH,
+  },
+  {
+    id: "governance",
+    label: "Governance",
+    objective: "Bring Avi decisions with an owner, evidence, stop rule, and explicit state.",
+    optimization: "Change one variable per comparable cohort and log continue, change, or stop.",
+    sourcePath: CADENCE_SOURCE_PATH,
+  },
+  {
+    id: "live-sales",
+    label: "Live sales",
+    objective: "Run one bounded, permissioned cohort only after the W2 GO decision.",
+    optimization: "Keep warm and cold results separate; count held and qualified, not booked.",
+    sourcePath: OPERATING_PLAN_SOURCE_PATH,
+  },
+] satisfies readonly MichaelPillar[];
+
+export const michaelPhaseSummaries = [
+  {
+    id: "foundation",
+    weeks: "Weeks 1-2",
+    goal: "Build product truth, the first ICP hypothesis, and the safe-start operating system.",
+    gate: "W2 GO/NO-GO: authority, claims, CRM, secure data path, reviewer capacity, and founder approval.",
+  },
+  {
+    id: "warm-cohort",
+    weeks: "Weeks 3-6",
+    goal: "Test one warm cohort and learn where message, qualification, or evidence handoff breaks.",
+    gate: "W6 decision: continue, change, or stop. External work remains blocked until W2 GO.",
+  },
+  {
+    id: "controlled-sprints",
+    weeks: "Weeks 7-12",
+    goal: "Run isolated segment, persona, message, and channel experiments without mixing cohorts.",
+    gate: "W12 decision: scale one repeatable path, keep learning, narrow the offer, or pivot.",
+  },
+  {
+    id: "repeatability",
+    weeks: "Weeks 13-16",
+    goal: "Turn observed evidence into a playbook, bottleneck decision, capacity model, and next-90-day plan.",
+    gate: "W16 founder decision: approve the next operating plan or stop external expansion.",
+  },
+] satisfies readonly MichaelPhaseSummary[];
+
+export const michaelWeeklyPlan = [
+  {
+    week: 1,
+    phase: "foundation",
+    goal: "Build the truth map",
+    pillars: ["domain", "value", "governance"],
+    actions: [
+      "Run product walkthroughs with Avi and separate demonstrated capability from proposal copy.",
+      "Build a D&D glossary, question bank, customer journey, and baseline funnel from admitted evidence.",
+      "Reconcile every material claim to an owner, state, expiry, and source.",
+    ],
+    deliverable: "Product truth map with gaps, owners, and unanswered customer questions.",
+    optimization: "Batch unknowns by gate and owner. Do not turn research into external claims.",
+    state: "prepare-now",
+    sourcePaths: [MICHAEL_ROLE_SOURCE_PATH, INDUSTRY_SOURCE_PATH, CLAIMS_SOURCE_PATH],
+  },
+  {
+    week: 2,
+    phase: "foundation",
+    goal: "Build the safe-start system",
+    pillars: ["segments", "crm", "sales-assets", "governance"],
+    actions: [
+      "Score permitted accounts on exposure, evidence access, owners, complexity, relationship, and urgency.",
+      "Configure a synthetic CRM with stages, append-only events, message versions, blockers, and next actions.",
+      "Draft persona discovery, objections, data checklist, and the founder GO/NO-GO brief.",
+    ],
+    deliverable: "Avi's W2 decision pack and one fully specified first-cohort design.",
+    optimization: "Keep the CRM to fields needed for the next decision, not a two-year architecture.",
+    state: "prepare-now",
+    sourcePaths: [ICP_SOURCE_PATH, CRM_SOURCE_PATH, SALES_SOURCE_PATH, OPERATING_PLAN_SOURCE_PATH],
+  },
+  {
+    week: 3,
+    phase: "warm-cohort",
+    goal: "Admit the first warm cohort",
+    pillars: ["segments", "live-sales", "governance"],
+    actions: [
+      "Validate source, permission, do-not-contact status, trigger, owner, secure data path, and reviewer capacity.",
+      "Select one segment, persona, message, and channel; preserve a fixed message version.",
+      "Request only founder-approved warm introductions and capture every attempted contact.",
+    ],
+    deliverable: "Cohort manifest, approved message, stop rules, and 10-15 reviewed touches as a planning band.",
+    optimization: "Do not mix warm and cold results or infer account pain from public data.",
+    state: "execute-after-go",
+    sourcePaths: [ICP_SOURCE_PATH, SALES_SOURCE_PATH, OPERATING_PLAN_SOURCE_PATH],
+  },
+  {
+    week: 4,
+    phase: "warm-cohort",
+    goal: "Run discovery and capture the truth",
+    pillars: ["value", "crm", "live-sales"],
+    actions: [
+      "Ask finance about exposure, review effort, decision rights, and acceptable commercial structure.",
+      "Ask operations and data owners where dates, terms, invoices, and causation evidence live.",
+      "Record held meetings, objections, qualification, evidence gaps, next step, and disqualifiers.",
+    ],
+    deliverable: "Discovery completeness report and one evidence-backed message revision.",
+    optimization: "Measure held and qualified meetings. Qualification and promise remain human decisions.",
+    state: "execute-after-go",
+    sourcePaths: [SALES_SOURCE_PATH, JOURNEY_SOURCE_PATH, CRM_SOURCE_PATH],
+  },
+  {
+    week: 5,
+    phase: "warm-cohort",
+    goal: "Test partner and data handoff paths",
+    pillars: ["segments", "crm", "live-sales"],
+    actions: [
+      "Interview approved brokers, forwarders, 3PLs, freight-audit firms, and advisors without sharing customer data.",
+      "Score partner fit, permission, conflict, handoff quality, owner, and response time.",
+      "Test the metadata-only evidence request before any invoice upload or recovery promise.",
+    ],
+    deliverable: "Partner scorecard and a map of the first submission bottleneck.",
+    optimization: "Prefer a clean referral handoff over partner volume; stop on conflicts or unclear authority.",
+    state: "execute-after-go",
+    sourcePaths: [PARTNER_SOURCE_PATH, CRM_SOURCE_PATH, JOURNEY_SOURCE_PATH],
+  },
+  {
+    week: 6,
+    phase: "warm-cohort",
+    goal: "Make the warm-sprint decision",
+    pillars: ["governance", "value", "live-sales"],
+    actions: [
+      "Reconcile attempted, held, qualified, data-accepted, and lost outcomes against the cohort manifest.",
+      "Identify the single largest message, qualification, evidence, reviewer, or handoff constraint.",
+      "Recommend continue, change, or stop with cited evidence and one next variable.",
+    ],
+    deliverable: "W6 decision record with evidence, owner, next test, and stop rule.",
+    optimization: "Do not explain weak results with anecdotes. Preserve denominators and cohort definitions.",
+    state: "execute-after-go",
+    sourcePaths: [CADENCE_SOURCE_PATH, OPERATING_PLAN_SOURCE_PATH, JOURNEY_SOURCE_PATH],
+  },
+  {
+    week: 7,
+    phase: "controlled-sprints",
+    goal: "Run sprint 1",
+    pillars: ["segments", "sales-assets", "live-sales"],
+    actions: [
+      "Select the highest-information segment, persona, message, and channel from the W6 decision.",
+      "Lock admission criteria, message version, measures, review capacity, and stop rules before sending.",
+      "Execute only the approved cohort and record each event in the CRM.",
+    ],
+    deliverable: "One comparable cohort with a complete execution and response ledger.",
+    optimization: "Test one commercial hypothesis, not a blended campaign.",
+    state: "execute-after-go",
+    sourcePaths: [OPERATING_PLAN_SOURCE_PATH, ICP_SOURCE_PATH, CRM_SOURCE_PATH],
+  },
+  {
+    week: 8,
+    phase: "controlled-sprints",
+    goal: "Fix one constraint",
+    pillars: ["governance", "crm", "sales-assets"],
+    actions: [
+      "Review replies, held meetings, objections, stage changes, evidence acceptance, and no-decisions.",
+      "Choose one message, persona, channel, list, or process variable to change.",
+      "Version the change and leave every other cohort condition fixed.",
+    ],
+    deliverable: "Sprint 1 decision and a controlled Sprint 2 design.",
+    optimization: "A changed message, list, and channel at once produces no usable learning.",
+    state: "execute-after-go",
+    sourcePaths: [CADENCE_SOURCE_PATH, CRM_SOURCE_PATH, SALES_SOURCE_PATH],
+  },
+  {
+    week: 9,
+    phase: "controlled-sprints",
+    goal: "Run sprint 2 and one source-led asset",
+    pillars: ["content", "sales-assets", "live-sales"],
+    actions: [
+      "Execute the next-best approved cohort using the Week 8 one-variable change.",
+      "Turn one observed buyer question into a cited internal brief or approved educational asset.",
+      "Attach the asset version and source set to the cohort record.",
+    ],
+    deliverable: "A second comparable cohort and one claim-controlled answer to a real buyer question.",
+    optimization: "Content supports discovery; it does not substitute for proof or claim approval.",
+    state: "execute-after-go",
+    sourcePaths: [CONTENT_SOURCE_PATH, SALES_SOURCE_PATH, OPERATING_PLAN_SOURCE_PATH],
+  },
+  {
+    week: 10,
+    phase: "controlled-sprints",
+    goal: "Audit funnel and partner quality",
+    pillars: ["value", "segments", "crm"],
+    actions: [
+      "Locate the largest conversion loss from contactable account through valid submission.",
+      "Compare partner referrals on fit, permission, held meetings, data handoff, and review burden.",
+      "Reconcile the secure handoff checklist and remove fields that do not change a decision.",
+    ],
+    deliverable: "Funnel bottleneck, partner-quality ranking, and a leaner evidence handoff.",
+    optimization: "Optimize valid progression and case quality, not raw activity volume.",
+    state: "execute-after-go",
+    sourcePaths: [JOURNEY_SOURCE_PATH, PARTNER_SOURCE_PATH, CRM_SOURCE_PATH],
+  },
+  {
+    week: 11,
+    phase: "controlled-sprints",
+    goal: "Run the strongest remaining test",
+    pillars: ["segments", "live-sales", "governance"],
+    actions: [
+      "Choose the remaining hypothesis with the best evidence gain relative to risk and reviewer load.",
+      "Run it as one isolated cohort with the same measurement contract.",
+      "Document disconfirming evidence and any reason to narrow or stop.",
+    ],
+    deliverable: "Sprint 3 ledger and a ranked set of supported, unsupported, and unresolved hypotheses.",
+    optimization: "Prefer information gain over a larger top-of-funnel number.",
+    state: "execute-after-go",
+    sourcePaths: [ICP_SOURCE_PATH, CADENCE_SOURCE_PATH, OPERATING_PLAN_SOURCE_PATH],
+  },
+  {
+    week: 12,
+    phase: "controlled-sprints",
+    goal: "Decide whether anything repeats",
+    pillars: ["governance", "value", "crm"],
+    actions: [
+      "Reconcile pipeline, held meetings, qualifications, submissions, proposals, losses, cycle time, and review time.",
+      "Separate warm, cold, partner, segment, persona, message, and channel results.",
+      "Recommend scale one path, keep learning, narrow the service, pivot, or stop.",
+    ],
+    deliverable: "W12 repeatability decision with denominators, evidence links, and an explicit boundary.",
+    optimization: "Planning bands are not targets and activity is not market proof.",
+    state: "execute-after-go",
+    sourcePaths: [CADENCE_SOURCE_PATH, OPERATING_PLAN_SOURCE_PATH, JOURNEY_SOURCE_PATH],
+  },
+  {
+    week: 13,
+    phase: "repeatability",
+    goal: "Write playbook v1 from evidence",
+    pillars: ["sales-assets", "crm", "governance"],
+    actions: [
+      "Document only the stages, personas, messages, objections, handoffs, and stop rules supported by logged cohorts.",
+      "Link every playbook instruction to its cohort, message version, and decision record.",
+      "Keep unsupported ideas in a separate experiment backlog.",
+    ],
+    deliverable: "Evidence-linked playbook v1 and a clearly separated open-hypothesis backlog.",
+    optimization: "A polished playbook cannot upgrade weak or missing evidence.",
+    state: "evidence-review",
+    sourcePaths: [SALES_SOURCE_PATH, CRM_SOURCE_PATH, CADENCE_SOURCE_PATH],
+  },
+  {
+    week: 14,
+    phase: "repeatability",
+    goal: "Remove one measured bottleneck",
+    pillars: ["value", "content", "crm"],
+    actions: [
+      "Select one verified bottleneck in discovery, evidence handoff, review, message, or stage hygiene.",
+      "Run one bounded process experiment or approved website/CRM change.",
+      "Compare the same metric before and after without changing the cohort definition.",
+    ],
+    deliverable: "One measured operational improvement or a documented failed intervention.",
+    optimization: "Do not redesign the whole funnel when one constraint can be tested.",
+    state: "evidence-review",
+    sourcePaths: [JOURNEY_SOURCE_PATH, CONTENT_SOURCE_PATH, CRM_SOURCE_PATH],
+  },
+  {
+    week: 15,
+    phase: "repeatability",
+    goal: "Model capacity before hiring",
+    pillars: ["governance", "crm", "live-sales"],
+    actions: [
+      "Calculate time by qualification, data handoff, review, follow-up, submission, and reconciliation.",
+      "Identify the first constrained role, required skill, onboarding evidence, and manager owner.",
+      "Draft a hire, contractor, automation, or do-not-scale recommendation.",
+    ],
+    deliverable: "Capacity model and a conditional first-resource decision.",
+    optimization: "Hire against observed workload and quality limits, not the original forecast.",
+    state: "evidence-review",
+    sourcePaths: [CRM_SOURCE_PATH, CADENCE_SOURCE_PATH, OPERATING_PLAN_SOURCE_PATH],
+  },
+  {
+    week: 16,
+    phase: "repeatability",
+    goal: "Give Avi a decision, not a presentation",
+    pillars: ["governance", "value", "segments"],
+    actions: [
+      "Summarize what is proven, disproven, still unknown, and unsafe to claim.",
+      "Show the best segment, route, message, partner path, operating constraint, and evidence quality.",
+      "Propose the next 90 days with owners, resources, gates, measures, and stop rules.",
+    ],
+    deliverable: "Founder decision brief: scale, learn, narrow, service-first, pivot, or stop.",
+    optimization: "The next plan must follow observed evidence, not defend the original 16-week proposal.",
+    state: "founder-decision",
+    sourcePaths: [OPERATING_PLAN_SOURCE_PATH, CADENCE_SOURCE_PATH, MICHAEL_ROLE_SOURCE_PATH],
+  },
+] satisfies readonly MichaelWeek[];
+
+export const michaelGtmPlays = [
+  {
+    id: "PLAY-01",
+    title: "Build the lead universe",
+    objective: "Find evidence-rich accounts without pretending public data proves pain.",
+    steps: [
+      "Start with founder-provided, licensed, referral, or permitted public-professional sources.",
+      "Map finance, logistics, AP/data, legal/security, and partner roles rather than one generic buyer.",
+      "Score each account from 0-14 and admit only records with source, permission, trigger, owner, and secure next step.",
+    ],
+    measure: "Contactable-account rate and research-score distribution, never list size alone.",
+    boundary: "No prohibited scraping, inferred private pain, or outreach before the W2 GO decision.",
+    state: "prepare-now",
+    sourcePaths: [ICP_SOURCE_PATH, CRM_SOURCE_PATH],
+  },
+  {
+    id: "PLAY-02",
+    title: "Choose the first wedge",
+    objective: "Enter through evidence readiness and case quality, not unsupported superiority claims.",
+    steps: [
+      "Prioritize recurring D&D exposure, an identifiable finance owner, accessible evidence, manageable carrier/port complexity, and a warm or partner route.",
+      "Against recovery specialists, test whether traceability and case-quality discipline matter; do not claim better recovery.",
+      "Against broad audit or enterprise platforms, test a narrow D&D workflow or partner handoff instead of promising to replace the system of record.",
+    ],
+    measure: "Qualified-meeting rate and evidence-readiness acceptance by segment and persona.",
+    boundary: "Competitor statements are public-site observations, not verified comparative performance.",
+    state: "prepare-now",
+    sourcePaths: [COMPETITOR_SOURCE_PATH, ICP_SOURCE_PATH, SALES_SOURCE_PATH],
+  },
+  {
+    id: "PLAY-03",
+    title: "Earn the first response",
+    objective: "Use a bounded, role-specific conversation after approval, not a recovery promise.",
+    steps: [
+      "Lead with one factual trigger or role question, then ask how invoice review and evidence ownership work today.",
+      "Offer a bounded evidence-readiness conversation; never request sensitive invoices over ordinary email.",
+      "Separate warm, cold, and partner cohorts; version every message and log objections, no-decisions, and next steps.",
+    ],
+    measure: "Positive response, held meeting, qualification, and data-request acceptance with exact denominators.",
+    boundary: "External sending, eligibility, pricing, claims, filing, and settlement remain human and founder controlled.",
+    state: "execute-after-go",
+    sourcePaths: [SALES_SOURCE_PATH, CRM_SOURCE_PATH, OPERATING_PLAN_SOURCE_PATH],
+  },
+  {
+    id: "PLAY-04",
+    title: "Optimize from evidence",
+    objective: "Turn every cohort into one continue, change, or stop decision.",
+    steps: [
+      "Reconcile attempted, held, qualified, submitted, lost, cycle, work-time, review-time, and realized outcomes.",
+      "Compare like with like and change only one segment, persona, message, channel, or process variable.",
+      "Update the playbook only after the same path produces comparable evidence; keep failed hypotheses visible.",
+    ],
+    measure: "Valid progression, CRM completeness, cycle time, reviewer load, and realized cash or credit when available.",
+    boundary: "Desk research, activity, meetings, or a completed dashboard do not prove demand or repeatability.",
+    state: "evidence-review",
+    sourcePaths: [CADENCE_SOURCE_PATH, JOURNEY_SOURCE_PATH, CRM_SOURCE_PATH],
+  },
+] satisfies readonly MichaelGtmPlay[];

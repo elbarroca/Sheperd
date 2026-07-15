@@ -188,3 +188,59 @@ export interface MichaelTask {
   state: MichaelTaskState;
   sourcePath: string;
 }
+
+export type MichaelPillarId =
+  | "domain"
+  | "value"
+  | "crm"
+  | "sales-assets"
+  | "content"
+  | "segments"
+  | "governance"
+  | "live-sales";
+
+export type MichaelPhaseId = "foundation" | "warm-cohort" | "controlled-sprints" | "repeatability";
+
+export type MichaelExecutionState =
+  | "prepare-now"
+  | "execute-after-go"
+  | "evidence-review"
+  | "founder-decision";
+
+export interface MichaelPillar {
+  id: MichaelPillarId;
+  label: string;
+  objective: string;
+  optimization: string;
+  sourcePath: string;
+}
+
+export interface MichaelPhaseSummary {
+  id: MichaelPhaseId;
+  weeks: string;
+  goal: string;
+  gate: string;
+}
+
+export interface MichaelWeek {
+  week: number;
+  phase: MichaelPhaseId;
+  goal: string;
+  pillars: MichaelPillarId[];
+  actions: string[];
+  deliverable: string;
+  optimization: string;
+  state: MichaelExecutionState;
+  sourcePaths: string[];
+}
+
+export interface MichaelGtmPlay {
+  id: string;
+  title: string;
+  objective: string;
+  steps: string[];
+  measure: string;
+  boundary: string;
+  state: MichaelExecutionState;
+  sourcePaths: string[];
+}

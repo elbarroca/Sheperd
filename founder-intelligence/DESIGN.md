@@ -91,6 +91,8 @@ Navigation is limited to four founder tasks: Competitors, Market, Michael, and K
 - The graph is paired with a four-tab reader, relationship lists, search, and a semantic file index so it is never the only route to a source.
 - Dense provider, source, and workstream detail uses progressive disclosure where hiding it improves the default scan.
 - Michael's action block keeps owner, approver, completion evidence, and source visible without interaction.
+- Michael's signature visual is one restrained harbor route through four phases and 16 weekly decisions. Each week exposes its goal and execution state by default, then reveals actions, output, optimization rule, pillars, and admitted sources on demand.
+- The GTM playbook turns lead finding, competitor context, outreach, and optimization into four bounded plays. It never presents a public competitor observation as comparative performance or opens the external activation gate.
 
 ## Interaction and accessibility
 

@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import knowledge from "../generated/knowledge-index.json";
-import { competitorProfiles, marketEvidenceGroups, marketSignals, michaelTasks } from "./focused-content";
+import {
+  competitorProfiles,
+  marketEvidenceGroups,
+  marketSignals,
+  michaelGtmPlays,
+  michaelPillars,
+  michaelTasks,
+  michaelWeeklyPlan,
+} from "./focused-content";
 
 describe("focused founder dashboard content", () => {
   it("maps the full observed competitor set without implying performance", () => {
@@ -29,8 +37,40 @@ describe("focused founder dashboard content", () => {
     expect(michaelTasks.every((task) => task.aiAssist.length > 35 && task.humanDecision.length > 35)).toBe(true);
   });
 
+  it("turns the proposal into a complete, gated 16-week route", () => {
+    const admittedPaths = new Set(knowledge.files.map((file) => file.path));
+    const usedPillars = new Set(michaelWeeklyPlan.flatMap((week) => week.pillars));
+    const sourcePaths = michaelWeeklyPlan.flatMap((week) => week.sourcePaths);
+
+    expect(michaelWeeklyPlan.map((week) => week.week)).toEqual(Array.from({ length: 16 }, (_, index) => index + 1));
+    expect(michaelPillars).toHaveLength(8);
+    expect(usedPillars).toEqual(new Set(michaelPillars.map((pillar) => pillar.id)));
+    expect(michaelWeeklyPlan.filter((week) => week.state === "prepare-now")).toHaveLength(2);
+    expect(michaelWeeklyPlan.filter((week) => week.state === "execute-after-go")).toHaveLength(10);
+    expect(michaelWeeklyPlan.filter((week) => week.state === "evidence-review")).toHaveLength(3);
+    expect(michaelWeeklyPlan.filter((week) => week.state === "founder-decision")).toHaveLength(1);
+    expect(sourcePaths.every((path) => admittedPaths.has(path))).toBe(true);
+  });
+
+  it("turns research into four sourced GTM plays without opening the external gate", () => {
+    const admittedPaths = new Set(knowledge.files.map((file) => file.path));
+
+    expect(michaelGtmPlays).toHaveLength(4);
+    expect(michaelGtmPlays.filter((play) => play.state === "execute-after-go")).toHaveLength(1);
+    expect(michaelGtmPlays.flatMap((play) => play.sourcePaths).every((path) => admittedPaths.has(path))).toBe(true);
+    expect(michaelGtmPlays.every((play) => play.steps.length === 3 && play.boundary.length > 55)).toBe(true);
+  });
+
   it("uses plain hyphens in new dashboard copy", () => {
-    const copy = JSON.stringify({ competitorProfiles, marketEvidenceGroups, marketSignals, michaelTasks });
+    const copy = JSON.stringify({
+      competitorProfiles,
+      marketEvidenceGroups,
+      marketSignals,
+      michaelGtmPlays,
+      michaelPillars,
+      michaelTasks,
+      michaelWeeklyPlan,
+    });
     expect(copy).not.toMatch(/[—–]/u);
   });
 });
