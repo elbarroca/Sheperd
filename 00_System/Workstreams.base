@@ -1,0 +1,57 @@
+filters:
+  and:
+    - 'file.inFolder("04_Operations/Workstreams")'
+    - 'file.hasTag("sheperd/workstream")'
+properties:
+  workstream:
+    displayName: "Workstream"
+  status:
+    displayName: "Status"
+  owner:
+    displayName: "Owner"
+  business_importance:
+    displayName: "Business importance"
+  action_priority:
+    displayName: "Action priority"
+  phase:
+    displayName: "Phase"
+  review_date:
+    displayName: "Review"
+views:
+  - type: table
+    name: "All workstreams"
+    order:
+      - file.name
+      - status
+      - owner
+      - business_importance
+      - action_priority
+      - phase
+      - review_date
+    groupBy:
+      property: status
+      direction: ASC
+  - type: table
+    name: "Needs attention"
+    filters:
+      or:
+        - 'status == "blocked"'
+        - 'status == "needs-evidence"'
+    order:
+      - file.name
+      - status
+      - owner
+      - action_priority
+      - review_date
+  - type: table
+    name: "Current action order"
+    filters:
+      and:
+        - 'action_priority <= 2'
+        - 'status != "complete"'
+    order:
+      - file.name
+      - action_priority
+      - status
+      - owner
+      - review_date

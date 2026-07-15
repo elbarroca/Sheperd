@@ -1,0 +1,41 @@
+filters:
+  and:
+    - 'file.inFolder("10_Sources")'
+    - 'file.hasTag("sheperd/source")'
+properties:
+  authority:
+    displayName: "Authority"
+  evidence_status:
+    displayName: "Evidence"
+  checked:
+    displayName: "Checked"
+  url:
+    displayName: "URL"
+  owner:
+    displayName: "Owner"
+views:
+  - type: table
+    name: "Primary and internal sources"
+    order:
+      - file.name
+      - authority
+      - evidence_status
+      - checked
+      - url
+      - owner
+    groupBy:
+      property: authority
+      direction: ASC
+  - type: table
+    name: "Needs review"
+    filters:
+      or:
+        - 'evidence_status == "unverified"'
+        - 'evidence_status == "company-claim"'
+        - 'evidence_status == "mixed"'
+        - 'evidence_status == "internal-observation"'
+    order:
+      - file.name
+      - evidence_status
+      - checked
+      - owner

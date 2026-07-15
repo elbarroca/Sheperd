@@ -1,0 +1,206 @@
+{
+  "nodes": [
+    {
+      "id": "7a3f1c9d4e2b6801",
+      "type": "file",
+      "x": 0,
+      "y": 0,
+      "width": 440,
+      "height": 320,
+      "file": "SheperD HQ.md",
+      "color": "5"
+    },
+    {
+      "id": "19b7d4e6a2c8305f",
+      "type": "file",
+      "x": -820,
+      "y": -300,
+      "width": 380,
+      "height": 260,
+      "file": "01_Company/Company Brief.md",
+      "color": "6"
+    },
+    {
+      "id": "a6e219c740bd385f",
+      "type": "file",
+      "x": -820,
+      "y": 100,
+      "width": 380,
+      "height": 280,
+      "file": "01_Company/Claims and Evidence Register.md",
+      "color": "1"
+    },
+    {
+      "id": "5c18e2a9d7b3046f",
+      "type": "file",
+      "x": -320,
+      "y": -620,
+      "width": 380,
+      "height": 260,
+      "file": "02_Domain/D&D and OSRA Primer.md",
+      "color": "3"
+    },
+    {
+      "id": "b2047e1a9c5d836f",
+      "type": "file",
+      "x": 220,
+      "y": -620,
+      "width": 380,
+      "height": 260,
+      "file": "02_Domain/Market and Competitive Landscape.md",
+      "color": "3"
+    },
+    {
+      "id": "d781c3a6e2094b5f",
+      "type": "file",
+      "x": 620,
+      "y": -260,
+      "width": 380,
+      "height": 240,
+      "file": "03_GTM/Michael Role Charter.md",
+      "color": "4"
+    },
+    {
+      "id": "2f90a4c7e1d6385b",
+      "type": "file",
+      "x": 1060,
+      "y": -260,
+      "width": 380,
+      "height": 260,
+      "file": "03_GTM/16-Week Operating Plan.md",
+      "color": "4"
+    },
+    {
+      "id": "84d2b6e190af3c57",
+      "type": "file",
+      "x": 620,
+      "y": 180,
+      "width": 380,
+      "height": 260,
+      "file": "04_Operations/Operating Cadence and KPI Dictionary.md",
+      "color": "2"
+    },
+    {
+      "id": "c5a703e9b21d486f",
+      "type": "file",
+      "x": 1060,
+      "y": 180,
+      "width": 380,
+      "height": 260,
+      "file": "05_AI/AI Enablement Roadmap.md",
+      "color": "6"
+    },
+    {
+      "id": "3e7a1c95d0b2468f",
+      "type": "file",
+      "x": -820,
+      "y": 500,
+      "width": 380,
+      "height": 260,
+      "file": "03_GTM/Website and Content Audit.md",
+      "color": "1"
+    },
+    {
+      "id": "e10b4d87c2a6395f",
+      "type": "file",
+      "x": 0,
+      "y": 520,
+      "width": 440,
+      "height": 220,
+      "file": "00_System/Sources.base",
+      "color": "5"
+    }
+  ],
+  "edges": [
+    {
+      "id": "0a1b2c3d4e5f6789",
+      "fromNode": "7a3f1c9d4e2b6801",
+      "fromSide": "left",
+      "toNode": "19b7d4e6a2c8305f",
+      "toSide": "right",
+      "toEnd": "arrow",
+      "label": "company truth"
+    },
+    {
+      "id": "1b2c3d4e5f67890a",
+      "fromNode": "7a3f1c9d4e2b6801",
+      "fromSide": "left",
+      "toNode": "a6e219c740bd385f",
+      "toSide": "right",
+      "toEnd": "arrow",
+      "label": "evidence gate"
+    },
+    {
+      "id": "2c3d4e5f67890a1b",
+      "fromNode": "7a3f1c9d4e2b6801",
+      "fromSide": "top",
+      "toNode": "5c18e2a9d7b3046f",
+      "toSide": "bottom",
+      "toEnd": "arrow",
+      "label": "domain"
+    },
+    {
+      "id": "3d4e5f67890a1b2c",
+      "fromNode": "7a3f1c9d4e2b6801",
+      "fromSide": "top",
+      "toNode": "b2047e1a9c5d836f",
+      "toSide": "bottom",
+      "toEnd": "arrow",
+      "label": "market"
+    },
+    {
+      "id": "4e5f67890a1b2c3d",
+      "fromNode": "7a3f1c9d4e2b6801",
+      "fromSide": "right",
+      "toNode": "d781c3a6e2094b5f",
+      "toSide": "left",
+      "toEnd": "arrow",
+      "label": "owner"
+    },
+    {
+      "id": "5f67890a1b2c3d4e",
+      "fromNode": "d781c3a6e2094b5f",
+      "fromSide": "right",
+      "toNode": "2f90a4c7e1d6385b",
+      "toSide": "left",
+      "toEnd": "arrow",
+      "label": "executes"
+    },
+    {
+      "id": "67890a1b2c3d4e5f",
+      "fromNode": "7a3f1c9d4e2b6801",
+      "fromSide": "right",
+      "toNode": "84d2b6e190af3c57",
+      "toSide": "left",
+      "toEnd": "arrow",
+      "label": "governance"
+    },
+    {
+      "id": "7890a1b2c3d4e5f6",
+      "fromNode": "84d2b6e190af3c57",
+      "fromSide": "right",
+      "toNode": "c5a703e9b21d486f",
+      "toSide": "left",
+      "toEnd": "arrow",
+      "label": "AI assists"
+    },
+    {
+      "id": "890a1b2c3d4e5f67",
+      "fromNode": "a6e219c740bd385f",
+      "fromSide": "bottom",
+      "toNode": "3e7a1c95d0b2468f",
+      "toSide": "top",
+      "toEnd": "arrow",
+      "label": "controls copy"
+    },
+    {
+      "id": "90a1b2c3d4e5f678",
+      "fromNode": "e10b4d87c2a6395f",
+      "fromSide": "top",
+      "toNode": "7a3f1c9d4e2b6801",
+      "toSide": "bottom",
+      "toEnd": "arrow",
+      "label": "supports"
+    }
+  ]
+}

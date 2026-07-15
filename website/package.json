@@ -1,0 +1,49 @@
+{
+  "name": "sheperd-website",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "packageManager": "pnpm@10.30.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "pnpm validate:content && pnpm validate:links && next build --webpack && pnpm validate:motion",
+    "build:production": "SITE_PUBLICATION_TARGET=production pnpm build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:visual": "playwright test tests/visual",
+    "validate:content": "tsx scripts/validate-content.ts",
+    "validate:motion": "tsx scripts/validate-motion.ts",
+    "validate:links": "tsx scripts/validate-links.ts",
+    "validate": "pnpm validate:content && pnpm validate:motion && pnpm validate:links",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "impeccable": "npx impeccable detect src/"
+  },
+  "dependencies": {
+    "motion": "12.42.2",
+    "next": "16.2.10",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
+    "@playwright/test": "1.61.1",
+    "@types/node": "24.0.15",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.3",
+    "eslint-config-next": "16.2.10",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  },
+  "pnpm": {
+    "overrides": {
+      "postcss": "8.5.19"
+    }
+  }
+}
