@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, extname, join, relative, resolve } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const APP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -235,6 +235,7 @@ function fileManifest(path, raw) {
       evidenceStatus: attributes.evidence_status || "unknown",
       confidentiality: attributes.confidentiality || "internal",
       tags: Array.isArray(attributes.tags) ? attributes.tags : [],
+      linkTargets: extractInternalLinkTargets(raw),
     };
   }
 
@@ -246,7 +247,70 @@ function fileManifest(path, raw) {
     evidenceStatus: firstRow.evidence_status || firstRow.current_state || "structured-data",
     confidentiality: "internal",
     tags: [],
+    linkTargets: [],
   };
+}
+
+function extractInternalLinkTargets(raw) {
+  const targets = [];
+  const wikiLinks = /!?\[\[([^\]]+)\]\]/g;
+  const markdownLinks = /(?<!!)\[[^\]]+\]\(([^)]+)\)/g;
+  let match;
+
+  while ((match = wikiLinks.exec(raw)) !== null) {
+    const target = match[1].split("|")[0].split("#")[0].trim();
+    if (target) targets.push(target);
+  }
+
+  while ((match = markdownLinks.exec(raw)) !== null) {
+    const target = match[1].trim().replace(/^<|>$/g, "").split("#")[0];
+    if (target && !/^[a-z][a-z0-9+.-]*:/i.test(target) && !target.startsWith("#")) targets.push(target);
+  }
+
+  return [...new Set(targets)];
+}
+
+function resolveManifestLinks(manifests) {
+  const admittedPaths = new Set(manifests.map((manifest) => manifest.path));
+  const pathsByStem = new Map();
+  const pathsByBasename = new Map();
+
+  for (const manifest of manifests) {
+    const stem = manifest.path.replace(/\.(?:md|csv)$/i, "");
+    pathsByStem.set(stem, manifest.path);
+    const name = basename(stem);
+    pathsByBasename.set(name, [...(pathsByBasename.get(name) ?? []), manifest.path]);
+  }
+
+  const resolveTarget = (sourcePath, rawTarget) => {
+    const normalizedTarget = normalizePath(rawTarget).replace(/^\//, "").replace(/\.(?:md|csv)$/i, "");
+    const candidates = [];
+
+    if (normalizedTarget.startsWith("./") || normalizedTarget.startsWith("../")) {
+      candidates.push(normalizePath(join(dirname(sourcePath), normalizedTarget)));
+    } else if (normalizedTarget.includes("/")) {
+      candidates.push(normalizedTarget);
+      candidates.push(normalizePath(join(dirname(sourcePath), normalizedTarget)));
+    } else {
+      const basenameMatches = pathsByBasename.get(normalizedTarget) ?? [];
+      if (basenameMatches.length === 1) return basenameMatches[0];
+      candidates.push(normalizePath(join(dirname(sourcePath), normalizedTarget)));
+      candidates.push(normalizedTarget);
+    }
+
+    for (const candidate of candidates) {
+      const resolved = pathsByStem.get(candidate);
+      if (resolved && admittedPaths.has(resolved)) return resolved;
+    }
+    return null;
+  };
+
+  return manifests.map(({ linkTargets, ...manifest }) => ({
+    ...manifest,
+    links: [...new Set(linkTargets.map((target) => resolveTarget(manifest.path, target)).filter(Boolean))]
+      .filter((target) => target !== manifest.path)
+      .sort((left, right) => left.localeCompare(right)),
+  }));
 }
 
 function tokenize(text) {
@@ -334,6 +398,7 @@ function main() {
     manifests.push(fileManifest(path, raw));
     return extname(file).toLowerCase() === ".csv" ? csvChunks(path, raw) : markdownChunks(path, raw);
   });
+  const linkedManifests = resolveManifestLinks(manifests);
   const vectorData = buildVectors(chunks);
   const sourceDate = latestSourceDate(files);
   const knowledge = {
@@ -342,7 +407,7 @@ function main() {
     boundary: "Public read-only D0/D1 research brief; no customer records or external embedding service",
     sourceDate,
     sourceFiles: files.length,
-    files: manifests,
+    files: linkedManifests,
     vocabulary: vectorData.vocabulary,
     idf: vectorData.idf,
     chunks: vectorData.chunks,

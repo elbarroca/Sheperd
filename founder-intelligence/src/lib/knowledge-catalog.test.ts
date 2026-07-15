@@ -5,7 +5,7 @@ import {
   buildKnowledgeLayerStats,
   findAdmittedKnowledgeFile,
 } from "./knowledge-catalog";
-import type { KnowledgeChunk } from "./types";
+import type { KnowledgeChunk, KnowledgeFileManifest } from "./types";
 
 const chunks: KnowledgeChunk[] = [
   {
@@ -31,6 +31,27 @@ const chunks: KnowledgeChunk[] = [
     tags: ["evidence", "limit"],
     text: "A material limitation remains visible.",
     vector: [],
+  },
+];
+
+const manifests: KnowledgeFileManifest[] = [
+  {
+    path: "06_Research/source.md",
+    title: "Source",
+    layer: "research",
+    evidenceStatus: "verified",
+    confidentiality: "internal",
+    tags: [],
+    links: ["06_Research/target.md", "../../outside.md"],
+  },
+  {
+    path: "06_Research/target.md",
+    title: "Target",
+    layer: "research",
+    evidenceStatus: "verified",
+    confidentiality: "internal",
+    tags: [],
+    links: [],
   },
 ];
 
@@ -70,5 +91,14 @@ describe("knowledge catalog", () => {
 
     expect(catalog.find((file) => file.path === "../../etc/passwd")).toBeUndefined();
     expect(catalog.find((file) => file.path === "/Users/example/private.txt")).toBeUndefined();
+  });
+
+  it("derives admitted outgoing links and backlinks", () => {
+    const catalog = buildKnowledgeCatalog(chunks, manifests);
+    const source = catalog.find((file) => file.path === "06_Research/source.md");
+    const target = catalog.find((file) => file.path === "06_Research/target.md");
+
+    expect(source?.outgoingLinks).toEqual(["06_Research/target.md"]);
+    expect(target?.incomingLinks).toEqual(["06_Research/source.md"]);
   });
 });

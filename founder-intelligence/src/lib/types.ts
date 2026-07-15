@@ -41,6 +41,7 @@ export interface KnowledgeFileManifest {
   evidenceStatus: string;
   confidentiality: string;
   tags: string[];
+  links?: string[];
 }
 
 export interface SearchResult {
@@ -65,6 +66,8 @@ export interface KnowledgeFileSummary {
   tags: string[];
   sectionCount: number;
   wordCount: number;
+  outgoingLinks: string[];
+  incomingLinks: string[];
 }
 
 export interface KnowledgeFileSection {

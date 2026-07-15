@@ -78,4 +78,14 @@ describe("generated founder intelligence", () => {
     expect(sourceMapText).toContain("unknown");
     expect(sourceMapText).toContain("239,231");
   });
+
+  it("preserves admitted Obsidian links as file graph edges", () => {
+    const admittedPaths = new Set(knowledge.files.map((file) => file.path));
+    const sourceMap = knowledge.files.find((file) => file.path === "06_Research/Market Evidence and Source Map.md");
+
+    expect(knowledge.files.every((file) => file.links.every((path) => admittedPaths.has(path)))).toBe(true);
+    expect(knowledge.files.reduce((sum, file) => sum + file.links.length, 0)).toBeGreaterThanOrEqual(100);
+    expect(sourceMap?.links).toContain("06_Research/Industry Regulatory and Competitive Dossier.md");
+    expect(sourceMap?.links).toContain("06_Research/data/source-ledger.csv");
+  });
 });

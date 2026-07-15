@@ -14,6 +14,8 @@ const file: KnowledgeFileDetail = {
   tags: ["sheperd/source"],
   sectionCount: 1,
   wordCount: 9,
+  outgoingLinks: [],
+  incomingLinks: [],
   sections: [{
     id: "source-section",
     section: "Document status",

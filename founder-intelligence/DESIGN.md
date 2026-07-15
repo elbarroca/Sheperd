@@ -77,6 +77,8 @@ Navigation is limited to four founder tasks: Competitors, Market, Michael, and K
 ## Source library
 
 - The catalog lists all 92 admitted files and keeps arbitrary filesystem paths outside the public reader.
+- The generated manifest preserves resolved Obsidian wikilinks and internal Markdown links only when both ends belong to the admitted corpus.
+- A document dock keeps up to four files open, stores the active tab in the URL, and never retrieves an unadmitted path.
 - Lexical search returns sourced passages only and links every result to its full admitted document.
 - Search never upgrades evidence, generates claims, or hides an empty, malformed, or network-error state.
 - The selected file exposes its admitted path, indexed word count, section count, evidence state, and retrievable sections.
@@ -85,7 +87,8 @@ Navigation is limited to four founder tasks: Competitors, Market, Michael, and K
 
 - The competitor chart communicates one positioning hypothesis and carries an explicit evidence boundary.
 - The market route is a semantic ordered list with source-backed proof signals.
-- The knowledge graph is paired with search and a semantic file index so it is never the only route to a source.
+- The knowledge graph shows the active file, its outgoing links, and its backlinks using only admitted file-to-file edges. One-step and bounded two-step views prevent the graph from becoming an unreadable folder diagram.
+- The graph is paired with a four-tab reader, relationship lists, search, and a semantic file index so it is never the only route to a source.
 - Dense provider, source, and workstream detail uses progressive disclosure where hiding it improves the default scan.
 - Michael's action block keeps owner, approver, completion evidence, and source visible without interaction.
 
@@ -104,6 +107,7 @@ Navigation is limited to four founder tasks: Competitors, Market, Michael, and K
 - Tablet screens preserve all four navigation choices in one task row.
 - Small screens use a compact identity row plus a horizontally scrollable task rail that centers the active view.
 - Charts, maps, signals, workstreams, and search results collapse without horizontal page overflow.
+- The document dock keeps its tabs horizontally scrollable and shows one readable source at a time on small screens.
 - The semantic file index remains available below the graph for keyboard, screen reader, and small-screen access.
 
 ## Rerun inputs

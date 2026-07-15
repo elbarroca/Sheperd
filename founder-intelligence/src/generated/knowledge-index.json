@@ -14,6 +14,18 @@
       "tags": [
         "sheperd/system",
         "sheperd/ai"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md",
+        "01_Company/Company Brief.md",
+        "01_Company/Open Questions and Diligence.md",
+        "01_Company/Product and Business Model.md",
+        "02_Domain/D&D and OSRA Primer.md",
+        "03_GTM/16-Week Operating Plan.md",
+        "03_GTM/ICP and Stakeholder Personas.md",
+        "03_GTM/Website and Content Audit.md",
+        "05_AI/AI Enablement Roadmap.md",
+        "05_AI/Human Approval Policy.md"
       ]
     },
     {
@@ -24,6 +36,10 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/system"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md",
+        "04_Operations/Risk, Assumption and Decision Register.md"
       ]
     },
     {
@@ -35,6 +51,14 @@
       "tags": [
         "sheperd/register",
         "sheperd/company"
+      ],
+      "links": [
+        "10_Sources/Source - 46 USC 41301.md",
+        "10_Sources/Source - FMC D&D Data.md",
+        "10_Sources/Source - SheperD Diagnostic Typeform - 2026-07-15.md",
+        "10_Sources/Source - SheperD LinkedIn - 2026-07-15.md",
+        "10_Sources/Source - SheperD Technical Hiring Signals.md",
+        "10_Sources/Source - SheperD Website - 2026-07-15.md"
       ]
     },
     {
@@ -45,6 +69,16 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/company"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md",
+        "01_Company/Product and Business Model.md",
+        "02_Domain/D&D and OSRA Primer.md",
+        "03_GTM/ICP and Stakeholder Personas.md",
+        "10_Sources/Source - 16 Week Engagement Plan.md",
+        "10_Sources/Source - Avi Manaim LinkedIn Snapshot.md",
+        "10_Sources/Source - SheperD Technical Hiring Signals.md",
+        "10_Sources/Source - SheperD Website - 2026-07-15.md"
       ]
     },
     {
@@ -56,6 +90,9 @@
       "tags": [
         "sheperd/company",
         "sheperd/person"
+      ],
+      "links": [
+        "10_Sources/Source - Avi Manaim LinkedIn Snapshot.md"
       ]
     },
     {
@@ -67,6 +104,9 @@
       "tags": [
         "sheperd/company",
         "sheperd/risk"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md"
       ]
     },
     {
@@ -78,6 +118,11 @@
       "tags": [
         "sheperd/company",
         "sheperd/workstream-input"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md",
+        "01_Company/Open Questions and Diligence.md",
+        "03_GTM/Customer Journey and Funnel.md"
       ]
     },
     {
@@ -89,6 +134,12 @@
       "tags": [
         "sheperd/domain",
         "sheperd/regulatory"
+      ],
+      "links": [
+        "10_Sources/Source - 46 CFR Part 541.md",
+        "10_Sources/Source - 46 USC 41301.md",
+        "10_Sources/Source - FMC Charge Complaint Guidance.md",
+        "10_Sources/Source - FMC Final Rule Summary.md"
       ]
     },
     {
@@ -99,6 +150,9 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/domain"
+      ],
+      "links": [
+        "02_Domain/D&D and OSRA Primer.md"
       ]
     },
     {
@@ -110,6 +164,16 @@
       "tags": [
         "sheperd/domain",
         "sheperd/market"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md",
+        "10_Sources/Source - Competitor Websites - 2026-07-15.md",
+        "10_Sources/Source - Evergreen 2026 Decision.md",
+        "10_Sources/Source - FMC 2025 Court Update.md",
+        "10_Sources/Source - FMC D&D Data.md",
+        "10_Sources/Source - FMC FY2025 Charge Complaints.md",
+        "10_Sources/Source - FTC Advertising Substantiation.md",
+        "10_Sources/Source - GTM Market and Demand Scan - 2026-07-15.md"
       ]
     },
     {
@@ -121,6 +185,11 @@
       "tags": [
         "sheperd/gtm",
         "sheperd/plan"
+      ],
+      "links": [
+        "03_GTM/Michael Role Charter.md",
+        "04_Operations/CRM Data Model.md",
+        "04_Operations/Operating Cadence and KPI Dictionary.md"
       ]
     },
     {
@@ -133,6 +202,15 @@
         "sheperd/gtm",
         "sheperd/content",
         "sheperd/distribution"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md",
+        "01_Company/Company Brief.md",
+        "03_GTM/ICP and Stakeholder Personas.md",
+        "03_GTM/Sales and Objection Playbook.md",
+        "03_GTM/Website and Content Audit.md",
+        "04_Operations/Customer Data Intake and Security.md",
+        "05_AI/Human Approval Policy.md"
       ]
     },
     {
@@ -144,6 +222,9 @@
       "tags": [
         "sheperd/gtm",
         "sheperd/funnel"
+      ],
+      "links": [
+        "04_Operations/Customer Data Intake and Security.md"
       ]
     },
     {
@@ -155,7 +236,8 @@
       "tags": [
         "sheperd/gtm",
         "sheperd/customer"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "03_GTM/Michael Role Charter.md",
@@ -166,6 +248,9 @@
       "tags": [
         "sheperd/gtm",
         "sheperd/role"
+      ],
+      "links": [
+        "10_Sources/Source - 16 Week Engagement Plan.md"
       ]
     },
     {
@@ -177,7 +262,8 @@
       "tags": [
         "sheperd/gtm",
         "sheperd/partner"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "03_GTM/Sales and Objection Playbook.md",
@@ -188,6 +274,10 @@
       "tags": [
         "sheperd/gtm",
         "sheperd/playbook"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md",
+        "02_Domain/D&D and OSRA Primer.md"
       ]
     },
     {
@@ -200,6 +290,30 @@
         "sheperd/gtm",
         "sheperd/control",
         "sheperd/validation"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md",
+        "01_Company/Company Brief.md",
+        "01_Company/Product and Business Model.md",
+        "02_Domain/Market and Competitive Landscape.md",
+        "03_GTM/16-Week Operating Plan.md",
+        "03_GTM/Content and Distribution System.md",
+        "03_GTM/Customer Journey and Funnel.md",
+        "03_GTM/ICP and Stakeholder Personas.md",
+        "03_GTM/Partner Strategy.md",
+        "03_GTM/Sales and Objection Playbook.md",
+        "04_Operations/CRM Data Model.md",
+        "04_Operations/Customer Data Intake and Security.md",
+        "04_Operations/Operating Cadence and KPI Dictionary.md",
+        "05_AI/AI Enablement Roadmap.md",
+        "05_AI/Human Approval Policy.md",
+        "06_Research/Company and Founder Dossier.md",
+        "06_Research/Implementation Roadmap.md",
+        "06_Research/Industry Regulatory and Competitive Dossier.md",
+        "06_Research/QA and Acceptance Report.md",
+        "06_Research/SheperD Deep Research - Control Note.md",
+        "90_Templates/Experiment.md",
+        "90_Templates/GTM Operator Kit.md"
       ]
     },
     {
@@ -211,6 +325,15 @@
       "tags": [
         "sheperd/gtm",
         "sheperd/website"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md",
+        "03_GTM/Content and Distribution System.md",
+        "10_Sources/Source - GTM Market and Demand Scan - 2026-07-15.md",
+        "10_Sources/Source - SheperD Diagnostic Typeform - 2026-07-15.md",
+        "10_Sources/Source - SheperD LinkedIn - 2026-07-15.md",
+        "10_Sources/Source - SheperD Technical Hiring Signals.md",
+        "10_Sources/Source - SheperD Website - 2026-07-15.md"
       ]
     },
     {
@@ -222,6 +345,12 @@
       "tags": [
         "sheperd/operations",
         "sheperd/crm"
+      ],
+      "links": [
+        "03_GTM/Customer Journey and Funnel.md",
+        "04_Operations/Customer Data Intake and Security.md",
+        "04_Operations/Operating Cadence and KPI Dictionary.md",
+        "05_AI/AI Enablement Roadmap.md"
       ]
     },
     {
@@ -233,6 +362,11 @@
       "tags": [
         "sheperd/operations",
         "sheperd/security"
+      ],
+      "links": [
+        "03_GTM/Customer Journey and Funnel.md",
+        "04_Operations/CRM Data Model.md",
+        "05_AI/Human Approval Policy.md"
       ]
     },
     {
@@ -243,6 +377,9 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/operations"
+      ],
+      "links": [
+        "03_GTM/16-Week Operating Plan.md"
       ]
     },
     {
@@ -254,7 +391,8 @@
       "tags": [
         "sheperd/operations",
         "sheperd/risk"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "04_Operations/Weekly Scorecards/2026-07-13 - Activation Week.md",
@@ -264,6 +402,11 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/scorecard"
+      ],
+      "links": [
+        "01_Company/Open Questions and Diligence.md",
+        "03_GTM/16-Week Operating Plan.md",
+        "04_Operations/Risk, Assumption and Decision Register.md"
       ]
     },
     {
@@ -274,6 +417,9 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/workstream"
+      ],
+      "links": [
+        "02_Domain/D&D and OSRA Primer.md"
       ]
     },
     {
@@ -284,6 +430,11 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/workstream"
+      ],
+      "links": [
+        "01_Company/Product and Business Model.md",
+        "03_GTM/Customer Journey and Funnel.md",
+        "03_GTM/Sales and Objection Playbook.md"
       ]
     },
     {
@@ -294,6 +445,9 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/workstream"
+      ],
+      "links": [
+        "04_Operations/CRM Data Model.md"
       ]
     },
     {
@@ -304,6 +458,9 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/workstream"
+      ],
+      "links": [
+        "03_GTM/Sales and Objection Playbook.md"
       ]
     },
     {
@@ -314,6 +471,9 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/workstream"
+      ],
+      "links": [
+        "03_GTM/Website and Content Audit.md"
       ]
     },
     {
@@ -324,6 +484,10 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/workstream"
+      ],
+      "links": [
+        "03_GTM/ICP and Stakeholder Personas.md",
+        "03_GTM/Partner Strategy.md"
       ]
     },
     {
@@ -334,6 +498,9 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/workstream"
+      ],
+      "links": [
+        "04_Operations/Operating Cadence and KPI Dictionary.md"
       ]
     },
     {
@@ -344,7 +511,8 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/workstream"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "05_AI/AI Enablement Roadmap.md",
@@ -354,6 +522,11 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/ai"
+      ],
+      "links": [
+        "00_System/Knowledge Retrieval Contract.md",
+        "04_Operations/CRM Data Model.md",
+        "05_AI/Human Approval Policy.md"
       ]
     },
     {
@@ -365,7 +538,8 @@
       "tags": [
         "sheperd/ai",
         "sheperd/policy"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "06_Goals/Goal 1 - Deep Intelligence and AI Operations.md",
@@ -377,6 +551,14 @@
         "sheperd/goal",
         "sheperd/research",
         "sheperd/ai"
+      ],
+      "links": [
+        "00_System/Knowledge Retrieval Contract.md",
+        "00_System/Vault Operating Manual.md",
+        "01_Company/Claims and Evidence Register.md",
+        "03_GTM/Michael Role Charter.md",
+        "04_Operations/Weekly Scorecards/2026-07-13 - Activation Week.md",
+        "05_AI/Human Approval Policy.md"
       ]
     },
     {
@@ -389,6 +571,12 @@
         "sheperd/goal",
         "sheperd/website",
         "sheperd/design"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md",
+        "01_Company/Product and Business Model.md",
+        "03_GTM/Website and Content Audit.md",
+        "04_Operations/Customer Data Intake and Security.md"
       ]
     },
     {
@@ -400,6 +588,13 @@
       "tags": [
         "sheperd/research",
         "sheperd/ai"
+      ],
+      "links": [
+        "05_AI/AI Enablement Roadmap.md",
+        "05_AI/Human Approval Policy.md",
+        "06_Research/Implementation Roadmap.md",
+        "06_Research/Role and Workflow Atlas.md",
+        "06_Research/Time Savings Model.md"
       ]
     },
     {
@@ -411,6 +606,21 @@
       "tags": [
         "sheperd/research",
         "sheperd/company"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md",
+        "01_Company/Company Brief.md",
+        "01_Company/Open Questions and Diligence.md",
+        "01_Company/Product and Business Model.md",
+        "04_Operations/Customer Data Intake and Security.md",
+        "05_AI/AI Enablement Roadmap.md",
+        "06_Research/Research Gaps and Interview Guide.md",
+        "06_Research/Role and Workflow Atlas.md",
+        "06_Research/SheperD Deep Research - Control Note.md",
+        "10_Sources/Source - Avi Manaim Professional History - 2026-07-15.md",
+        "10_Sources/Source - SheperD Diagnostic Typeform - 2026-07-15.md",
+        "10_Sources/Source - SheperD Entity Search Attempts - 2026-07-15.md",
+        "10_Sources/Source - SheperD Website - 2026-07-15.md"
       ]
     },
     {
@@ -422,6 +632,12 @@
       "tags": [
         "sheperd/research",
         "sheperd/roadmap"
+      ],
+      "links": [
+        "06_Research/AI Opportunity Register.md",
+        "06_Research/Research Gaps and Interview Guide.md",
+        "06_Research/Role and Workflow Atlas.md",
+        "06_Research/Time Savings Model.md"
       ]
     },
     {
@@ -434,6 +650,25 @@
         "sheperd/research",
         "sheperd/regulatory",
         "sheperd/market"
+      ],
+      "links": [
+        "02_Domain/D&D and OSRA Primer.md",
+        "03_GTM/ICP and Stakeholder Personas.md",
+        "05_AI/Human Approval Policy.md",
+        "06_Research/AI Opportunity Register.md",
+        "06_Research/Market Evidence and Source Map.md",
+        "06_Research/Research Gaps and Interview Guide.md",
+        "06_Research/SheperD Deep Research - Control Note.md",
+        "10_Sources/Source - 46 CFR Part 541.md",
+        "10_Sources/Source - 46 USC 41301.md",
+        "10_Sources/Source - 46 USC 41310 and FMC Complaint Routes - 2026-07-15.md",
+        "10_Sources/Source - Competitor Websites - 2026-07-15.md",
+        "10_Sources/Source - Evergreen 2026 Decision.md",
+        "10_Sources/Source - FMC D&D Data.md",
+        "10_Sources/Source - FMC FY2025 Annual Report - 2026-07-15.md",
+        "10_Sources/Source - FTC Advertising Substantiation.md",
+        "10_Sources/Source - Part 541 Section 541.4 Removal - 2026-07-15.md",
+        "10_Sources/Source - World Shipping Council Part 541 Opinion - 2026-07-15.md"
       ]
     },
     {
@@ -447,6 +682,17 @@
         "sheperd/market",
         "sheperd/competition",
         "sheperd/sources"
+      ],
+      "links": [
+        "03_GTM/ICP and Stakeholder Personas.md",
+        "06_Research/Company and Founder Dossier.md",
+        "06_Research/data/source-ledger.csv",
+        "06_Research/Industry Regulatory and Competitive Dossier.md",
+        "06_Research/Research Gaps and Interview Guide.md",
+        "10_Sources/Source - Competitor and Public Pain Signals - 2026-07-15.md",
+        "10_Sources/Source - GTM Market and Demand Scan - 2026-07-15.md",
+        "10_Sources/Source - Industry Congestion and Market Reports - 2026-07-15.md",
+        "10_Sources/Source - Research Papers and Community Evidence - 2026-07-15.md"
       ]
     },
     {
@@ -458,6 +704,11 @@
       "tags": [
         "sheperd/research",
         "sheperd/qa"
+      ],
+      "links": [
+        "06_Research/Market Evidence and Source Map.md",
+        "06_Research/Research Gaps and Interview Guide.md",
+        "06_Research/SheperD Deep Research - Control Note.md"
       ]
     },
     {
@@ -469,6 +720,11 @@
       "tags": [
         "sheperd/research",
         "sheperd/diligence"
+      ],
+      "links": [
+        "06_Research/Company and Founder Dossier.md",
+        "06_Research/Implementation Roadmap.md",
+        "06_Research/Industry Regulatory and Competitive Dossier.md"
       ]
     },
     {
@@ -480,6 +736,31 @@
       "tags": [
         "sheperd/research",
         "sheperd/workflow"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md",
+        "01_Company/Product and Business Model.md",
+        "03_GTM/16-Week Operating Plan.md",
+        "03_GTM/Customer Journey and Funnel.md",
+        "03_GTM/ICP and Stakeholder Personas.md",
+        "03_GTM/Michael Role Charter.md",
+        "03_GTM/Partner Strategy.md",
+        "03_GTM/Sales and Objection Playbook.md",
+        "03_GTM/Website and Content Audit.md",
+        "04_Operations/CRM Data Model.md",
+        "04_Operations/Customer Data Intake and Security.md",
+        "04_Operations/Operating Cadence and KPI Dictionary.md",
+        "04_Operations/Risk, Assumption and Decision Register.md",
+        "04_Operations/Weekly Scorecards/2026-07-13 - Activation Week.md",
+        "04_Operations/Workstreams/01 Domain Knowledge.md",
+        "04_Operations/Workstreams/06 Customer and Partner Segmentation.md",
+        "05_AI/AI Enablement Roadmap.md",
+        "05_AI/Human Approval Policy.md",
+        "06_Goals/Goal 1 - Deep Intelligence and AI Operations.md",
+        "06_Research/AI Opportunity Register.md",
+        "06_Research/Implementation Roadmap.md",
+        "06_Research/Time Savings Model.md",
+        "10_Sources/Source - 16 Week Engagement Plan.md"
       ]
     },
     {
@@ -491,6 +772,31 @@
       "tags": [
         "sheperd/research",
         "sheperd/control"
+      ],
+      "links": [
+        "00_System/Knowledge Retrieval Contract.md",
+        "00_System/Vault Operating Manual.md",
+        "01_Company/Claims and Evidence Register.md",
+        "01_Company/Open Questions and Diligence.md",
+        "01_Company/Product and Business Model.md",
+        "02_Domain/D&D and OSRA Primer.md",
+        "02_Domain/Market and Competitive Landscape.md",
+        "04_Operations/Risk, Assumption and Decision Register.md",
+        "04_Operations/Weekly Scorecards/2026-07-13 - Activation Week.md",
+        "05_AI/Human Approval Policy.md",
+        "06_Research/AI Opportunity Register.md",
+        "06_Research/Company and Founder Dossier.md",
+        "06_Research/Industry Regulatory and Competitive Dossier.md",
+        "06_Research/Market Evidence and Source Map.md",
+        "06_Research/QA and Acceptance Report.md",
+        "06_Research/Role and Workflow Atlas.md",
+        "06_Research/Time Savings Model.md",
+        "10_Sources/Source - 46 CFR Part 541.md",
+        "10_Sources/Source - 46 USC 41301.md",
+        "10_Sources/Source - Avi Manaim Professional History - 2026-07-15.md",
+        "10_Sources/Source - Evergreen 2026 Decision.md",
+        "10_Sources/Source - SheperD Diagnostic Typeform - 2026-07-15.md",
+        "10_Sources/Source - SheperD LinkedIn - 2026-07-15.md"
       ]
     },
     {
@@ -502,6 +808,11 @@
       "tags": [
         "sheperd/research",
         "sheperd/capacity"
+      ],
+      "links": [
+        "06_Research/AI Opportunity Register.md",
+        "06_Research/Implementation Roadmap.md",
+        "06_Research/Research Gaps and Interview Guide.md"
       ]
     },
     {
@@ -510,7 +821,8 @@
       "layer": "research",
       "evidenceStatus": "structured-data",
       "confidentiality": "internal",
-      "tags": []
+      "tags": [],
+      "links": []
     },
     {
       "path": "06_Research/data/source-ledger.csv",
@@ -518,7 +830,8 @@
       "layer": "research",
       "evidenceStatus": "internal-proposal",
       "confidentiality": "internal",
-      "tags": []
+      "tags": [],
+      "links": []
     },
     {
       "path": "06_Research/data/time-savings.csv",
@@ -526,7 +839,8 @@
       "layer": "research",
       "evidenceStatus": "structured-data",
       "confidentiality": "internal",
-      "tags": []
+      "tags": [],
+      "links": []
     },
     {
       "path": "06_Research/data/workflows.csv",
@@ -534,7 +848,8 @@
       "layer": "research",
       "evidenceStatus": "structured-data",
       "confidentiality": "internal",
-      "tags": []
+      "tags": [],
+      "links": []
     },
     {
       "path": "07_Founder_Operating_System/data/artifact_manifest.csv",
@@ -542,7 +857,8 @@
       "layer": "structured-data",
       "evidenceStatus": "structured-data",
       "confidentiality": "internal",
-      "tags": []
+      "tags": [],
+      "links": []
     },
     {
       "path": "07_Founder_Operating_System/data/blockers.csv",
@@ -550,7 +866,8 @@
       "layer": "structured-data",
       "evidenceStatus": "blocked",
       "confidentiality": "internal",
-      "tags": []
+      "tags": [],
+      "links": []
     },
     {
       "path": "07_Founder_Operating_System/data/content_backlog.csv",
@@ -558,7 +875,8 @@
       "layer": "structured-data",
       "evidenceStatus": "internal-outline",
       "confidentiality": "internal",
-      "tags": []
+      "tags": [],
+      "links": []
     },
     {
       "path": "07_Founder_Operating_System/data/experiments.csv",
@@ -566,7 +884,8 @@
       "layer": "structured-data",
       "evidenceStatus": "structured-data",
       "confidentiality": "internal",
-      "tags": []
+      "tags": [],
+      "links": []
     },
     {
       "path": "07_Founder_Operating_System/data/measurements.csv",
@@ -574,7 +893,8 @@
       "layer": "structured-data",
       "evidenceStatus": "designed",
       "confidentiality": "internal",
-      "tags": []
+      "tags": [],
+      "links": []
     },
     {
       "path": "10_Sources/Source - 16 Week Engagement Plan.md",
@@ -584,6 +904,9 @@
       "confidentiality": "public-clean-copy",
       "tags": [
         "sheperd/source"
+      ],
+      "links": [
+        "03_GTM/16-Week Operating Plan.md"
       ]
     },
     {
@@ -595,7 +918,8 @@
       "tags": [
         "sheperd/source",
         "sheperd/regulatory"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - 46 USC 41301.md",
@@ -606,7 +930,8 @@
       "tags": [
         "sheperd/source",
         "sheperd/regulatory"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - 46 USC 41310 and FMC Complaint Routes - 2026-07-15.md",
@@ -617,7 +942,8 @@
       "tags": [
         "sheperd/source",
         "sheperd/regulatory"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - Avi Manaim LinkedIn Snapshot.md",
@@ -627,7 +953,8 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/source"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - Avi Manaim Professional History - 2026-07-15.md",
@@ -638,7 +965,8 @@
       "tags": [
         "sheperd/source",
         "sheperd/company"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - Competitor Websites - 2026-07-15.md",
@@ -649,7 +977,8 @@
       "tags": [
         "sheperd/source",
         "sheperd/market"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - Competitor and Public Pain Signals - 2026-07-15.md",
@@ -661,6 +990,11 @@
         "sheperd/source",
         "sheperd/competition",
         "sheperd/problem-signals"
+      ],
+      "links": [
+        "06_Research/Industry Regulatory and Competitive Dossier.md",
+        "06_Research/Market Evidence and Source Map.md",
+        "10_Sources/Source - Competitor Websites - 2026-07-15.md"
       ]
     },
     {
@@ -672,7 +1006,8 @@
       "tags": [
         "sheperd/source",
         "sheperd/regulatory"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - FMC 2025 Court Update.md",
@@ -683,7 +1018,8 @@
       "tags": [
         "sheperd/source",
         "sheperd/regulatory"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - FMC Charge Complaint Guidance.md",
@@ -694,7 +1030,8 @@
       "tags": [
         "sheperd/source",
         "sheperd/regulatory"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - FMC D&D Data.md",
@@ -705,7 +1042,8 @@
       "tags": [
         "sheperd/source",
         "sheperd/market"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - FMC FY2025 Annual Report - 2026-07-15.md",
@@ -716,7 +1054,8 @@
       "tags": [
         "sheperd/source",
         "sheperd/market"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - FMC FY2025 Charge Complaints.md",
@@ -727,7 +1066,8 @@
       "tags": [
         "sheperd/source",
         "sheperd/market"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - FMC Final Rule Summary.md",
@@ -738,6 +1078,10 @@
       "tags": [
         "sheperd/source",
         "sheperd/regulatory"
+      ],
+      "links": [
+        "10_Sources/Source - 46 CFR Part 541.md",
+        "10_Sources/Source - FMC 2025 Court Update.md"
       ]
     },
     {
@@ -749,7 +1093,8 @@
       "tags": [
         "sheperd/source",
         "sheperd/compliance"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - GTM Market and Demand Scan - 2026-07-15.md",
@@ -761,6 +1106,13 @@
         "sheperd/source",
         "sheperd/gtm",
         "sheperd/market"
+      ],
+      "links": [
+        "02_Domain/Market and Competitive Landscape.md",
+        "03_GTM/ICP and Stakeholder Personas.md",
+        "03_GTM/Website and Content Audit.md",
+        "10_Sources/Source - 46 CFR Part 541.md",
+        "10_Sources/Source - 46 USC 41310 and FMC Complaint Routes - 2026-07-15.md"
       ]
     },
     {
@@ -774,6 +1126,11 @@
         "sheperd/industry",
         "sheperd/congestion",
         "sheperd/market-sizing"
+      ],
+      "links": [
+        "06_Research/Industry Regulatory and Competitive Dossier.md",
+        "06_Research/Market Evidence and Source Map.md",
+        "10_Sources/Source - FMC D&D Data.md"
       ]
     },
     {
@@ -785,7 +1142,8 @@
       "tags": [
         "sheperd/source",
         "sheperd/regulatory"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - Research Papers and Community Evidence - 2026-07-15.md",
@@ -797,6 +1155,11 @@
         "sheperd/source",
         "sheperd/research-papers",
         "sheperd/community"
+      ],
+      "links": [
+        "06_Research/Market Evidence and Source Map.md",
+        "06_Research/Research Gaps and Interview Guide.md",
+        "10_Sources/Source - GTM Market and Demand Scan - 2026-07-15.md"
       ]
     },
     {
@@ -807,6 +1170,10 @@
       "confidentiality": "public",
       "tags": [
         "sheperd/source"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md",
+        "03_GTM/Website and Content Audit.md"
       ]
     },
     {
@@ -818,7 +1185,8 @@
       "tags": [
         "sheperd/source",
         "sheperd/company"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - SheperD LinkedIn - 2026-07-15.md",
@@ -828,6 +1196,11 @@
       "confidentiality": "public",
       "tags": [
         "sheperd/source"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md",
+        "03_GTM/Website and Content Audit.md",
+        "10_Sources/Source - Avi Manaim LinkedIn Snapshot.md"
       ]
     },
     {
@@ -838,7 +1211,8 @@
       "confidentiality": "public",
       "tags": [
         "sheperd/source"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "10_Sources/Source - SheperD Website - 2026-07-15.md",
@@ -848,6 +1222,10 @@
       "confidentiality": "public",
       "tags": [
         "sheperd/source"
+      ],
+      "links": [
+        "01_Company/Claims and Evidence Register.md",
+        "03_GTM/Website and Content Audit.md"
       ]
     },
     {
@@ -859,7 +1237,8 @@
       "tags": [
         "sheperd/source",
         "sheperd/regulatory"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "90_Templates/Customer Insight.md",
@@ -869,7 +1248,8 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/insight"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "90_Templates/Decision Record.md",
@@ -879,7 +1259,8 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/decision"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "90_Templates/Experiment.md",
@@ -889,7 +1270,8 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/experiment"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "90_Templates/GTM Operator Kit.md",
@@ -900,6 +1282,15 @@
       "tags": [
         "sheperd/template",
         "sheperd/gtm"
+      ],
+      "links": [
+        "03_GTM/Customer Journey and Funnel.md",
+        "03_GTM/SheperD GTM Validation and Optimization - Control Note.md",
+        "04_Operations/CRM Data Model.md",
+        "05_AI/Human Approval Policy.md",
+        "90_Templates/Decision Record.md",
+        "90_Templates/Experiment.md",
+        "90_Templates/Weekly Scorecard.md"
       ]
     },
     {
@@ -910,7 +1301,8 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/meeting"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "90_Templates/Source Note.md",
@@ -920,7 +1312,8 @@
       "confidentiality": "public",
       "tags": [
         "sheperd/source"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "90_Templates/Weekly Scorecard.md",
@@ -930,7 +1323,8 @@
       "confidentiality": "internal",
       "tags": [
         "sheperd/scorecard"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "context/Founder Brief.md",
@@ -941,7 +1335,8 @@
       "tags": [
         "sheperd/context",
         "sheperd/founder"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "context/Founder Intelligence Knowledge Contract.md",
@@ -953,7 +1348,8 @@
         "sheperd/context",
         "sheperd/knowledge",
         "sheperd/security"
-      ]
+      ],
+      "links": []
     },
     {
       "path": "context/README.md",
@@ -964,6 +1360,13 @@
       "tags": [
         "sheperd/context",
         "sheperd/founder-intelligence"
+      ],
+      "links": [
+        "03_GTM/SheperD GTM Validation and Optimization - Control Note.md",
+        "06_Research/SheperD Deep Research - Control Note.md",
+        "context/Founder Brief.md",
+        "context/Founder Intelligence Knowledge Contract.md",
+        "context/Ricardo - Strategic Interpretation.md"
       ]
     },
     {
@@ -976,6 +1379,12 @@
         "sheperd/context",
         "sheperd/ricardo",
         "sheperd/gtm"
+      ],
+      "links": [
+        "03_GTM/16-Week Operating Plan.md",
+        "03_GTM/Michael Role Charter.md",
+        "03_GTM/SheperD GTM Validation and Optimization - Control Note.md",
+        "10_Sources/Source - 16 Week Engagement Plan.md"
       ]
     }
   ],

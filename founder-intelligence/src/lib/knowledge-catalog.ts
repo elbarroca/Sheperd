@@ -81,6 +81,8 @@ export function buildKnowledgeCatalog(
       tags: sortStrings(file.tags),
       sectionCount: file.sectionCount,
       wordCount: file.wordCount,
+      outgoingLinks: [],
+      incomingLinks: [],
     }))
     .sort((left, right) => left.path.localeCompare(right.path));
 
@@ -98,9 +100,30 @@ export function buildKnowledgeCatalog(
       tags: [...file.tags].sort((left, right) => left.localeCompare(right)),
       sectionCount: 0,
       wordCount: 0,
+      outgoingLinks: [],
+      incomingLinks: [],
     }));
 
-  return [...summaries, ...emptyFiles].sort((left, right) => left.path.localeCompare(right.path));
+  const catalog = [...summaries, ...emptyFiles].sort((left, right) => left.path.localeCompare(right.path));
+  const admittedPaths = new Set(catalog.map((file) => file.path));
+  const linksByPath = new Map(
+    manifests.map((manifest) => [
+      manifest.path,
+      [...new Set(manifest.links ?? [])].filter((path) => admittedPaths.has(path) && path !== manifest.path).sort(),
+    ]),
+  );
+  const backlinksByPath = new Map(catalog.map((file) => [file.path, [] as string[]]));
+
+  for (const [sourcePath, links] of linksByPath) {
+    if (!admittedPaths.has(sourcePath)) continue;
+    for (const targetPath of links) backlinksByPath.get(targetPath)?.push(sourcePath);
+  }
+
+  return catalog.map((file) => ({
+    ...file,
+    outgoingLinks: linksByPath.get(file.path) ?? [],
+    incomingLinks: [...new Set(backlinksByPath.get(file.path) ?? [])].sort(),
+  }));
 }
 
 export function buildKnowledgeFileDetail(

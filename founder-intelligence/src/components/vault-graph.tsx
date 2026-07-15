@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   Background,
   BackgroundVariant,
@@ -13,140 +12,108 @@ import {
   type Node,
   type NodeMouseHandler,
 } from "@xyflow/react";
-import { researchFileHref } from "@/lib/content";
+import { buildKnowledgeNeighborhood } from "@/lib/knowledge-graph";
 import type { KnowledgeFileSummary } from "@/lib/types";
 
-type VaultNodeKind = "root" | "folder" | "file";
 type VaultNodeData = {
   label: ReactNode;
-  kind: VaultNodeKind;
-  folder?: string;
-  path?: string;
+  path: string;
 };
+
 type VaultNode = Node<VaultNodeData>;
 
-interface FolderGroup {
-  folder: string;
+interface VaultGraphProps {
   files: KnowledgeFileSummary[];
+  activePath: string | null;
+  openPaths: string[];
+  onOpenFile: (path: string) => void;
 }
 
-function groupFiles(files: KnowledgeFileSummary[]): FolderGroup[] {
-  const grouped = new Map<string, KnowledgeFileSummary[]>();
-  for (const file of files) {
-    const current = grouped.get(file.folder) ?? [];
-    current.push(file);
-    grouped.set(file.folder, current);
+function nodeLabel(file: KnowledgeFileSummary): ReactNode {
+  return (
+    <span>
+      <strong>{file.title}</strong>
+      <small>{file.outgoingLinks.length} links out · {file.incomingLinks.length} backlinks</small>
+    </span>
+  );
+}
+
+function getDefaultPath(files: KnowledgeFileSummary[]): string | null {
+  return [...files]
+    .sort((left, right) => right.outgoingLinks.length + right.incomingLinks.length
+      - left.outgoingLinks.length - left.incomingLinks.length || left.path.localeCompare(right.path))[0]?.path ?? null;
+}
+
+function buildGraph(
+  files: KnowledgeFileSummary[],
+  rootPath: string,
+  depth: 1 | 2,
+  openPaths: string[],
+): { nodes: VaultNode[]; edges: Edge[] } {
+  const filesByPath = new Map(files.map((file) => [file.path, file]));
+  const neighborhood = buildKnowledgeNeighborhood(files, rootPath, depth, depth === 1 ? 14 : 30);
+  const ringMembers = new Map<number, string[]>();
+
+  for (const node of neighborhood.nodes) {
+    ringMembers.set(node.depth, [...(ringMembers.get(node.depth) ?? []), node.path]);
   }
-  return [...grouped.entries()]
-    .map(([folder, folderFiles]) => ({ folder, files: folderFiles }))
-    .sort((left, right) => left.folder.localeCompare(right.folder));
-}
 
-function nodeLabel(title: string, detail: string): ReactNode {
-  return <span><strong>{title}</strong><small>{detail}</small></span>;
-}
+  const nodes = neighborhood.nodes.flatMap((node): VaultNode[] => {
+    const file = filesByPath.get(node.path);
+    if (!file) return [];
+    const ring = ringMembers.get(node.depth) ?? [node.path];
+    const index = ring.indexOf(node.path);
+    const angle = ring.length === 1 ? 0 : -Math.PI / 2 + (index * Math.PI * 2) / ring.length;
+    const radius = node.depth * 460;
+    const position = node.depth === 0
+      ? { x: 0, y: 0 }
+      : { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius * 0.72 };
+    const stateClass = node.path === rootPath
+      ? "vault-node-active"
+      : openPaths.includes(node.path) ? "vault-node-open" : "";
 
-function buildFolderView(groups: FolderGroup[]): { nodes: VaultNode[]; edges: Edge[] } {
-  const nodes: VaultNode[] = groups.map((group, index) => ({
-    id: `folder:${group.folder}`,
-    position: { x: 420, y: index * 96 },
-    data: { label: nodeLabel(group.folder.replaceAll("_", " "), `${group.files.length} documents`), kind: "folder", folder: group.folder },
-    className: "vault-node vault-node-folder",
-  }));
-  nodes.unshift({
-    id: "vault-root",
-    position: { x: 0, y: Math.max(0, ((groups.length - 1) * 96) / 2) },
-    data: { label: nodeLabel("SheperD vault", `${groups.reduce((sum, group) => sum + group.files.length, 0)} documents`), kind: "root" },
-    className: "vault-node vault-node-root",
+    return [{
+      id: node.path,
+      position,
+      data: { label: nodeLabel(file), path: node.path },
+      className: `vault-node vault-node-file ${stateClass}`.trim(),
+    }];
   });
-  const edges = groups.map((group) => ({
-    id: `root:${group.folder}`,
-    source: "vault-root",
-    target: `folder:${group.folder}`,
-    markerEnd: { type: MarkerType.ArrowClosed },
-    className: "vault-edge",
+  const edges = neighborhood.edges.map((edge, index): Edge => ({
+    id: `${index}:${edge.source}:${edge.target}`,
+    source: edge.source,
+    target: edge.target,
+    markerEnd: { type: MarkerType.ArrowClosed, width: 13, height: 13 },
+    className: "vault-edge vault-edge-link",
   }));
+
   return { nodes, edges };
 }
 
-function buildDocumentView(groups: FolderGroup[], activeFolder: string | "all"): { nodes: VaultNode[]; edges: Edge[] } {
-  const visibleGroups = activeFolder === "all" ? groups : groups.filter((group) => group.folder === activeFolder);
-  const nodes: VaultNode[] = [];
-  const edges: Edge[] = [];
-  let cursorY = 0;
-
-  for (const group of visibleGroups) {
-    const rowCount = Math.max(1, Math.ceil(group.files.length / 2));
-    const blockHeight = rowCount * 88;
-    const folderId = `folder:${group.folder}`;
-    nodes.push({
-      id: folderId,
-      position: { x: 340, y: cursorY + blockHeight / 2 - 34 },
-      data: { label: nodeLabel(group.folder.replaceAll("_", " "), `${group.files.length} documents`), kind: "folder", folder: group.folder },
-      className: "vault-node vault-node-folder",
-    });
-    edges.push({
-      id: `root:${group.folder}`,
-      source: "vault-root",
-      target: folderId,
-      markerEnd: { type: MarkerType.ArrowClosed },
-      className: "vault-edge",
-    });
-
-    group.files.forEach((file, index) => {
-      const fileId = `file:${file.path}`;
-      nodes.push({
-        id: fileId,
-        position: { x: 740 + (index % 2) * 320, y: cursorY + Math.floor(index / 2) * 88 },
-        data: { label: nodeLabel(file.title, file.primaryLayer.replaceAll("-", " ")), kind: "file", path: file.path },
-        className: "vault-node vault-node-file",
-      });
-      edges.push({
-        id: `${folderId}:${fileId}`,
-        source: folderId,
-        target: fileId,
-        className: "vault-edge vault-edge-file",
-      });
-    });
-    cursorY += blockHeight + 88;
-  }
-
-  nodes.unshift({
-    id: "vault-root",
-    position: { x: 0, y: Math.max(0, cursorY / 2 - 70) },
-    data: { label: nodeLabel("SheperD vault", `${visibleGroups.reduce((sum, group) => sum + group.files.length, 0)} shown`), kind: "root" },
-    className: "vault-node vault-node-root",
-  });
-  return { nodes, edges };
-}
-
-export function VaultGraph({ files }: { files: KnowledgeFileSummary[] }) {
-  const router = useRouter();
-  const groups = useMemo(() => groupFiles(files), [files]);
-  const [view, setView] = useState<string | "folders" | "all">("folders");
+export function VaultGraph({ files, activePath, openPaths, onOpenFile }: VaultGraphProps) {
+  const [depth, setDepth] = useState<1 | 2>(1);
+  const rootPath = activePath && files.some((file) => file.path === activePath)
+    ? activePath
+    : getDefaultPath(files);
   const graph = useMemo(
-    () => view === "folders" ? buildFolderView(groups) : buildDocumentView(groups, view),
-    [groups, view],
+    () => rootPath ? buildGraph(files, rootPath, depth, openPaths) : { nodes: [], edges: [] },
+    [depth, files, openPaths, rootPath],
   );
 
   const handleNodeClick: NodeMouseHandler<VaultNode> = (_event, node) => {
-    if (node.data.kind === "folder" && node.data.folder) {
-      setView(node.data.folder);
-      return;
-    }
-    if (node.data.kind === "file" && node.data.path) {
-      router.push(researchFileHref(node.data.path));
-    }
+    onOpenFile(node.data.path);
   };
 
   return (
     <div className="vault-graph-shell">
       <div className="vault-graph-toolbar" aria-label="Knowledge map controls">
-        <button type="button" onClick={() => setView("folders")} aria-pressed={view === "folders"}>Folders</button>
-        <button type="button" onClick={() => setView("all")} aria-pressed={view === "all"}>Show all {files.length} pages</button>
-        <span>{view === "folders" ? "Choose a folder to reveal its pages." : view === "all" ? "Every admitted page is visible." : `Showing ${view.replaceAll("_", " ")}.`}</span>
+        <div>
+          <button type="button" onClick={() => setDepth(1)} aria-pressed={depth === 1}>Direct links</button>
+          <button type="button" onClick={() => setDepth(2)} aria-pressed={depth === 2}>Two steps</button>
+        </div>
+        <span>{graph.nodes.length} files · {graph.edges.length} admitted links</span>
       </div>
-      <div className="vault-graph" aria-label="Interactive map of admitted SheperD vault documents">
+      <div className="vault-graph" aria-label="Interactive map of admitted Obsidian file links">
         <ReactFlow<VaultNode>
           nodes={graph.nodes}
           edges={graph.edges}
@@ -154,9 +121,9 @@ export function VaultGraph({ files }: { files: KnowledgeFileSummary[] }) {
           nodesDraggable={false}
           nodesConnectable={false}
           fitView
-          fitViewOptions={{ padding: 0.18, maxZoom: 1.15 }}
-          minZoom={0.12}
-          maxZoom={1.6}
+          fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }}
+          minZoom={0.62}
+          maxZoom={1.8}
           deleteKeyCode={null}
         >
           <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#c5d3e3" />

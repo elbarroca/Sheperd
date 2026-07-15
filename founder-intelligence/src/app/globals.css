@@ -6428,6 +6428,11 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
+.vault-graph-toolbar > div {
+  display: flex;
+  gap: 8px;
+}
+
 .vault-graph-toolbar button {
   min-height: 44px;
   padding: 8px 13px;
@@ -6503,7 +6508,23 @@ body {
 }
 
 .vault-graph .react-flow__node-default.vault-node-file {
-  width: 270px;
+  width: 240px;
+}
+
+.vault-graph .react-flow__node-default.vault-node-open {
+  border-color: #7ba9ef;
+  background: #f1f6ff;
+}
+
+.vault-graph .react-flow__node-default.vault-node-active {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: #ffffff;
+  box-shadow: 0 10px 28px rgba(22, 103, 232, 0.22);
+}
+
+.vault-graph .react-flow__node-default.vault-node-active small {
+  color: #d9e7ff;
 }
 
 .vault-graph .react-flow__edge-path {
@@ -6513,6 +6534,11 @@ body {
 
 .vault-graph .vault-edge-file .react-flow__edge-path {
   stroke: #b8c6d8;
+}
+
+.vault-graph .vault-edge-link .react-flow__edge-path {
+  stroke: #7d96aa;
+  stroke-width: 1.5;
 }
 
 .vault-graph .react-flow__controls {
@@ -6528,11 +6554,132 @@ body {
   border-bottom-color: var(--line);
 }
 
+.knowledge-dock,
 .document-reader {
   overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: var(--surface);
+}
+
+.knowledge-dock {
+  position: relative;
+}
+
+.knowledge-dock-heading {
+  display: flex;
+  min-height: 86px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.knowledge-dock-heading h2,
+.knowledge-dock-heading p {
+  margin: 0;
+}
+
+.knowledge-dock-heading h2 {
+  font-size: 1.35rem;
+}
+
+.knowledge-dock-heading p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.knowledge-dock-heading > strong {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+}
+
+.document-tabs {
+  display: flex;
+  gap: 1px;
+  overflow-x: auto;
+  padding: 1px;
+  border-bottom: 1px solid var(--line);
+  background: var(--line);
+  scrollbar-width: thin;
+}
+
+.document-tab {
+  display: grid;
+  min-width: 220px;
+  max-width: 300px;
+  flex: 1 0 220px;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: stretch;
+  background: var(--surface-soft);
+}
+
+.document-tab[data-active="true"] {
+  background: var(--surface);
+  box-shadow: inset 0 3px 0 var(--blue);
+}
+
+.document-tab > button:first-child {
+  min-width: 0;
+  min-height: 64px;
+  padding: 11px 8px 10px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.document-tab small,
+.document-tab span {
+  display: block;
+}
+
+.document-tab small {
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.document-tab span {
+  overflow: hidden;
+  font-size: 0.75rem;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-tab-close {
+  width: 44px;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.document-tab-close:hover {
+  background: #e8eef6;
+  color: var(--ink);
+}
+
+.knowledge-dock-error,
+.knowledge-dock-loading {
+  margin: 0;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--line);
+  color: #8a2d38;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.knowledge-dock-loading {
+  color: var(--muted);
+}
+
+.knowledge-dock .document-reader {
+  border: 0;
+  border-radius: 0;
 }
 
 .document-header {
@@ -6545,8 +6692,14 @@ body {
 }
 
 .document-header h2,
+.document-header h3,
 .document-header p {
   margin-bottom: 0;
+}
+
+.document-header h3 {
+  margin-top: 2px;
+  font-size: clamp(1.5rem, 2.6vw, 2.2rem);
 }
 
 .document-header p:last-child {
@@ -6625,6 +6778,100 @@ body {
   white-space: pre-wrap;
 }
 
+.document-relationships {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.document-relationships details:first-child {
+  border-right: 1px solid var(--line);
+}
+
+.document-relationships summary {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 18px;
+  list-style: none;
+}
+
+.document-relationships summary::-webkit-details-marker {
+  display: none;
+}
+
+.document-relationships summary span {
+  font-size: 0.76rem;
+  font-weight: 720;
+}
+
+.document-relationships summary small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.document-relationships ul {
+  max-height: 230px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0 10px 10px;
+  list-style: none;
+}
+
+.document-relationships li + li {
+  margin-top: 3px;
+}
+
+.document-relationships li button {
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.document-relationships li button:hover {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+.document-relationships li strong,
+.document-relationships li small {
+  display: block;
+}
+
+.document-relationships li strong {
+  font-size: 0.72rem;
+}
+
+.document-relationships li small,
+.document-relationships details > p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+
+.document-relationships details > p {
+  padding: 0 18px 18px;
+}
+
+.document-empty,
+.document-dock-empty {
+  padding: 28px;
+}
+
+.document-empty p,
+.document-dock-empty p {
+  margin: 5px 0 0;
+  color: var(--muted);
+}
+
 .document-not-found {
   padding: 32px;
 }
@@ -6664,23 +6911,30 @@ body {
   background: var(--surface);
 }
 
-.folder-index a {
+.folder-index a,
+.folder-index li > button {
   display: flex;
+  width: 100%;
   min-height: 74px;
   flex-direction: column;
   justify-content: center;
   padding: 12px 15px;
+  border: 0;
+  background: var(--surface);
   color: var(--ink);
   font-size: 0.76rem;
   font-weight: 680;
+  text-align: left;
   text-decoration: none;
 }
 
-.folder-index a:hover {
+.folder-index a:hover,
+.folder-index li > button:hover {
   background: var(--blue-soft);
 }
 
-.folder-index a small {
+.folder-index a small,
+.folder-index li > button small {
   margin-top: 4px;
   color: var(--muted);
   font-size: 0.64rem;
@@ -6861,6 +7115,15 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .document-relationships {
+    grid-template-columns: 1fr;
+  }
+
+  .document-relationships details:first-child {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
   .folder-index ul {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -6987,8 +7250,12 @@ body {
     display: flex;
   }
 
-  .vault-graph-toolbar button {
+  .vault-graph-toolbar > div {
     width: 100%;
+  }
+
+  .vault-graph-toolbar button {
+    flex: 1;
   }
 
   .vault-graph-toolbar span {
@@ -7002,6 +7269,12 @@ body {
   .document-header,
   .document-not-found {
     padding: 22px;
+  }
+
+  .knowledge-dock-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .document-header dl {
