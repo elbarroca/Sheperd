@@ -141,4 +141,6 @@ uv run python scripts/validate_workspace.py
 
 ## Related
 
-[[../03_GTM/SheperD GTM Validation and Optimization - Control Note]] · [[../06_Research/SheperD Deep Research - Control Note]] · [[ARTIFACT_MANIFEST]]
+For the founder-shareable briefing, visualizations, Ricardo interpretation, and vector retrieval, use [[../founder-intelligence/README|Founder Intelligence]]. This folder remains the local bounded-SQL workspace.
+
+[[../context/README|Context control layer]] · [[../03_GTM/SheperD GTM Validation and Optimization - Control Note]] · [[../06_Research/SheperD Deep Research - Control Note]] · [[ARTIFACT_MANIFEST]]
