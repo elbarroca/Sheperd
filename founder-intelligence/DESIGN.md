@@ -51,7 +51,7 @@ Every primary view follows this order:
 
 The first viewport must answer two questions: what does this mean, and what should happen next. Large page titles stop at 48px, descriptions stay adjacent to their headings, and secondary data never competes with the decision.
 
-Navigation is limited to four founder tasks: Competitors, Market, Michael, and Knowledge map.
+Navigation is limited to five founder tasks: Competitors, Market, Decision room, Michael, and Knowledge map.
 
 ## Visual language
 
@@ -68,7 +68,7 @@ Navigation is limited to four founder tasks: Competitors, Market, Michael, and K
 
 ## Typography
 
-- Product copy uses the native Avenir Next stack with Segoe UI and Arial fallbacks.
+- Product copy uses a crisp system UI stack led by Inter or SF Pro, with Segoe UI as the cross-platform fallback.
 - Page titles are sentence case, tightly tracked, and constrained to 32px to 48px.
 - Body copy is at least 16px in decision-critical areas.
 - Metadata remains legible and passes contrast requirements.
@@ -87,6 +87,8 @@ Navigation is limited to four founder tasks: Competitors, Market, Michael, and K
 
 - The competitor chart communicates one positioning hypothesis and carries an explicit evidence boundary.
 - The market route is a semantic ordered list with source-backed proof signals.
+- The decision room's signature visual is the seven-stage dependency manifest: Customer, Economics, Offer, Claims, Journey, Experiment, and Outcome. Each stage exposes its evidence state before any supporting detail.
+- The decision room keeps target accounts, experiment results, customer outcomes, win/loss evidence, sensitivity ranges, ROI, and TAM/SAM/SOM visibly empty or unknown until admitted evidence exists.
 - The knowledge graph shows the active file, its outgoing links, and its backlinks using only admitted file-to-file edges. One-step and bounded two-step views prevent the graph from becoming an unreadable folder diagram.
 - The graph is paired with a four-tab reader, relationship lists, search, and a semantic file index so it is never the only route to a source.
 - Dense provider, source, and workstream detail uses progressive disclosure where hiding it improves the default scan.
@@ -106,7 +108,7 @@ Navigation is limited to four founder tasks: Competitors, Market, Michael, and K
 ## Responsive behavior
 
 - Wide screens use a compact sticky top control bar and a centered 1180px workspace.
-- Tablet screens preserve all four navigation choices in one task row.
+- Tablet screens preserve all five navigation choices in one task row.
 - Small screens use a compact identity row plus a horizontally scrollable task rail that centers the active view.
 - Charts, maps, signals, workstreams, and search results collapse without horizontal page overflow.
 - The document dock keeps its tabs horizontally scrollable and shows one readable source at a time on small screens.

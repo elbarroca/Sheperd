@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FilesIcon } from "@phosphor-icons/react/dist/csr/Files";
+import { CompassIcon } from "@phosphor-icons/react/dist/csr/Compass";
 import { GraphIcon } from "@phosphor-icons/react/dist/csr/Graph";
 import { NotePencilIcon } from "@phosphor-icons/react/dist/csr/NotePencil";
 import { UsersFourIcon } from "@phosphor-icons/react/dist/csr/UsersFour";
@@ -11,6 +12,7 @@ import { UsersFourIcon } from "@phosphor-icons/react/dist/csr/UsersFour";
 const links = [
   { href: "/competitors", label: "Competitors", icon: UsersFourIcon },
   { href: "/market", label: "Market", icon: GraphIcon },
+  { href: "/decision-room", label: "Decision room", icon: CompassIcon },
   { href: "/michael", label: "Michael", icon: NotePencilIcon },
   { href: "/knowledge", label: "Knowledge map", icon: FilesIcon },
 ];

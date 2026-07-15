@@ -1,7 +1,15 @@
 import "server-only";
 
-import dashboardJson from "@/generated/dashboard-data.json";
-import type { Blocker, Experiment, FounderAction, FounderActionLane, FounderActionPlan } from "./types";
+import dashboardJson from "../generated/dashboard-data.json";
+import type {
+  Blocker,
+  DecisionRoomExecutionState,
+  DecisionRoomExperiment,
+  Experiment,
+  FounderAction,
+  FounderActionLane,
+  FounderActionPlan,
+} from "./types";
 
 interface SourceRow {
   source_id: string;
@@ -13,6 +21,11 @@ interface SourceRow {
 interface ExperimentRow {
   experiment_id: string;
   name: string;
+  segment: string;
+  persona: string;
+  message_version: string;
+  channel: string;
+  cohort: string;
   primary_hypothesis: string;
   owner: string;
   approver: string;
@@ -20,7 +33,10 @@ interface ExperimentRow {
   outcome_event: string;
   quality_metric: string;
   continue_threshold: string;
+  change_threshold: string;
   stop_threshold: string;
+  expected_learning: string;
+  decision_date: string;
   canonical_source: string;
   execution_state: string;
   learning_value: string;
@@ -77,6 +93,19 @@ function parseScore(value: string, field: string): number {
     throw new Error(`${field} must be an integer from 1 to 5`);
   }
   return parsed;
+}
+
+function parseDecisionRoomExecutionState(value: string): DecisionRoomExecutionState {
+  switch (value) {
+    case "prepare-now":
+    case "synthetic-only":
+    case "blocked-external":
+    case "blocked-publication":
+    case "blocked-security":
+      return value;
+    default:
+      throw new Error(`Unsupported decision-room execution state: ${value}`);
+  }
 }
 
 function getActionLane(executionState: string): FounderActionLane {
@@ -145,6 +174,28 @@ export function getExperiments(): Experiment[] {
     evidenceReadiness: parseScore(row.evidence_readiness, "evidenceReadiness"),
     risk: parseScore(row.risk, "risk"),
     effort: parseScore(row.effort, "effort"),
+  }));
+}
+
+export function getDecisionRoomExperiments(): DecisionRoomExperiment[] {
+  return dashboard.experiments.map((row) => ({
+    experimentId: row.experiment_id,
+    name: row.name,
+    hypothesis: row.primary_hypothesis,
+    segment: row.segment,
+    persona: row.persona,
+    channel: row.channel,
+    messageVersion: row.message_version,
+    cohort: row.cohort,
+    executionState: parseDecisionRoomExecutionState(row.execution_state),
+    expectedLearning: row.expected_learning,
+    decisionDate: row.decision_date,
+    continueThreshold: row.continue_threshold,
+    changeThreshold: row.change_threshold,
+    stopThreshold: row.stop_threshold,
+    result: null,
+    decision: null,
+    sourcePath: row.canonical_source,
   }));
 }
 

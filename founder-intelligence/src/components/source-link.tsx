@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { JSX } from "react";
-import { researchFileHref } from "@/lib/content";
+import { researchFileHref } from "../lib/content";
 
 export function SourceLink({ path, label = "Read source" }: { path: string; label?: string }): JSX.Element {
   return (
