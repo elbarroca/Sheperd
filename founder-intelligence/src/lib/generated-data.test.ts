@@ -76,7 +76,7 @@ describe("generated founder intelligence", () => {
     expect(sourceMapText).toContain("problem materiality = supported");
     expect(sourceMapText).toContain("TAM");
     expect(sourceMapText).toContain("unknown");
-    expect(sourceMapText).toContain("239,231");
+    expect(sourceMapText).toContain("240,535");
   });
 
   it("preserves admitted Obsidian links as file graph edges", () => {

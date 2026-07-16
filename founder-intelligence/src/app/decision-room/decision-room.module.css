@@ -35,7 +35,9 @@
 .sectionHeading > div > span,
 .panelHeading > span,
 .commandCode > span,
-.formula > span {
+.formula > span,
+.workbenchHeading > div > span,
+.sizingHeading > span {
   display: block;
   margin-bottom: 7px;
   color: var(--blue);
@@ -142,10 +144,12 @@
 .manifest a > strong,
 .stateSupported,
 .stateHypothesis,
-.stateUnknown,
-.stateGated,
-.stateBlocked,
+.stateResearch,
+.stateFounder,
+.statePilot,
 .stateDesigned,
+.stateSetup,
+.stateApproval,
 .statePrepare,
 .stateNoData {
   width: fit-content;
@@ -160,21 +164,23 @@
 
 .stateSupported,
 .stateDesigned,
-.statePrepare {
+.statePrepare,
+.stateSetup {
   background: var(--green-soft);
   color: var(--green);
 }
 
 .stateHypothesis,
-.stateUnknown,
-.stateGated {
+.stateFounder,
+.stateApproval {
   background: var(--amber-soft);
   color: var(--amber);
 }
 
-.stateBlocked {
-  background: var(--red-soft);
-  color: var(--red);
+.stateResearch,
+.statePilot {
+  background: var(--blue-soft);
+  color: var(--blue);
 }
 
 .stateNoData {
@@ -294,18 +300,163 @@
   gap: 36px;
   padding: 32px;
   border-right: 1px solid var(--line);
-  background: var(--blue-soft);
+  background: var(--harbor-soft);
 }
 
 .icpStatement p {
   max-width: 30ch;
   margin-bottom: 0;
-  color: var(--ink);
+  color: #f7faff;
   font-family: "SheperD Space Grotesk", "Avenir Next", "Segoe UI", Arial, sans-serif;
   font-size: clamp(1.35rem, 2.4vw, 2rem);
   font-weight: 600;
   letter-spacing: -0.035em;
   line-height: 1.14;
+}
+
+.icpMetrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  background: var(--line);
+}
+
+.icpMetrics > div {
+  display: grid;
+  min-height: 132px;
+  align-content: space-between;
+  gap: 8px;
+  padding: 20px;
+  background: var(--surface);
+}
+
+.icpMetrics dt,
+.icpAperture dt {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 740;
+}
+
+.icpMetrics dd {
+  margin: 0;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.7rem;
+  font-weight: 650;
+  letter-spacing: -0.055em;
+  line-height: 1;
+}
+
+.icpMetrics small {
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.35;
+}
+
+.icpAperture {
+  overflow: hidden;
+  margin-top: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.icpApertureHeading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.icpApertureHeading > div > span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--blue);
+  font-size: 0.68rem;
+  font-weight: 740;
+}
+
+.icpApertureHeading h3 {
+  margin-bottom: 0;
+  font-size: 1.08rem;
+  letter-spacing: -0.02em;
+}
+
+.icpApertureHeading p {
+  max-width: 58ch;
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.icpAperture ol {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  background: var(--line);
+  list-style: none;
+}
+
+.icpAperture li {
+  min-width: 0;
+  padding: 20px;
+  background: var(--surface);
+}
+
+.icpApertureCode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.icpApertureCode code {
+  color: var(--blue);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.icpApertureCode span {
+  color: var(--ink);
+  font-size: 0.76rem;
+  font-weight: 760;
+}
+
+.icpAperture li > p {
+  min-height: 76px;
+  margin-bottom: 18px;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 620;
+  line-height: 1.45;
+}
+
+.icpAperture li dl {
+  display: grid;
+  gap: 13px;
+  margin-bottom: 0;
+}
+
+.icpAperture dd {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.segmentPanel {
+  overflow: hidden;
+  margin-top: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
 }
 
 .segmentList details,
@@ -492,48 +643,174 @@
   line-height: 1.5;
 }
 
-.economicsGrid {
+.signalGrid {
   display: grid;
-  overflow: hidden;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.signalGrid article {
+  min-height: 250px;
+  padding: 22px;
   border: 1px solid var(--line);
-  border-top: 0;
-  border-radius: 0 0 8px 8px;
+  border-radius: 8px;
   background: var(--surface);
 }
 
-.economicsGrid article {
-  min-height: 220px;
-  padding: 22px;
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+.signalMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.economicsGrid article:nth-child(3n) {
-  border-right: 0;
+.signalMeta code {
+  color: var(--muted);
+  font-size: 0.65rem;
 }
 
-.economicsGrid article:nth-child(n + 4) {
-  border-bottom: 0;
-}
-
-.economicsGrid h3 {
-  margin: 20px 0 8px;
-  font-size: 0.94rem;
-}
-
-.economicsGrid article > strong {
+.signalGrid article > strong {
   display: block;
-  margin-bottom: 14px;
+  margin: 34px 0 4px;
   color: var(--ink);
-  font-size: 1.2rem;
+  font-family: "SheperD Space Grotesk", "Avenir Next", "Segoe UI", Arial, sans-serif;
+  font-size: clamp(1.55rem, 2.2vw, 2rem);
+  font-weight: 620;
+  letter-spacing: -0.04em;
 }
 
-.economicsGrid p {
+.signalGrid h3 {
+  margin-bottom: 12px;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.signalGrid p,
+.signalGrid small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.52;
+}
+
+.signalGrid p {
+  margin-bottom: 13px;
+}
+
+.signalGrid small {
+  display: block;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.workbenchHeading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 30px 0 14px;
+}
+
+.workbenchHeading > div > span,
+.sizingHeading > span {
+  margin-bottom: 5px;
+}
+
+.workbenchHeading h3,
+.sizingHeading h3 {
+  margin-bottom: 0;
+  font-family: "SheperD Space Grotesk", "Avenir Next", "Segoe UI", Arial, sans-serif;
+  font-size: 1.25rem;
+  font-weight: 610;
+  letter-spacing: -0.025em;
+}
+
+.workbenchHeading > p {
+  max-width: 54ch;
   margin-bottom: 0;
   color: var(--muted);
-  font-size: 0.8rem;
-  line-height: 1.52;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.inputWorkbench {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.inputWorkbench article {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.inputWorkbench article:last-child {
+  grid-column: 1 / -1;
+}
+
+.workbenchTitle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.workbenchTitle > div > span {
+  color: var(--blue);
+  font-size: 0.68rem;
+  font-weight: 740;
+}
+
+.workbenchTitle h3 {
+  margin: 5px 0 0;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.inputWorkbench article > p {
+  margin: 18px 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.inputWorkbench dl {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+}
+
+.inputWorkbench dl div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.inputWorkbench dt {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 720;
+}
+
+.inputWorkbench dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.inputWorkbench :global(.source-link) {
+  margin-top: auto;
+}
+
+.sizingHeading {
+  margin: 30px 0 14px;
 }
 
 .sizingGrid,
@@ -573,6 +850,11 @@
   color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.48;
+}
+
+.sizingGrid span {
+  color: var(--muted);
+  font-size: 0.7rem;
 }
 
 .sizingGrid strong,
@@ -686,7 +968,7 @@
 
 .offerList dl {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin: 0;
 }
@@ -707,8 +989,12 @@
 
 .offerList details > div > p {
   margin: 14px 0 0;
-  color: var(--red);
+  color: var(--muted);
   font-size: 0.8rem;
+}
+
+.offerList details > div > p strong {
+  color: var(--amber);
 }
 
 .draftWarning {
@@ -863,6 +1149,16 @@
 
 .emptyQueue :global(.source-link) {
   margin-top: 4px;
+}
+
+.queueSources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.queueSources :global(.source-link) {
+  margin-top: 0;
 }
 
 .queueFields {
@@ -1075,6 +1371,26 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .icpAperture ol {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .icpAperture li {
+    grid-column: span 2;
+  }
+
+  .icpAperture li:nth-child(n + 4) {
+    grid-column: span 3;
+  }
+
+  .signalGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .signalGrid article:last-child {
+    grid-column: 1 / -1;
+  }
+
   .committeeGrid article,
   .committeeGrid article:last-child {
     border-right: 1px solid var(--line);
@@ -1114,13 +1430,15 @@
 
 @media (max-width: 820px) {
   .sectionHeading,
-  .draftWarning {
+  .draftWarning,
+  .workbenchHeading,
+  .icpApertureHeading {
     align-items: flex-start;
     flex-direction: column;
   }
 
   .manifest ol,
-  .economicsGrid,
+  .signalGrid,
   .sizingGrid,
   .competitionGrid,
   .offerList dl,
@@ -1134,6 +1452,19 @@
   .customerGrid,
   .queuePanel {
     grid-template-columns: 1fr;
+  }
+
+  .icpAperture ol {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .icpAperture li,
+  .icpAperture li:nth-child(n + 4) {
+    grid-column: auto;
+  }
+
+  .icpAperture li:last-child {
+    grid-column: 1 / -1;
   }
 
   .commandPrimary,
@@ -1157,19 +1488,12 @@
     border-right: 0;
   }
 
-  .economicsGrid article,
-  .economicsGrid article:nth-child(3n),
-  .economicsGrid article:nth-child(n + 4) {
-    border-right: 1px solid var(--line);
-    border-bottom: 1px solid var(--line);
+  .workbenchHeading > p {
+    text-align: left;
   }
 
-  .economicsGrid article:nth-child(2n) {
-    border-right: 0;
-  }
-
-  .economicsGrid article:nth-child(n + 5) {
-    border-bottom: 0;
+  .icpApertureHeading p {
+    text-align: left;
   }
 
   .queueFields {
@@ -1236,7 +1560,9 @@
   .manifest ol,
   .committeeGrid,
   .gateGrid,
-  .economicsGrid,
+  .icpAperture ol,
+  .signalGrid,
+  .inputWorkbench,
   .sizingGrid,
   .competitionGrid,
   .criteriaGrid,
@@ -1249,6 +1575,23 @@
   .outcomeGrid,
   .sourceGrid {
     grid-template-columns: 1fr;
+  }
+
+  .icpMetrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .icpMetrics > div {
+    min-height: 112px;
+    padding: 16px;
+  }
+
+  .icpAperture li > p {
+    min-height: 0;
+  }
+
+  .icpAperture li:last-child {
+    grid-column: auto;
   }
 
   .manifest li,
@@ -1329,11 +1672,6 @@
     gap: 8px;
   }
 
-  .economicsGrid article,
-  .economicsGrid article:nth-child(2n),
-  .economicsGrid article:nth-child(3n),
-  .economicsGrid article:nth-child(n + 4),
-  .economicsGrid article:nth-child(n + 5),
   .sizingGrid > div,
   .criteriaGrid article,
   .criteriaGrid article:nth-child(2n),
@@ -1351,7 +1689,6 @@
     border-bottom: 1px solid var(--line);
   }
 
-  .economicsGrid article:last-child,
   .sizingGrid > div:last-child,
   .criteriaGrid article:last-child,
   .queueFields article:last-child,
@@ -1378,6 +1715,7 @@
 
   .claimList dl div,
   .decisionRules div,
+  .inputWorkbench dl div,
   .segmentList dl div,
   .messagePanel dl div {
     grid-template-columns: 1fr;
@@ -1397,5 +1735,9 @@
 
   .journey dl {
     grid-template-columns: 1fr;
+  }
+
+  .signalGrid article:last-child {
+    grid-column: 1;
   }
 }

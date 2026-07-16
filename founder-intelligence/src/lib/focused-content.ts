@@ -213,11 +213,11 @@ export const marketSignals = [
   },
   {
     id: "importers",
-    value: "239,231",
+    value: "240,535",
     label: "Identified U.S. importers",
-    meaning: "The preliminary 2024 Census profile gives a broad account universe.",
+    meaning: "The final 2023-2024 Census profile gives the broad 2024 account universe.",
     boundary: "All modes; not an ocean, D&D exposure, or buyer count.",
-    url: "https://www.census.gov/foreign-trade/Press-Release/edb/2024prelimprofile.pdf",
+    url: "https://www.census.gov/foreign-trade/Press-Release/edb/edbrel2024.pdf",
   },
   {
     id: "providers",

@@ -70,14 +70,16 @@ export function CompetitorPositioning() {
         <span><i style={{ background: "#b63732" }} />SheperD intended wedge</span>
       </div>
       <p className="chart-boundary">Analytical classification only. Coordinates describe public offer shape, not performance, traction, or superiority.</p>
-      <table className="sr-only">
-        <caption>Accessible data for the competitor positioning chart</caption>
-        <thead><tr><th>Provider</th><th>D&amp;D specialization</th><th>Workflow breadth</th></tr></thead>
-        <tbody>
-          {competitorProfiles.map((profile) => <tr key={profile.id}><th>{profile.name}</th><td>{profile.specialization}</td><td>{profile.workflowBreadth}</td></tr>)}
-          <tr><th>SheperD intended wedge</th><td>{sheperdPoint[0].specialization}</td><td>{sheperdPoint[0].workflowBreadth}</td></tr>
-        </tbody>
-      </table>
+      <div className="sr-only">
+        <table>
+          <caption>Accessible data for the competitor positioning chart</caption>
+          <thead><tr><th>Provider</th><th>D&amp;D specialization</th><th>Workflow breadth</th></tr></thead>
+          <tbody>
+            {competitorProfiles.map((profile) => <tr key={profile.id}><th>{profile.name}</th><td>{profile.specialization}</td><td>{profile.workflowBreadth}</td></tr>)}
+            <tr><th>SheperD intended wedge</th><td>{sheperdPoint[0].specialization}</td><td>{sheperdPoint[0].workflowBreadth}</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

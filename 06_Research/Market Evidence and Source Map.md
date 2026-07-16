@@ -3,7 +3,7 @@ title: Market Evidence and Source Map
 type: research-index
 status: active
 owner: Research orchestrator
-updated: 2026-07-15
+updated: 2026-07-16
 evidence_status: mixed
 confidentiality: public
 tags:
@@ -52,7 +52,7 @@ tags:
 | D&D charges | FMC reports about $15.4B collected by nine major carriers from 2020-04-01 through 2025-03-31 | The reported charge pool is financially material | Not the invalid, disputable, recoverable, or obtainable amount |
 | Charge Complaints | FMC reports 296 complaints received, 164 accepted, about $2.89M FY2025 relief, and over $6.1M cumulative relief | A formal route exists and produces measured relief | Excludes direct disputes and is not a recovery-rate denominator |
 | Enforcement | 2026 FMC actions concerning MSC and Maersk, plus the earlier Hapag-Lloyd settlement | Billing/liability practices can create material enforcement exposure | Civil penalties are not customer recoveries or SheperD revenue |
-| Importer universe | Census preliminary 2024 profile reports 239,231 identified U.S. importers, including 232,804 SMEs | There is a large top-of-funnel company universe | It includes non-ocean importers and does not identify D&D exposure |
+| Importer universe | Census final 2023-2024 profile reports 240,535 identified U.S. importers in 2024, including 234,023 SMEs | There is a large top-of-funnel company universe | It includes non-ocean importers and does not identify D&D exposure |
 | Operations and congestion | World Bank CPPI, UNCTAD, PortWatch, GSCPI, and port statistics | Disruption and port inefficiency are measurable and recurrent | Macro pressure does not identify a recoverable invoice |
 | Research | D&D regime and consignee dwell-time studies | Tariff design, cash flow, information flow, and physical flow affect dwell and cost | Study geographies and samples do not establish U.S. market size |
 | Practitioner reports | Public Reddit posts describe surprise charges, exam holds, missing backup, deadlines, and dispute uncertainty | The language is useful for interviews, content, and workflow design | Anecdotal, self-reported, and not prevalence evidence |
@@ -69,7 +69,7 @@ tags:
 ### Context values that are not TAM
 
 - **$15.4B FMC collected-charge population:** materiality context only.
-- **239,231 identified U.S. importers:** broad company universe, not ocean-importer or buyer count.
+- **240,535 identified U.S. importers:** broad company universe, not ocean-importer or buyer count.
 - **$6.1M+ cumulative Charge Complaint relief:** one public route, not all disputes or market value.
 - **Commercial freight-audit reports:** published estimates conflict materially and use opaque methods; excluded from admitted sizing.
 - **Competitor savings/error claims:** vendor-controlled and non-comparable; excluded from sizing.
