@@ -1,6 +1,6 @@
 {
   "contractVersion": 1,
-  "sourceDate": "2026-07-15",
+  "sourceDate": "2026-07-16",
   "scores": {
     "researchSystem": 9.3,
     "gtmDesign": 9.2,
@@ -741,19 +741,19 @@
     },
     {
       "source_id": "SRC-044",
-      "title": "Preliminary Profile of U.S. Importing and Exporting Companies 2024",
+      "title": "Profile of U.S. Importing and Exporting Companies 2023-2024",
       "authority": "primary-government",
       "author_publisher": "U.S. Census Bureau",
-      "url_path": "https://www.census.gov/foreign-trade/Press-Release/edb/2024prelimprofile.pdf",
-      "checked_date": "2026-07-15",
-      "publication_effective_date": "Preliminary 2024 profile",
+      "url_path": "https://www.census.gov/foreign-trade/Press-Release/edb/edbrel2024.pdf",
+      "checked_date": "2026-07-16",
+      "publication_effective_date": "Final 2023-2024 profile released 2026-05-05",
       "jurisdiction": "United States",
-      "claim_supported": "Reports 239231 identified U.S. importers, including 232804 SMEs, and matched import value",
+      "claim_supported": "Reports 240535 identified U.S. importers in 2024, including 234023 SMEs, and matched import value",
       "evidence_status": "verified",
       "confidence": "high",
       "conflicts": "Includes all transport modes and does not identify ocean-container exposure, D&D incidence, or buyer intent",
       "intended_use": "Broad importer-universe context",
-      "review_expiry": "2027-04-01",
+      "review_expiry": "2027-05-05",
       "notes": "Do not use identified importer count as TAM, SAM, or ocean-importer count"
     },
     {

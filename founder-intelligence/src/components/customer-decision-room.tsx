@@ -12,6 +12,8 @@ import {
   decisionManifest,
   decisionRoomSourceShelf,
   icpProfile,
+  icpQualificationDimensions,
+  icpSetupMetrics,
   messageLibrary,
   offerLadder,
   outcomeState,
@@ -25,10 +27,12 @@ import styles from "../app/decision-room/decision-room.module.css";
 const manifestStateClasses: Record<DecisionRoomEvidenceState, string> = {
   supported: styles.stateSupported,
   hypothesis: styles.stateHypothesis,
-  unknown: styles.stateUnknown,
-  gated: styles.stateGated,
-  blocked: styles.stateBlocked,
+  "research-now": styles.stateResearch,
+  "founder-decision": styles.stateFounder,
+  "pilot-measurement": styles.statePilot,
   designed: styles.stateDesigned,
+  "setup-ready": styles.stateSetup,
+  "needs-approval": styles.stateApproval,
   "prepare-now": styles.statePrepare,
   "no-data": styles.stateNoData,
 };
@@ -36,9 +40,22 @@ const manifestStateClasses: Record<DecisionRoomEvidenceState, string> = {
 const experimentStateLabels: Record<DecisionRoomExecutionState, string> = {
   "prepare-now": "Prepare now",
   "synthetic-only": "Synthetic only",
-  "blocked-external": "External blocked",
-  "blocked-publication": "Publication blocked",
-  "blocked-security": "Security blocked",
+  "blocked-external": "After founder setup",
+  "blocked-publication": "After claims approval",
+  "blocked-security": "After secure intake",
+};
+
+const evidenceStateLabels: Record<DecisionRoomEvidenceState, string> = {
+  supported: "Supported",
+  hypothesis: "Hypothesis",
+  "research-now": "Research now",
+  "founder-decision": "Founder decision",
+  "pilot-measurement": "Pilot measurement",
+  designed: "Designed",
+  "setup-ready": "Setup ready",
+  "needs-approval": "Needs approval",
+  "prepare-now": "Prepare now",
+  "no-data": "No data",
 };
 
 function humanize(value: string): string {
@@ -50,7 +67,7 @@ function experimentDecisionLabel(experiment: DecisionRoomExperiment): string {
   if (experiment.executionState === "prepare-now" || experiment.executionState === "synthetic-only") {
     return "Pending";
   }
-  return "Blocked";
+  return "Waiting on setup";
 }
 
 export function CustomerDecisionRoom({
@@ -62,9 +79,9 @@ export function CustomerDecisionRoom({
     <div className={`focused-page ${styles.page}`}>
       <PageHeader
         eyebrow="Customer and decision room"
-        title="Connect the customer decision to the next safe action."
-        description="One evidence-controlled view of who SheperD may serve, what can be offered, what Michael can prepare, and which proof is still missing."
-        meta={<><span>Current posture</span><strong>Prepare internally</strong><small>External activation blocked</small></>}
+        title="Turn the market evidence into a commercial setup."
+        description="One working view of what is already known, what Michael can research now, what Avi must decide, and what the first pilot needs to measure."
+        meta={<><span>Current posture</span><strong>Setup active</strong><small>Public claims stay controlled</small></>}
       />
 
       <nav className={styles.manifest} aria-label="Decision dependency map">
@@ -112,18 +129,53 @@ export function CustomerDecisionRoom({
             <span className={styles.stateHypothesis}>ICP hypothesis</span>
             <p>{icpProfile.bestFit}</p>
           </article>
-          <div className={styles.segmentList} aria-label="Beachhead hypotheses">
-            {icpProfile.segments.map((segment) => (
-              <details key={segment.title}>
-                <summary>{segment.title}</summary>
-                <dl>
-                  <div><dt>Inclusion signal</dt><dd>{segment.signal}</dd></div>
-                  <div><dt>Learning</dt><dd>{segment.learning}</dd></div>
-                  <div><dt>Disqualifier</dt><dd>{segment.disqualifier}</dd></div>
-                </dl>
-              </details>
+          <dl className={styles.icpMetrics} aria-label="Current ICP setup metrics">
+            {icpSetupMetrics.map((metric) => (
+              <div key={metric.label}>
+                <dt>{metric.label}</dt>
+                <dd>{metric.value}</dd>
+                <small>{metric.state}</small>
+              </div>
             ))}
+          </dl>
+        </div>
+
+        <section className={styles.icpAperture} aria-labelledby="icp-aperture-title">
+          <div className={styles.icpApertureHeading}>
+            <div>
+              <span>Qualification aperture</span>
+              <h3 id="icp-aperture-title">Five evidence filters define pilot fit</h3>
+            </div>
+            <p>Move an account forward only when each filter has minimum proof. This is a qualification method, not a predictive score.</p>
           </div>
+          <ol>
+            {icpQualificationDimensions.map((dimension) => (
+              <li key={dimension.id}>
+                <div className={styles.icpApertureCode}>
+                  <code>{dimension.id}</code>
+                  <span>{dimension.label}</span>
+                </div>
+                <p>{dimension.signal}</p>
+                <dl>
+                  <div><dt>Minimum proof</dt><dd>{dimension.minimumProof}</dd></div>
+                  <div><dt>Decision rule</dt><dd>{dimension.decision}</dd></div>
+                </dl>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <div className={`${styles.segmentList} ${styles.segmentPanel}`} aria-label="Beachhead hypotheses">
+          {icpProfile.segments.map((segment) => (
+            <details key={segment.title}>
+              <summary>{segment.title}</summary>
+              <dl>
+                <div><dt>Inclusion signal</dt><dd>{segment.signal}</dd></div>
+                <div><dt>Learning</dt><dd>{segment.learning}</dd></div>
+                <div><dt>Disqualifier</dt><dd>{segment.disqualifier}</dd></div>
+              </dl>
+            </details>
+          ))}
         </div>
 
         <div className={styles.committeeGrid} aria-label="Buying committee">
@@ -155,33 +207,71 @@ export function CustomerDecisionRoom({
       <section id="economics" className={styles.section} aria-labelledby="economics-title">
         <div className={styles.sectionHeading}>
           <div>
-            <span>Value without false precision</span>
-            <h2 id="economics-title">The economics model is defined. Its inputs are not.</h2>
+            <span>Economics setup</span>
+            <h2 id="economics-title">Most of the economics work can start now</h2>
             <p>{painEconomics.conclusion}</p>
           </div>
           <SourceLink path={painEconomics.sourcePath} label="Read market evidence" />
         </div>
 
         <div className={styles.formula}>
-          <span>Future calculation</span>
+          <span>Commercial model</span>
           <code>{painEconomics.formula}</code>
         </div>
-        <div className={styles.economicsGrid}>
-          {painEconomics.factors.map((factor) => (
-            <article key={factor.label}>
-              <span className={manifestStateClasses[factor.state]}>{factor.state}</span>
-              <h3>{factor.label}</h3>
-              <strong>{factor.value}</strong>
-              <p>{factor.boundary}</p>
+        <div className={styles.signalGrid} aria-label="Admitted market and pricing context">
+          {painEconomics.publicSignals.map((signal) => (
+            <article key={signal.label}>
+              <div className={styles.signalMeta}>
+                <code>{signal.sourceId}</code>
+                <span className={manifestStateClasses[signal.state]}>{evidenceStateLabels[signal.state]}</span>
+              </div>
+              <strong>{signal.value}</strong>
+              <h3>{signal.label}</h3>
+              <p>{signal.meaning}</p>
+              <small>{signal.boundary}</small>
             </article>
           ))}
+        </div>
+
+        <div className={styles.workbenchHeading}>
+          <div>
+            <span>Input workbench</span>
+            <h3>Every missing input has a method and owner</h3>
+          </div>
+          <p>Research is not the same as deciding. A founder choice is not the same as a measured customer result.</p>
+        </div>
+        <div className={styles.inputWorkbench}>
+          {painEconomics.inputWorkbench.map((input) => (
+            <article key={input.label}>
+              <div className={styles.workbenchTitle}>
+                <div>
+                  <span>{input.lane}</span>
+                  <h3>{input.label}</h3>
+                </div>
+                <strong className={manifestStateClasses[input.state]}>{evidenceStateLabels[input.state]}</strong>
+              </div>
+              <p>{input.method}</p>
+              <dl>
+                <div><dt>Owner</dt><dd>{input.owner}</dd></div>
+                <div><dt>Produces</dt><dd>{input.output}</dd></div>
+                <div><dt>Next action</dt><dd>{input.nextAction}</dd></div>
+              </dl>
+              <SourceLink path={input.sourcePath} label="Open source method" />
+            </article>
+          ))}
+        </div>
+
+        <div className={styles.sizingHeading}>
+          <span>Market-sizing ladder</span>
+          <h3>Define the calculation before assigning a value</h3>
         </div>
         <dl className={styles.sizingGrid}>
           {painEconomics.sizing.map((item) => (
             <div key={item.label}>
               <dt>{item.label}</dt>
-              <dd>{item.requirement}</dd>
-              <strong>{item.value}</strong>
+              <dd>{item.method}</dd>
+              <span>Owner: {item.owner}</span>
+              <strong className={manifestStateClasses[item.state]}>{evidenceStateLabels[item.state]}</strong>
             </div>
           ))}
         </dl>
@@ -224,8 +314,8 @@ export function CustomerDecisionRoom({
         <div className={styles.sectionHeading}>
           <div>
             <span>Offer design</span>
-            <h2 id="offer-title">Start with readiness. Earn the right to move deeper.</h2>
-            <p>Every offer remains internal, draft, or blocked until its stated evidence and approval gate passes.</p>
+            <h2 id="offer-title">The offer ladder is a build sequence, not a wall of blockers</h2>
+            <p>Start with the diagnostic, assign the missing owners, and use pilot evidence to earn the deeper offers.</p>
           </div>
           <SourceLink path={competitiveDecision.sourcePath} label="Read complete offer ladder" />
         </div>
@@ -234,15 +324,17 @@ export function CustomerDecisionRoom({
             <details key={offer.title} open={index === 0}>
               <summary>
                 <span>{offer.title}</span>
-                <strong className={manifestStateClasses[offer.state]}>{offer.state}</strong>
+                <strong className={manifestStateClasses[offer.state]}>{offer.stateLabel}</strong>
               </summary>
               <div>
                 <dl>
-                  <div><dt>Safe proposed output</dt><dd>{offer.output}</dd></div>
-                  <div><dt>Entry data</dt><dd>{offer.entry}</dd></div>
-                  <div><dt>Gate</dt><dd>{offer.gate}</dd></div>
+                  <div><dt>Offer purpose</dt><dd>{offer.purpose}</dd></div>
+                  <div><dt>Owner</dt><dd>{offer.owner}</dd></div>
+                  <div><dt>Set up next</dt><dd>{offer.setupAction}</dd></div>
+                  <div><dt>Ready when</dt><dd>{offer.readyWhen}</dd></div>
+                  <div><dt>Proof of readiness</dt><dd>{offer.proof}</dd></div>
                 </dl>
-                <p><strong>Prohibited promise:</strong> {offer.prohibited}</p>
+                <p><strong>Guardrail:</strong> {offer.guardrail}</p>
               </div>
             </details>
           ))}
@@ -296,7 +388,7 @@ export function CustomerDecisionRoom({
             <li key={step.title}>
               <div className={styles.journeyIndex}>{String(index + 1).padStart(2, "0")}</div>
               <div>
-                <span className={manifestStateClasses[step.state]}>{step.state}</span>
+                <span className={manifestStateClasses[step.state]}>{evidenceStateLabels[step.state]}</span>
                 <h3>{step.title}</h3>
                 <p>{step.friction}</p>
                 <dl>
@@ -313,8 +405,8 @@ export function CustomerDecisionRoom({
         <div className={styles.sectionHeading}>
           <div>
             <span>Michael&apos;s execution desk</span>
-            <h2 id="experiments-title">Prepare the system. Keep external work closed.</h2>
-            <p>The queue, messages, and experiments expose what is ready, synthetic-only, or blocked.</p>
+            <h2 id="experiments-title">Prepare the system in the order it can actually run</h2>
+            <p>The queue, messages, and experiments show what Michael prepares now and which setup step unlocks the work after it.</p>
           </div>
           <SourceLink path={DECISION_ROOM_SOURCES.cadence} label="Read KPI and experiment contract" />
         </div>
@@ -324,7 +416,10 @@ export function CustomerDecisionRoom({
             <span className={styles.stateNoData}>0 admitted records</span>
             <h3>{targetAccountQueue.state}</h3>
             <p>{targetAccountQueue.instruction}</p>
-            <SourceLink path={targetAccountQueue.sourcePath} label="Read CRM data model" />
+            <div className={styles.queueSources}>
+              <SourceLink path={DECISION_ROOM_SOURCES.michaelPlan} label="Read source proposal" />
+              <SourceLink path={targetAccountQueue.sourcePath} label="Read CRM data model" />
+            </div>
           </div>
           <div className={styles.queueFields} aria-label="Required target-account fields">
             {targetAccountQueue.fieldGroups.map((group) => (
@@ -397,9 +492,9 @@ export function CustomerDecisionRoom({
       <section id="outcomes" className={styles.section} aria-labelledby="outcomes-title">
         <div className={styles.sectionHeading}>
           <div>
-            <span>Outcome truth</span>
-            <h2 id="outcomes-title">No customer evidence has been promoted</h2>
-            <p>Preparation, desk research, and synthetic controls remain separate from market proof.</p>
+            <span>Measurement baseline</span>
+            <h2 id="outcomes-title">The measurement system is defined; observed results start at zero</h2>
+            <p>This is a clean baseline, not a dead end. Each empty result now has a capture method upstream.</p>
           </div>
           <SourceLink path={currentDecision.sourcePath} label="Read current state" />
         </div>

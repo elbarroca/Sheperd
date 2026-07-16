@@ -22,8 +22,9 @@ describe("focused founder dashboard content", () => {
 
   it("keeps market numbers attached to explicit boundaries", () => {
     expect(marketSignals).toHaveLength(4);
-    expect(marketSignals.map((signal) => signal.value)).toEqual(["$15.4B", "296", "239,231", "14"]);
+    expect(marketSignals.map((signal) => signal.value)).toEqual(["$15.4B", "296", "240,535", "14"]);
     expect(marketSignals.every((signal) => signal.boundary.length > 35)).toBe(true);
+    expect(marketSignals.find((signal) => signal.id === "importers")?.url).toBe("https://www.census.gov/foreign-trade/Press-Release/edb/edbrel2024.pdf");
     expect(marketEvidenceGroups.reduce((total, group) => total + group.links.length, 0)).toBe(11);
     expect(marketEvidenceGroups.every((group) => group.boundary.length > 35)).toBe(true);
   });

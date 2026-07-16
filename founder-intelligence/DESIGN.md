@@ -58,9 +58,10 @@ Navigation is limited to five founder tasks: Competitors, Market, Decision room,
 - Near-black navy anchors navigation, identity, and decision posture.
 - Electric blue communicates interaction, retrieval, and informational connection.
 - Cool paper separates the private workspace from white evidence surfaces.
-- Red means blocked or unsafe.
+- Red is reserved for a genuinely unsafe or prohibited action, not for ordinary setup work.
 - Green means permitted inside the current boundary.
 - Amber means a decision or approval is required.
+- Blue means research or measurement work that can begin inside the current boundary.
 - Panels use an 8px radius and controls use a 6px radius.
 - Fine borders carry structure; shadows are reserved for the interactive graph nodes.
 - The interface uses one dark-to-light theme rhythm rather than independent themed sections.
@@ -87,8 +88,10 @@ Navigation is limited to five founder tasks: Competitors, Market, Decision room,
 
 - The competitor chart communicates one positioning hypothesis and carries an explicit evidence boundary.
 - The market route is a semantic ordered list with source-backed proof signals.
-- The decision room's signature visual is the seven-stage dependency manifest: Customer, Economics, Offer, Claims, Journey, Experiment, and Outcome. Each stage exposes its evidence state before any supporting detail.
-- The decision room keeps target accounts, experiment results, customer outcomes, win/loss evidence, sensitivity ranges, ROI, and TAM/SAM/SOM visibly empty or unknown until admitted evidence exists.
+- The decision room's signature visual is the seven-stage dependency manifest: Customer, Economics, Offer, Claims, Journey, Experiment, and Outcome. Each stage exposes whether work is researched, founder-decided, setup-ready, or pilot-measured before supporting detail.
+- The ICP workspace pairs one dark hypothesis panel with six derived setup counts and five ordered proof filters: exposure, owner, evidence, delivery, and permission. These are operating controls, never a predictive fit score, conversion rate, or customer-performance claim.
+- Missing economics inputs are never presented as a generic wall of unknowns. Each one carries a method, owner, output, next action, and source, while calculated ROI and TAM/SAM/SOM values remain empty until their inputs are admitted.
+- The offer ladder is a build sequence: set up now, set up next, needs reviewer, needs founder terms, and needs pilot evidence. Guardrails remain visible but subordinate to the setup action.
 - The knowledge graph shows the active file, its outgoing links, and its backlinks using only admitted file-to-file edges. One-step and bounded two-step views prevent the graph from becoming an unreadable folder diagram.
 - The graph is paired with a four-tab reader, relationship lists, search, and a semantic file index so it is never the only route to a source.
 - Dense provider, source, and workstream detail uses progressive disclosure where hiding it improves the default scan.

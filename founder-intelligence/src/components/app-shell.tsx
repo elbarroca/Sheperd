@@ -20,7 +20,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Navigation />
           <div className="hold-card" role="status">
             <span className="hold-light" aria-hidden="true" />
-            <div><strong>External hold</strong><span>Research only</span></div>
+            <div><strong>External actions gated</strong><span>Internal setup active</span></div>
           </div>
         </div>
       </header>
@@ -32,7 +32,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <a href={SHEPERD_BRAND.publicSite} target="_blank" rel="noreferrer">Public brand source</a>
           </span>
           <span>Public read-only research brief</span>
-          <span>Evidence snapshot: 2026-07-15</span>
+          <span>Evidence refreshed: 2026-07-16</span>
         </footer>
       </main>
     </div>

@@ -19,7 +19,7 @@ export default function MarketPage() {
         eyebrow="Market situation"
         title="The problem is material. The market size is not proven."
         description="Official evidence shows meaningful D&D charges, formal complaints, relief, enforcement, and recurring operational pressure. It does not yet show SheperD's recoverable market or commercial economics."
-        meta={<><span>Current decision</span><strong>Problem supported</strong><small>TAM, SAM, and SOM unknown</small></>}
+        meta={<><span>Current decision</span><strong>Problem supported</strong><small>Sizing methods ready; values unproven</small></>}
       />
 
       <section className="focus-section market-proof" aria-labelledby="proof-signals-title">
@@ -87,13 +87,13 @@ export default function MarketPage() {
       <section className="focus-section sizing-truth" aria-labelledby="sizing-title">
         <div>
           <p className="focus-label">Sizing truth</p>
-          <h2 id="sizing-title">TAM, SAM, and SOM stay unknown</h2>
+          <h2 id="sizing-title">The sizing methods are defined. The values are not.</h2>
           <p>Do not multiply total charges by importer counts or vendor recovery claims. Each layer needs an invoice-level denominator, a valid eligibility method, realized outcomes, and approved fee economics.</p>
         </div>
         <dl>
-          <div><dt>TAM</dt><dd>Eligible U.S. ocean-container D&D value with supported recovery and fee assumptions.</dd><strong>Unknown</strong></div>
-          <div><dt>SAM</dt><dd>TAM restricted to reachable accounts, evidence access, geography, and delivery capability.</dd><strong>Unknown</strong></div>
-          <div><dt>SOM</dt><dd>Capacity-constrained cases with measured qualification, cycle, quality, outcome, and fee.</dd><strong>Unknown</strong></div>
+          <div><dt>TAM</dt><dd>Eligible U.S. ocean-container D&D value with supported recovery and fee assumptions.</dd><strong>No admitted value</strong></div>
+          <div><dt>SAM</dt><dd>TAM restricted to reachable accounts, evidence access, geography, and delivery capability.</dd><strong>No admitted value</strong></div>
+          <div><dt>SOM</dt><dd>Capacity-constrained cases with measured qualification, cycle, quality, outcome, and fee.</dd><strong>No admitted value</strong></div>
         </dl>
       </section>
     </div>

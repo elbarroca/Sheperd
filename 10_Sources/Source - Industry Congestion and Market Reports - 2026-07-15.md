@@ -5,9 +5,9 @@ status: active
 source_kind: mixed-public-reports
 authority: mixed
 evidence_status: mixed
-checked: 2026-07-15
+checked: 2026-07-16
 owner: Research orchestrator
-updated: 2026-07-15
+updated: 2026-07-16
 confidentiality: public
 tags:
   - sheperd/source
@@ -26,7 +26,7 @@ Official sources support a large importer universe, material D&D charges, and me
 
 | ID | Source | Authority | Current signal | Safe use | Boundary |
 |---|---|---|---|---|---|
-| SRC-044 | [Census preliminary 2024 Profile of U.S. Importing and Exporting Companies](https://www.census.gov/foreign-trade/Press-Release/edb/2024prelimprofile.pdf) | Primary government | 239,231 identified importers; 232,804 classified as SMEs; $2.921T known import value | Top-of-funnel universe and segment-design context | Includes all modes and does not identify ocean containers, D&D, buyer intent, or recoverability |
+| SRC-044 | [Census Profile of U.S. Importing and Exporting Companies, 2023-2024](https://www.census.gov/foreign-trade/Press-Release/edb/edbrel2024.pdf) | Primary government | 240,535 identified importers; 234,023 classified as SMEs; $2.926T known import value | Top-of-funnel universe and segment-design context | Includes all modes and does not identify ocean containers, D&D, buyer intent, or recoverability |
 | SRC-045 | [World Bank Container Port Performance Index 2025](https://www.worldbank.org/en/topic/transport/publication/cppi) | Multilateral report | Compares vessel time in port and contextualizes geopolitical/climate disruption | Congestion and port-efficiency context | Diagnostic index; not blame, invoice validity, or buyer exposure |
 | SRC-046 | [UNCTAD Review of Maritime Transport 2025](https://unctad.org/publication/review-maritime-transport-2025) | UN report | Describes longer routes, volatile costs, chronic disruption, and resilience pressure | Industry context and scenario framing | Global/macro report; not a U.S. D&D denominator |
 | SRC-047 | [New York Fed Global Supply Chain Pressure Index](https://www.newyorkfed.org/research/policy/gscpi) | Public research indicator | Integrates transport costs and manufacturing indicators; updated monthly | Macro pressure monitoring | Not an official Fed estimate and not case-level evidence |
