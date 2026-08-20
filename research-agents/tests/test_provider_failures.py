@@ -1,18 +1,37 @@
 from __future__ import annotations
 
 import asyncio
+from contextvars import ContextVar
 from types import TracebackType
 
 import httpx
 import pytest
 from pydantic import BaseModel
 
-import sheperd_research.providers.tavily as tavily_module
 from sheperd_research.contracts import SourceCandidate
 from sheperd_research.providers.errors import ProviderError
 from sheperd_research.providers.openrouter import OpenRouterProvider
 from sheperd_research.providers.tavily import TavilyProvider
 from sheperd_research.settings import STRICT_OPENROUTER_MODEL
+
+
+def _stub_provider() -> OpenRouterProvider:
+    provider = object.__new__(OpenRouterProvider)
+    provider.model_name = STRICT_OPENROUTER_MODEL
+    provider.call_history = []
+    provider.last_call_metadata = {}
+    provider.timeout_seconds = 60
+    provider.max_output_tokens = 3000
+    provider.capability_manifest_hash = "manifest-1"
+    provider._task_last_call_metadata = ContextVar(
+        f"test_last_call_metadata_{id(provider)}",
+        default=None,
+    )
+    provider._task_attempts = ContextVar(
+        f"test_attempts_{id(provider)}",
+        default=(),
+    )
+    return provider
 
 
 class FakeAsyncClient:
@@ -60,23 +79,12 @@ def test_tavily_rate_limit_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
     patch_client(monkeypatch, [response(429, {"error": "rate limit"})])
 
     with pytest.raises(ProviderError, match="rate limit"):
-        asyncio.run(TavilyProvider("secret", max_retries=0).search("ports"))
+        asyncio.run(TavilyProvider("secret").search("ports"))
 
 
-def test_tavily_timeout_retries(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def no_sleep(_: float) -> None:
-        return None
-
-    monkeypatch.setattr(tavily_module.asyncio, "sleep", no_sleep)
-    patch_client(
-        monkeypatch,
-        [
-            httpx.ReadTimeout("timeout"),
-            response(200, {"results": []}),
-        ],
-    )
-
-    assert asyncio.run(TavilyProvider("secret", max_retries=1).search("ports")) == []
+def test_tavily_retries_are_rejected_by_strict_policy() -> None:
+    with pytest.raises(ProviderError, match="retries are disabled"):
+        asyncio.run(TavilyProvider("secret", max_retries=1).search("ports"))
 
 
 def test_tavily_malformed_search_and_extract_fail_closed(
@@ -84,12 +92,12 @@ def test_tavily_malformed_search_and_extract_fail_closed(
 ) -> None:
     patch_client(monkeypatch, [response(200, {"results": "invalid"})])
     with pytest.raises(ProviderError, match="invalid results"):
-        asyncio.run(TavilyProvider("secret", max_retries=0).search("ports"))
+        asyncio.run(TavilyProvider("secret").search("ports"))
 
     patch_client(monkeypatch, [response(200, {"results": "invalid"})])
     with pytest.raises(ProviderError, match="invalid results"):
         asyncio.run(
-            TavilyProvider("secret", max_retries=0).extract(
+            TavilyProvider("secret").extract(
                 [SourceCandidate(url="https://example.com/article")]
             )
         )
@@ -111,7 +119,8 @@ def test_tavily_extract_chunks_batches_at_twenty_urls() -> None:
         for index in range(21)
     ]
 
-    assert asyncio.run(BatchingProvider("secret").extract(sources)) == {}
+    with pytest.raises(ProviderError, match="incomplete content"):
+        asyncio.run(BatchingProvider("secret").extract(sources))
     assert [len(batch) for batch in calls] == [20, 1]
 
 
@@ -126,8 +135,7 @@ class FakeModel:
 
 
 def test_openrouter_malformed_structured_output_is_explicit() -> None:
-    provider = object.__new__(OpenRouterProvider)
-    provider.model_name = STRICT_OPENROUTER_MODEL
+    provider = _stub_provider()
     provider._model = FakeModel()
 
     with pytest.raises(ProviderError, match="distillation failed"):
@@ -159,7 +167,7 @@ class CapturingModel:
 
 class RawResponse:
     response_metadata = {
-        "model_name": "provider/free-model:free",
+        "model_name": STRICT_OPENROUTER_MODEL,
         "id": "request-1",
         "token_usage": {"prompt_tokens": 12, "completion_tokens": 8, "total_tokens": 20},
     }
@@ -192,8 +200,7 @@ class StrictCapturingModel:
 
 def test_openrouter_uses_strict_schema_and_records_resolved_model() -> None:
     model = StrictCapturingModel()
-    provider = object.__new__(OpenRouterProvider)
-    provider.model_name = STRICT_OPENROUTER_MODEL
+    provider = _stub_provider()
     provider._model = model
 
     result = asyncio.run(
@@ -205,7 +212,7 @@ def test_openrouter_uses_strict_schema_and_records_resolved_model() -> None:
     )
 
     assert model.kwargs == {"method": "json_schema", "strict": True, "include_raw": True}
-    assert result.model_id == "provider/free-model:free"
+    assert result.model_id == STRICT_OPENROUTER_MODEL
     assert provider.last_call_metadata["request_id"] == "request-1"
     assert provider.last_call_metadata["total_tokens"] == 20
 
@@ -214,14 +221,17 @@ def test_openrouter_distillation_prompt_is_source_bound() -> None:
     source = SourceCandidate(url="https://example.com/article", is_seed=True)
     output = CapturedStructuredOutput(
         {
-            "summary": "A source-bound summary.",
-            "key_points": ["A reported point."],
-            "claims": [{"claim": "A reported point.", "source_urls": [source.url]}],
-            "limitations": ["Public source only."],
+            "raw": RawResponse(),
+            "parsed": {
+                "summary": "A source-bound summary.",
+                "key_points": ["A reported point."],
+                "claims": [{"claim": "A reported point.", "source_urls": [source.url]}],
+                "limitations": ["Public source only."],
+            },
+            "parsing_error": None,
         }
     )
-    provider = object.__new__(OpenRouterProvider)
-    provider.model_name = STRICT_OPENROUTER_MODEL
+    provider = _stub_provider()
     provider._model = CapturingModel(output)
 
     asyncio.run(provider.distill(source, "source body"))

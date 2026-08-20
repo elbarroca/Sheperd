@@ -29,9 +29,9 @@ def test_settings_resolve_root_env_and_vault_paths(monkeypatch: pytest.MonkeyPat
 
 
 def test_research_request_rejects_paid_models() -> None:
-    with pytest.raises(ValueError, match="free"):
+    with pytest.raises(ValueError, match=STRICT_OPENROUTER_MODEL):
         ResearchRunRequest(topic_set="dnd-port", model="openrouter/some-paid-model")
-    with pytest.raises(ValueError, match="free"):
+    with pytest.raises(ValueError, match=STRICT_OPENROUTER_MODEL):
         ResearchRunRequest(topic_set="dnd-port", model="malformed:free")
 
 

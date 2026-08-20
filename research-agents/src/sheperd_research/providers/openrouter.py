@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Sequence
+from contextvars import ContextVar
 from datetime import datetime
 from time import monotonic
 from typing import Protocol, TypeVar, cast
@@ -27,6 +28,7 @@ from ..contracts import (
 )
 from ..settings import STRICT_OPENROUTER_MODEL, strict_openrouter_policy_error
 from ..validators import can_extract_url, normalize_url
+from .capabilities import CapabilityReport
 from .errors import ProviderError
 
 OPENROUTER_TIMEOUT_SECONDS = 60
@@ -124,22 +126,31 @@ class OpenRouterProvider:
         model: str = STRICT_OPENROUTER_MODEL,
         *,
         fallback_models: Sequence[str] = (),
+        capability_report: CapabilityReport | None = None,
         max_output_tokens: int = OPENROUTER_MAX_OUTPUT_TOKENS,
-        eligible_models: Sequence[str] | None = None,
         capability_manifest_hash: str | None = None,
         timeout_seconds: int = OPENROUTER_TIMEOUT_SECONDS,
         max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS,
     ) -> None:
         if not api_key.strip():
             raise ValueError("OpenRouter API key is required")
-        configured_chain = tuple(dict.fromkeys((model, *fallback_models)))
-        policy_error = strict_openrouter_policy_error(model, configured_chain[1:])
+        raw_fallback_models = tuple(
+            value.strip() for value in fallback_models if isinstance(value, str) and value.strip()
+        )
+        policy_error = strict_openrouter_policy_error(model, raw_fallback_models)
         if policy_error is not None:
             raise ProviderError(policy_error)
+        if raw_fallback_models:
+            raise ProviderError("OPENROUTER_FALLBACK_MODELS must be empty")
+        if capability_report is None or capability_report.source != "live":
+            raise ProviderError("OpenRouter provider requires a live capability report")
+        if capability_report.requested_models != (STRICT_OPENROUTER_MODEL,):
+            raise ProviderError("OpenRouter capability report must target the strict Gemma model")
+        if capability_report.eligible_models != (STRICT_OPENROUTER_MODEL,):
+            raise ProviderError("configured strict model failed capability checks")
+        configured_chain = (model,)
         if any(not is_free_model(candidate) for candidate in configured_chain):
             raise ProviderError(f"OpenRouter model must be {STRICT_OPENROUTER_MODEL}")
-        if eligible_models is not None and STRICT_OPENROUTER_MODEL not in eligible_models:
-            raise ProviderError("configured strict model failed capability checks")
         if max_output_tokens < 1:
             raise ValueError("OpenRouter output-token budget must be positive")
         if timeout_seconds < 1:
@@ -149,7 +160,8 @@ class OpenRouterProvider:
         self.model_name = model
         self.model_chain = (STRICT_OPENROUTER_MODEL,)
         self.max_output_tokens = max_output_tokens
-        self.capability_manifest_hash = capability_manifest_hash
+        self.capability_manifest_hash = capability_report.manifest_hash
+        self.capability_report = capability_report
         self.timeout_seconds = timeout_seconds
         self.max_concurrent_requests = max_concurrent_requests
         self._rate_limit_seen = False
@@ -159,6 +171,14 @@ class OpenRouterProvider:
         self._api_key = SecretStr(api_key)
         self._models: dict[str, BaseChatModel] = {}
         self.call_history: list[dict[str, object]] = []
+        self._task_last_call_metadata: ContextVar[dict[str, object] | None] = ContextVar(
+            f"openrouter_last_call_metadata_{id(self)}",
+            default=None,
+        )
+        self._task_attempts: ContextVar[tuple[dict[str, object], ...]] = ContextVar(
+            f"openrouter_attempts_{id(self)}",
+            default=(),
+        )
         self._model = self._model_for(self.model_chain[0])
 
     def _model_for(self, model: str) -> BaseChatModel:
@@ -258,6 +278,29 @@ class OpenRouterProvider:
             ).encode()
         ).hexdigest()
 
+    def _reset_task_call_state(self) -> None:
+        self._task_last_call_metadata.set(None)
+        self._task_attempts.set(())
+
+    def current_call_metadata(self) -> dict[str, object]:
+        metadata_value = self._task_last_call_metadata.get()
+        metadata = dict(metadata_value) if isinstance(metadata_value, dict) else {}
+        attempts = [dict(item) for item in self._task_attempts.get()]
+        if attempts:
+            metadata["attempts"] = attempts
+        return metadata
+
+    @staticmethod
+    def _require_strict_resolved_model(metadata: dict[str, object]) -> str:
+        resolved_model = metadata.get("resolved_model")
+        if not isinstance(resolved_model, str) or not resolved_model.strip():
+            raise ProviderError("OpenRouter response missing resolved model metadata")
+        if resolved_model != STRICT_OPENROUTER_MODEL:
+            raise ProviderError(
+                f"OpenRouter resolved model must be {STRICT_OPENROUTER_MODEL}"
+            )
+        return resolved_model
+
     def _record_attempt(
         self,
         metadata: dict[str, object],
@@ -265,6 +308,10 @@ class OpenRouterProvider:
     ) -> None:
         recorded = dict(metadata)
         self.last_call_metadata = recorded
+        attempts = list(self._task_attempts.get())
+        attempts.append(recorded)
+        self._task_last_call_metadata.set(recorded)
+        self._task_attempts.set(tuple(attempts))
         history = getattr(self, "call_history", None)
         if isinstance(history, list):
             history.append(recorded)
@@ -277,12 +324,9 @@ class OpenRouterProvider:
         payload: dict[str, object],
     ) -> object:
         async def invoke() -> object:
-            return await asyncio.wait_for(
-                cast(AgentRunnable, agent).ainvoke(
-                    payload,
-                    config={"recursion_limit": MAX_DISCOVERY_RECURSION},
-                ),
-                timeout=getattr(self, "timeout_seconds", OPENROUTER_TIMEOUT_SECONDS),
+            return await cast(AgentRunnable, agent).ainvoke(
+                payload,
+                config={"recursion_limit": MAX_DISCOVERY_RECURSION},
             )
 
         if getattr(self, "_rate_limit_seen", False):
@@ -407,10 +451,7 @@ class OpenRouterProvider:
                     if "unexpected keyword" not in str(error).lower():
                         raise
                     runnable = self._model.with_structured_output(schema)
-                result = await asyncio.wait_for(
-                    runnable.ainvoke(prompt),
-                    timeout=getattr(self, "timeout_seconds", OPENROUTER_TIMEOUT_SECONDS),
-                )
+                result = await runnable.ainvoke(prompt)
                 raw: object = result
                 parsed: object = result
                 if isinstance(result, dict) and "parsed" in result:
@@ -420,11 +461,11 @@ class OpenRouterProvider:
                         raise ValueError("malformed output")
                 output = schema.model_validate(parsed)
                 metadata = self._metadata_from_raw(raw)
+                resolved_model = self._require_strict_resolved_model(metadata)
                 metadata.update(
                     {
                         "requested_model": getattr(self, "model_name", STRICT_OPENROUTER_MODEL),
-                        "resolved_model": metadata.get("resolved_model")
-                        or getattr(self, "model_name", STRICT_OPENROUTER_MODEL),
+                        "resolved_model": resolved_model,
                         "prompt_version": prompt_version,
                         "operation": operation,
                         "attempt": attempt,
@@ -440,16 +481,9 @@ class OpenRouterProvider:
                 return output
             except Exception as error:
                 last_error = error
-                if self._should_retry(
-                    error,
-                    model_name=getattr(self, "model_name", STRICT_OPENROUTER_MODEL),
-                    attempt=attempt,
-                ):
-                    await asyncio.sleep(0.2)
-                    continue
                 metadata = {
                     "requested_model": getattr(self, "model_name", STRICT_OPENROUTER_MODEL),
-                    "resolved_model": getattr(self, "model_name", STRICT_OPENROUTER_MODEL),
+                    "resolved_model": None,
                     "prompt_version": prompt_version,
                     "operation": operation,
                     "attempt": attempt,
@@ -462,6 +496,13 @@ class OpenRouterProvider:
                     ),
                 }
                 self._record_attempt(metadata)
+                if self._should_retry(
+                    error,
+                    model_name=getattr(self, "model_name", STRICT_OPENROUTER_MODEL),
+                    attempt=attempt,
+                ):
+                    await asyncio.sleep(0.2)
+                    continue
                 if isinstance(error, ValueError) or not isinstance(error, ProviderError):
                     raise ProviderError(f"OpenRouter {operation} failed") from error
                 raise
@@ -556,10 +597,11 @@ class OpenRouterProvider:
                 )
                 raw = self._last_message(result)
                 metadata = self._metadata_from_raw(raw)
+                resolved_model = self._require_strict_resolved_model(metadata)
                 metadata.update(
                     {
                         "requested_model": model_name,
-                        "resolved_model": metadata.get("resolved_model") or model_name,
+                        "resolved_model": resolved_model,
                         "prompt_version": prompt_version,
                         "operation": operation,
                         "attempt": attempt,
@@ -583,7 +625,7 @@ class OpenRouterProvider:
                 error_code = self._error_code(error)
                 metadata = {
                     "requested_model": model_name,
-                    "resolved_model": model_name,
+                    "resolved_model": None,
                     "prompt_version": prompt_version,
                     "operation": operation,
                     "attempt": attempt,
@@ -658,6 +700,7 @@ class OpenRouterProvider:
         tool_errors: list[str] = []
         tool_latency_by_input: dict[str, int] = {}
         attempt_sink: list[dict[str, object]] = []
+        self._reset_task_call_state()
 
         def discovery_error(message: str) -> ProviderError:
             return ProviderError(message, attempts=list(attempt_sink))
@@ -815,7 +858,7 @@ class OpenRouterProvider:
             "search_calls": len(search_calls),
             "extracted_count": len(content),
             "tool_errors": tool_errors,
-            "agent_call": dict(self.last_call_metadata),
+            "agent_call": dict(attempt_sink[-1]) if attempt_sink else {},
             "attempts": list(attempt_sink),
         }
         return LaneDiscoveryResult(
@@ -826,6 +869,7 @@ class OpenRouterProvider:
         )
 
     async def health_check(self) -> str:
+        self._reset_task_call_state()
         try:
             result = await self._invoke_structured(
                 HealthOutput,
@@ -836,7 +880,8 @@ class OpenRouterProvider:
             output = HealthOutput.model_validate(result)
             if not output.ok:
                 raise ProviderError("OpenRouter health response was not affirmative")
-            return str(self.last_call_metadata.get("resolved_model", self.model_name))
+            metadata = self.current_call_metadata()
+            return self._require_strict_resolved_model(metadata)
         except ProviderError:
             raise
         except Exception as error:
@@ -849,6 +894,7 @@ class OpenRouterProvider:
         *,
         prompt_version: str = "distill-v4",
     ) -> ArticleDistillation:
+        self._reset_task_call_state()
         prompt = (
             "You are an evidence distiller for maritime and D&D intelligence. "
             "Use only the supplied public source; do not use outside knowledge. "
@@ -869,6 +915,7 @@ class OpenRouterProvider:
                 prompt_version=prompt_version,
                 operation="distillation",
             )
+            metadata = self.current_call_metadata()
             return ArticleDistillation(
                 source_url=source.url,
                 summary=output.summary,
@@ -878,7 +925,7 @@ class OpenRouterProvider:
                 claims=output.claims[:MAX_CLAIMS_PER_SOURCE],
                 limitations=output.limitations,
                 published_at=source.published_at,
-                model_id=str(self.last_call_metadata.get("resolved_model", self.model_name)),
+                model_id=self._require_strict_resolved_model(metadata),
                 prompt_version=prompt_version,
             )
         except ProviderError:
@@ -893,6 +940,7 @@ class OpenRouterProvider:
         *,
         prompt_version: str = "critic-v4",
     ) -> list[ClaimDraft]:
+        self._reset_task_call_state()
         prompt = (
             "You are the single bounded evidence critic. Review the claims below for "
             "unsupported inference, conflicts, stale wording, and citation gaps. "
@@ -927,6 +975,7 @@ class OpenRouterProvider:
         covered_until: datetime,
         prompt_version: str = "weekly-brief-v4",
     ) -> WeeklyBrief:
+        self._reset_task_call_state()
         evidence = "\n\n".join(
             f"URL: {item.source_url}\nSUMMARY: {item.summary}\nCLAIMS: "
             f"{[claim.claim for claim in item.claims]}"
@@ -949,6 +998,7 @@ class OpenRouterProvider:
                 prompt_version=prompt_version,
                 operation="synthesis",
             )
+            metadata = self.current_call_metadata()
             return WeeklyBrief(
                 run_id=run_id,
                 title=output.title,
@@ -959,7 +1009,7 @@ class OpenRouterProvider:
                 source_urls=[item.source_url for item in distillations],
                 limitations=output.limitations,
                 evidence_status=output.evidence_status,
-                model_id=str(self.last_call_metadata.get("resolved_model", self.model_name)),
+                model_id=self._require_strict_resolved_model(metadata),
                 prompt_version=prompt_version,
                 executive_bullets=output.executive_bullets,
                 developments=output.developments,

@@ -156,7 +156,7 @@ async def _provider_check(settings: Settings) -> dict[str, object]:
             provider = OpenRouterProvider(
                 settings.openrouter_api_key.get_secret_value(),
                 settings.openrouter_model,
-                capability_manifest_hash=capabilities.manifest_hash,
+                capability_report=capabilities,
             )
             model = await provider.health_check()
             checks["openrouter"] = _status(
@@ -266,7 +266,7 @@ async def run_model_check(settings: Settings) -> dict[str, object]:
         provider = OpenRouterProvider(
             settings.openrouter_api_key.get_secret_value(),
             settings.openrouter_model,
-            capability_manifest_hash=capabilities.manifest_hash,
+            capability_report=capabilities,
         )
         resolved_model = await provider.health_check()
         return {

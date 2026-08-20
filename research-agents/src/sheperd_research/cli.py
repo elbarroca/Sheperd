@@ -25,7 +25,6 @@ from .contracts import (
     RunResult,
     RunStatus,
     ValidationStatus,
-    is_free_model,
 )
 from .db import PostgresRepository, run_migrations
 from .diagnostics import (
@@ -244,13 +243,12 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
                         tavily_key.get_secret_value(),
                         settings.tavily_project_id,
                         timeout_seconds=15 if getattr(args, "profile", "full") == "canary" else 45,
-                        max_retries=1 if getattr(args, "profile", "full") == "canary" else 2,
                     ),
                     OpenRouterProvider(
                         openrouter_key.get_secret_value(),
                         request.model,
                         max_output_tokens=settings.llm_max_output_tokens,
-                        capability_manifest_hash=capabilities.manifest_hash,
+                        capability_report=capabilities,
                         max_concurrent_requests=(
                             2 if getattr(args, "profile", "full") == "canary" else 1
                         ),
@@ -344,7 +342,7 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
                         openrouter_key.get_secret_value(),
                         request.model,
                         max_output_tokens=settings.llm_max_output_tokens,
-                        capability_manifest_hash=capabilities.manifest_hash,
+                        capability_report=capabilities,
                         max_concurrent_requests=2 if args.profile == "canary" else 1,
                     ),
                     load_topic_configs(settings.resolved_topics_path),
@@ -432,14 +430,8 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
             "covered_until",
         }
         ui_passed = api_passed and required_sections.issubset(weekly_payload)
-        expected_missing_report = (
-            result.status.value == "partial"
-            and brief is None
-            and weekly_response.status_code == 404
-            and monthly_response.status_code == 200
-        )
-        api_status = "pass" if api_passed else "partial" if expected_missing_report else "failed"
-        ui_status = "pass" if ui_passed else "partial" if expected_missing_report else "failed"
+        api_status = "pass" if api_passed else "failed"
+        ui_status = "pass" if ui_passed else "failed"
         stage("api", api_status, weekly_status=weekly_response.status_code)
         stage("ui_contract", ui_status, sections=sorted(required_sections))
         lane_passed = all(lane_counts[lane] > 0 for lane in lane_counts)
@@ -455,7 +447,7 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
             and api_passed
             and ui_passed
         )
-        status = "pass" if accepted else "partial" if result.status.value == "partial" else "failed"
+        status = "pass" if accepted else "failed"
         _print_json(
             {
                 "status": status,
@@ -502,14 +494,13 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
         provider = OpenRouterProvider(
             settings.openrouter_api_key.get_secret_value(),
             settings.openrouter_model,
-            capability_manifest_hash=capabilities.manifest_hash,
+            capability_report=capabilities,
             timeout_seconds=15,
         )
         tavily = TavilyProvider(
             settings.tavily_api_key.get_secret_value(),
             settings.tavily_project_id,
             timeout_seconds=20,
-            max_retries=1,
         )
 
         async def execute() -> LaneDiscoveryResult:
@@ -526,23 +517,29 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
             )
 
         result = asyncio.run(execute())
+        attempts = result.metadata.get("attempts", [])
+        if not isinstance(attempts, list):
+            attempts = []
         receipts: list[dict[str, object]] = []
-        for attempt in provider.call_history:
-            raw_receipts = attempt.get("tool_call_receipts")
+        for attempt in attempts:
+            raw_receipts = attempt.get("tool_call_receipts") if isinstance(attempt, dict) else None
             if isinstance(raw_receipts, list):
                 receipts.extend(item for item in raw_receipts if isinstance(item, dict))
         tool_names = {str(receipt.get("tool_name")) for receipt in receipts}
+        resolved_models = sorted(
+            {
+                str(item.get("resolved_model"))
+                for item in attempts
+                if isinstance(item, dict) and item.get("resolved_model")
+            }
+        )
         checks = {
             "create_agent": True,
             "chat_openrouter": True,
             "tavily_search": "tavily_search" in tool_names,
             "tavily_extract": "tavily_extract" in tool_names,
             "structured_output": bool(result.packet.source_urls),
-            "free_resolved_model": all(
-                is_free_model(str(item.get("resolved_model")))
-                for item in provider.call_history
-                if item.get("resolved_model")
-            ),
+            "strict_resolved_model": resolved_models == [STRICT_OPENROUTER_MODEL],
         }
         passed = all(checks.values()) and bool(receipts)
         _print_json(
@@ -552,15 +549,9 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
                 "source_count": len(result.sources),
                 "extracted_count": len(result.content),
                 "tool_calls": len(receipts),
-                "resolved_models": sorted(
-                    {
-                        str(item.get("resolved_model"))
-                        for item in provider.call_history
-                        if item.get("resolved_model")
-                    }
-                ),
+                "resolved_models": resolved_models,
                 "capability_manifest_hash": capabilities.manifest_hash,
-                "attempts": provider.call_history,
+                "attempts": attempts,
             }
         )
         return 0 if passed else 2
