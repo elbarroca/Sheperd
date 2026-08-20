@@ -34,7 +34,7 @@ from .contracts import (
 from .db import RepositoryProtocol
 from .providers.errors import ProviderError
 from .topics import default_topic_configs
-from .validation import build_validation_report
+from .validation import build_validation_report, source_quality_sources
 from .validators import (
     content_hash,
     deduplicate_sources,
@@ -371,7 +371,7 @@ class ResearchWorkflow:
             return RunResult(
                 run_id=run_id,
                 status=status,
-                source_count=len(final_state.get("sources", [])),
+                source_count=len(source_quality_sources(final_state.get("sources", []))),
                 distillation_count=len(final_state.get("distillations", [])),
                 claim_count=len(final_state.get("claims", [])),
                 brief_id=brief.run_id if brief else None,
@@ -661,7 +661,8 @@ class ResearchWorkflow:
         topic: TopicConfig,
         topic_set: str,
     ) -> tuple[list[SourceCandidate], dict[str, object]]:
-        accepted: list[SourceCandidate] = []
+        seed_sources: list[SourceCandidate] = []
+        accepted_seed_count = 0
         quarantined_reasons: dict[str, int] = {}
         quarantined_domains: set[str] = set()
         for seed_url in seed_urls:
@@ -672,19 +673,21 @@ class ResearchWorkflow:
                 quarantined_reasons[reason] = quarantined_reasons.get(reason, 0) + 1
                 if host:
                     quarantined_domains.add(host)
-                continue
-            accepted.append(
+            else:
+                accepted_seed_count += 1
+            seed_sources.append(
                 SourceCandidate(
                     url=normalized,
                     source_kind="seed-only",
                     is_seed=True,
+                    evidence_status=EvidenceStatus.UNVERIFIED,
                     topics=[topic_set],
                     lane=cls._seed_lane(normalized),
                 )
             )
-        return accepted, {
-            "accepted_seed_count": len(accepted),
-            "quarantined_seed_count": len(seed_urls) - len(accepted),
+        return seed_sources, {
+            "accepted_seed_count": accepted_seed_count,
+            "quarantined_seed_count": len(seed_urls) - accepted_seed_count,
             "quarantined_seed_domains": sorted(quarantined_domains),
             "quarantined_seed_reasons": quarantined_reasons,
         }

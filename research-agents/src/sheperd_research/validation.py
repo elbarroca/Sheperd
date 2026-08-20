@@ -19,6 +19,10 @@ MIN_CLAIM_COUNT = 5
 REQUIRED_LANES = frozenset({"regulatory", "us-ports", "mexico"})
 
 
+def source_quality_sources(sources: list[SourceCandidate]) -> list[SourceCandidate]:
+    return [source for source in sources if not source.is_seed]
+
+
 def _check(
     name: str,
     passed: bool,
@@ -49,7 +53,8 @@ def build_validation_report(
     tool_call_count: int | None = None,
     required_tool_lanes: dict[str, bool] | None = None,
 ) -> ValidationReport:
-    normalized_urls = [normalize_url(source.url) for source in sources]
+    quality_sources = source_quality_sources(sources)
+    normalized_urls = [normalize_url(source.url) for source in quality_sources]
     known_urls = set(normalized_urls)
     cited_claims = [
         claim
@@ -63,7 +68,7 @@ def build_validation_report(
     )
     future_sources = [
         source
-        for source in sources
+        for source in quality_sources
         if source.published_at is not None and source.published_at > as_of
     ]
     uncited_verified = [
@@ -187,7 +192,7 @@ def build_validation_report(
     report = ValidationReport(
         run_id=run_id,
         status=status,
-        source_count=len(sources),
+        source_count=len(quality_sources),
         unique_source_count=len(known_urls),
         claim_count=len(claims),
         cited_claim_count=len(cited_claims),

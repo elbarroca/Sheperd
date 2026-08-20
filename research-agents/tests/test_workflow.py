@@ -10,6 +10,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from sheperd_research.contracts import (
     ArticleDistillation,
     ClaimDraft,
+    EvidenceStatus,
     LaneDiscoveryPacket,
     LaneDiscoveryResult,
     ResearchRunRequest,
@@ -267,7 +268,7 @@ def test_workflow_records_a_cited_draft_and_is_idempotent() -> None:
     assert first.distillation_count == first.source_count
 
 
-def test_workflow_quarantines_unsafe_seeds_and_retains_safe_seed_only_sources() -> None:
+def test_workflow_persists_quarantined_seed_leads_without_processing_them() -> None:
     topic_seed_urls = [
         "https://gcaptain.com/example?subscriber=true",
         "https://www.linkedin.com/posts/example",
@@ -304,17 +305,35 @@ def test_workflow_quarantines_unsafe_seeds_and_retains_safe_seed_only_sources() 
     )
 
     assert result.status == "succeeded"
-    assert result.source_count == 5
+    assert result.source_count == 4
     assert result.distillation_count == 4
     safe_seed = repository.sources["https://www.fmc.gov/articles/example"]
     assert safe_seed.is_seed is True
     assert safe_seed.source_kind == "seed-only"
+    quarantined_urls = {
+        "https://gcaptain.com/example?subscriber=true",
+        "https://www.linkedin.com/posts/example",
+    }
+    for url in quarantined_urls:
+        quarantined = repository.sources[url]
+        assert quarantined.is_seed is True
+        assert quarantined.source_kind == "seed-only"
+        assert quarantined.evidence_status is EvidenceStatus.UNVERIFIED
     assert all(
         item.source_url != "https://www.fmc.gov/articles/example"
         for item in repository.distillations.values()
     )
-    assert "https://gcaptain.com/example?subscriber=true" not in repository.sources
-    assert "https://www.linkedin.com/posts/example" not in repository.sources
+    assert all(
+        source_url not in quarantined_urls
+        for _, source_url in repository.source_snapshots
+    )
+    assert all(
+        source_url not in quarantined_urls
+        for _, source_url in repository.distillations
+    )
+    report = repository.validations[result.run_id]
+    assert report.source_count == 4
+    assert report.unique_source_count == 4
     discovery_step = next(step for step in repository.steps if step["agent_name"] == "discovery")
     metadata = cast(dict[str, object], discovery_step["metadata"])
     assert metadata["accepted_seed_count"] == 1

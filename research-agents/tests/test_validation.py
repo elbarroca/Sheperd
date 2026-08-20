@@ -89,3 +89,29 @@ def test_seed_only_verified_claim_is_not_promoted() -> None:
 
     assert report.status is ValidationStatus.FAILED
     assert any(check.name == "seed_verified_claims" for check in report.checks)
+
+
+def test_validation_excludes_seed_only_sources_from_quality_counts() -> None:
+    sources = _sources()
+    sources[0] = sources[0].model_copy(
+        update={"is_seed": True, "source_kind": "seed-only"}
+    )
+    claims = [
+        ClaimDraft(claim=f"Claim {index}", source_urls=[sources[index].url])
+        for index in range(1, 6)
+    ]
+
+    report = build_validation_report(
+        "run-seed-counts",
+        sources,
+        claims,
+        datetime(2026, 8, 19, tzinfo=UTC),
+        STRICT_OPENROUTER_MODEL,
+        {"regulatory": "succeeded", "us-ports": "succeeded", "mexico": "succeeded"},
+        [f"hash-{index}" for index in range(1, 10)],
+        minimum_sources=9,
+    )
+
+    assert report.status is ValidationStatus.PASS
+    assert report.source_count == 9
+    assert report.unique_source_count == 9
