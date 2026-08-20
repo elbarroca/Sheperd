@@ -594,7 +594,11 @@ def _validate_command(args: argparse.Namespace, settings: Settings) -> int:
             repository.get_run_snapshot_hashes(args.run_id),
             minimum_sources=1 if request.validation_profile == "canary" else 10,
             minimum_claims=1 if request.validation_profile == "canary" else 5,
-            tool_call_count=len(repository.get_run_tool_calls(args.run_id)),
+            tool_call_count=sum(
+                1
+                for call in repository.get_run_tool_calls(args.run_id)
+                if call.get("status") == "succeeded"
+            ),
             required_tool_lanes={
                 lane: {
                     "tavily_search",
@@ -604,6 +608,7 @@ def _validate_command(args: argparse.Namespace, settings: Settings) -> int:
                         str(call.get("tool_name"))
                         for call in repository.get_run_tool_calls(args.run_id)
                         if call.get("lane") == lane
+                        and call.get("status") == "succeeded"
                     }
                 )
                 for lane in ("regulatory", "us-ports", "mexico")

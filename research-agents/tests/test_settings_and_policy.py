@@ -8,8 +8,8 @@ import pytest
 
 import sheperd_research.cli as cli_module
 import sheperd_research.diagnostics as diagnostics_module
-from sheperd_research.cli import _database, _run_command
-from sheperd_research.contracts import ResearchRunRequest
+from sheperd_research.cli import _database, _run_command, _validate_command
+from sheperd_research.contracts import ResearchRunRequest, ValidationStatus
 from sheperd_research.diagnostics import run_model_check, validate_database_url, validate_dev_branch
 from sheperd_research.providers.errors import ProviderError
 from sheperd_research.settings import (
@@ -94,6 +94,66 @@ def test_run_command_rejects_raw_fallback_config_before_capability_check(
     assert result == 2
     assert "OPENROUTER_FALLBACK_MODELS must be empty" in capsys.readouterr().out
     assert calls == []
+
+
+def test_validate_command_counts_only_succeeded_tool_receipts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    request = ResearchRunRequest(topic_set="dnd-port", validation_profile="canary")
+
+    class RepositoryStub:
+        def get_run(self, _: str) -> dict[str, object]:
+            return {"request": request.model_dump(mode="json")}
+
+        def get_run_sources(self, _: str) -> list[object]:
+            return []
+
+        def get_run_claims(self, _: str) -> list[object]:
+            return []
+
+        def get_run_lane_statuses(self, _: str) -> dict[str, str]:
+            return {"regulatory": "succeeded", "us-ports": "succeeded", "mexico": "succeeded"}
+
+        def get_run_snapshot_hashes(self, _: str) -> list[str]:
+            return []
+
+        def get_run_tool_calls(self, _: str) -> list[dict[str, object]]:
+            return [
+                {"lane": lane, "tool_name": tool, "status": "failed"}
+                for lane in ("regulatory", "us-ports", "mexico")
+                for tool in ("tavily_search", "tavily_extract")
+            ]
+
+        def record_validation(self, _: object) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    class ReportStub:
+        status = ValidationStatus.PASS
+
+        def model_dump(self, **_: object) -> dict[str, object]:
+            return {}
+
+    def build_report(*_: object, **kwargs: object) -> ReportStub:
+        captured.update(kwargs)
+        return ReportStub()
+
+    monkeypatch.setattr(cli_module, "_require_database", lambda _: True)
+    monkeypatch.setattr(cli_module, "_database", lambda _: RepositoryStub())
+    monkeypatch.setattr(cli_module, "build_validation_report", build_report)
+
+    result = _validate_command(argparse.Namespace(run_id="run-1"), Settings())
+
+    assert result == 0
+    assert captured["tool_call_count"] == 0
+    assert captured["required_tool_lanes"] == {
+        "regulatory": False,
+        "us-ports": False,
+        "mexico": False,
+    }
 
 
 def test_database_url_policy_distinguishes_pooled_and_direct_connections() -> None:

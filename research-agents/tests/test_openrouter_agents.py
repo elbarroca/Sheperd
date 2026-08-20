@@ -16,6 +16,7 @@ from sheperd_research.contracts import ArticleDistillation, ClaimDraft, SourceCa
 from sheperd_research.providers.capabilities import CapabilityReport, ModelCapability
 from sheperd_research.providers.errors import ProviderError
 from sheperd_research.providers.openrouter import OpenRouterProvider
+from sheperd_research.providers.tavily import TavilyProvider
 from sheperd_research.settings import STRICT_OPENROUTER_MODEL
 
 
@@ -533,6 +534,126 @@ def test_discovery_rejects_unverifiable_tavily_scope_metadata() -> None:
             until=datetime(2026, 8, 20, tzinfo=UTC),
             include_domains=["fmc.gov"],
             exclude_domains=[],
+        )
+
+
+def test_discovery_maps_live_tavily_fmc_result_to_catalog_geography() -> None:
+    source = TavilyProvider._source_from_result(
+        {
+            "url": "https://www.fmc.gov/newsroom/example",
+            "title": "FMC update",
+            "published_date": "2026-08-10T00:00:00Z",
+        },
+        "latest U.S. demurrage detention FMC court carrier terminal update",
+    )
+
+    enriched = OpenRouterProvider._enrich_discovery_geographies(
+        source,
+        ("Regulatory", "United States"),
+    )
+    validated = OpenRouterProvider._validate_discovery_source(
+        enriched,
+        geographies=("Regulatory", "United States"),
+        since=datetime(2026, 8, 1, tzinfo=UTC),
+        until=datetime(2026, 8, 20, tzinfo=UTC),
+        include_domains=[],
+        exclude_domains=[],
+    )
+
+    assert validated.geographies == ["Regulatory", "United States"]
+
+
+def test_discovery_rejects_a_failed_extra_tool_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TavilyStub:
+        async def search(self, _: str, **__: object) -> list[SourceCandidate]:
+            return [
+                SourceCandidate(
+                    url="https://www.fmc.gov/example-agent-source",
+                    publisher="fmc.gov",
+                    published_at=datetime(2026, 8, 10, tzinfo=UTC),
+                    geographies=["Regulatory"],
+                )
+            ]
+
+        async def extract(self, sources: list[SourceCandidate]) -> dict[str, str]:
+            return {source.url: "fixture" for source in sources}
+
+    class ExtraFailedCallAgent:
+        def __init__(self, tools: list[BaseTool]) -> None:
+            self.tools = {tool.name: tool for tool in tools}
+
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            query = "configured"
+            search = await self.tools["tavily_search"].ainvoke({"query": query})
+            url = json.loads(search)["sources"][0]["url"]
+            extract = await self.tools["tavily_extract"].ainvoke({"urls": [url]})
+            with pytest.raises(ValueError, match="configured lane scope"):
+                await self.tools["tavily_search"].ainvoke({"query": "outside scope"})
+            return {
+                "structured_response": {
+                    "source_urls": [url],
+                    "selected_queries": [query],
+                    "evidence_notes": ["fixture"],
+                },
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": "search-1",
+                                "name": "tavily_search",
+                                "args": {"query": query},
+                            },
+                            {
+                                "id": "extract-1",
+                                "name": "tavily_extract",
+                                "args": {"urls": [url]},
+                            },
+                            {
+                                "id": "search-2",
+                                "name": "tavily_search",
+                                "args": {"query": "outside scope"},
+                            },
+                        ],
+                    ),
+                    ToolMessage(content=search, tool_call_id="search-1"),
+                    ToolMessage(content=extract, tool_call_id="extract-1"),
+                    ToolMessage(
+                        content='{"error":"outside scope"}',
+                        tool_call_id="search-2",
+                        status="error",
+                    ),
+                    SimpleNamespace(
+                        response_metadata={"model_name": STRICT_OPENROUTER_MODEL},
+                        usage_metadata={},
+                        tool_calls=[],
+                    ),
+                ],
+            }
+
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+    monkeypatch.setattr(
+        openrouter_module,
+        "create_agent",
+        lambda *, tools, **_: ExtraFailedCallAgent(tools),
+    )
+
+    with pytest.raises(ProviderError, match="OpenRouter discovery:regulatory failed"):
+        asyncio.run(
+            provider.discover_lane(
+                "regulatory",
+                ["configured"],
+                ("Regulatory",),
+                since=datetime(2026, 8, 1, tzinfo=UTC),
+                until=datetime(2026, 8, 20, tzinfo=UTC),
+                include_domains=["fmc.gov"],
+                exclude_domains=[],
+                max_results=1,
+                tavily=TavilyStub(),
+            )
         )
 
 

@@ -44,6 +44,24 @@ MAX_DISCOVERY_SOURCES = 8
 MAX_DISCOVERY_TOOL_CALLS = 6
 MAX_DISCOVERY_INPUT_CHARS = 20_000
 MAX_DISCOVERY_RECURSION = 12
+GEOGRAPHY_DOMAIN_CATALOG: dict[str, tuple[str, ...]] = {
+    "fmc.gov": ("Regulatory", "United States"),
+    "portoflosangeles.org": ("West Coast",),
+    "polb.com": ("West Coast",),
+    "portofnewyorkandnewjersey.com": ("East Coast",),
+    "portmiami.biz": ("East Coast",),
+    "porthouston.com": ("Gulf",),
+    "puertomanzanillo.com.mx": ("Mexico",),
+    "puertodeveracruz.com.mx": ("Mexico",),
+}
+GEOGRAPHY_QUERY_CATALOG: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("fmc",), ("Regulatory", "United States")),
+    (("u.s.", "united states"), ("United States",)),
+    (("west coast",), ("West Coast",)),
+    (("east coast",), ("East Coast",)),
+    (("gulf",), ("Gulf",)),
+    (("mexico", "manzanillo", "veracruz", "altamira"), ("Mexico",)),
+)
 AGENT_NAMES = {
     "discovery:regulatory": "regulatory_research_agent",
     "discovery:us-ports": "us_ports_research_agent",
@@ -337,6 +355,39 @@ class OpenRouterProvider:
         )
 
     @classmethod
+    def _enrich_discovery_geographies(
+        cls,
+        source: SourceCandidate,
+        allowed_geographies: tuple[str, ...],
+    ) -> SourceCandidate:
+        host = (urlsplit(normalize_url(source.url)).hostname or "").lower()
+        allowed = {value.casefold(): value for value in allowed_geographies}
+        verified = {
+            geography.casefold()
+            for geography in source.geographies
+            if geography.casefold() in allowed
+        }
+        for domain, geographies in GEOGRAPHY_DOMAIN_CATALOG.items():
+            if cls._matches_domain(host, (domain,)):
+                verified.update(
+                    geography.casefold()
+                    for geography in geographies
+                    if geography.casefold() in allowed
+                )
+        for query in source.topics:
+            lowered_query = query.casefold()
+            for markers, geographies in GEOGRAPHY_QUERY_CATALOG:
+                if any(marker in lowered_query for marker in markers):
+                    verified.update(
+                        geography.casefold()
+                        for geography in geographies
+                        if geography.casefold() in allowed
+                    )
+        return source.model_copy(
+            update={"geographies": sorted(allowed[geography] for geography in verified)}
+        )
+
+    @classmethod
     def _validate_discovery_source(
         cls,
         source: SourceCandidate,
@@ -487,10 +538,19 @@ class OpenRouterProvider:
 
         for message in messages:
             tool_message_call_id: object = getattr(message, "tool_call_id", None)
-            if (
-                not isinstance(tool_message_call_id, str)
-                or tool_message_call_id not in by_call_id
-            ):
+            if not isinstance(tool_message_call_id, str):
+                continue
+            if tool_message_call_id not in by_call_id:
+                receipts.append(
+                    {
+                        "call_id": tool_message_call_id,
+                        "call_index": len(receipts),
+                        "tool_name": "unknown",
+                        "url_count": 0,
+                        "status": "failed",
+                        "input_hash": OpenRouterProvider._tool_input_hash(None, ()),
+                    }
+                )
                 continue
             receipt = by_call_id[tool_message_call_id]
             content = getattr(message, "content", "")
@@ -499,12 +559,15 @@ class OpenRouterProvider:
             )
             receipt["result_hash"] = hashlib.sha256(content_text.encode()).hexdigest()
             receipt["status"] = (
-                "failed" if getattr(message, "status", None) == "error" else "succeeded"
+                "succeeded"
+                if getattr(message, "status", None) in {None, "success", "succeeded"}
+                else "failed"
             )
             try:
                 parsed = json.loads(content_text)
             except (TypeError, json.JSONDecodeError):
                 parsed = None
+                receipt["status"] = "failed"
             if isinstance(parsed, dict):
                 if isinstance(parsed.get("sources"), list):
                     receipt["result_count"] = len(parsed["sources"])
@@ -571,11 +634,22 @@ class OpenRouterProvider:
                 )
                 all_receipts = self._tool_call_receipts(result)
                 tool_names = {tool.name for tool in tools}
+                unknown_tools = {
+                    str(receipt.get("tool_name"))
+                    for receipt in all_receipts
+                    if receipt.get("tool_name") not in tool_names
+                }
+                if unknown_tools:
+                    raise ProviderError(
+                        "unexpected tool call: " + ", ".join(sorted(unknown_tools))
+                    )
                 tool_receipts = [
                     receipt
                     for receipt in all_receipts
                     if receipt.get("tool_name") in tool_names
                 ]
+                if any(receipt.get("status") != "succeeded" for receipt in tool_receipts):
+                    raise ProviderError("agent tool call did not succeed")
                 if tool_latency_by_input is not None:
                     for receipt in tool_receipts:
                         input_hash = receipt.get("input_hash")
@@ -709,18 +783,17 @@ class OpenRouterProvider:
                 raise ValueError("discovery tool-input budget exceeded")
 
         async def run_search(query: str) -> str:
-            reserve_tool_call(len(query))
-            if query not in queries:
-                raise ValueError("discovery query is outside the configured lane scope")
-            if query in search_calls:
-                tool_latency_by_input.setdefault(self._tool_input_hash(query, ()), 0)
-                return json.dumps({"query": query, "reused": True})
-            if len(search_calls) >= len(queries):
-                raise ValueError("discovery search-call budget exceeded")
-            search_calls.add(query)
             input_hash = self._tool_input_hash(query, ())
             started = monotonic()
             try:
+                reserve_tool_call(len(query))
+                if query not in queries:
+                    raise ValueError("discovery query is outside the configured lane scope")
+                if query in search_calls:
+                    return json.dumps({"query": query, "reused": True})
+                if len(search_calls) >= len(queries):
+                    raise ValueError("discovery search-call budget exceeded")
+                search_calls.add(query)
                 found = await tavily.search(
                     query,
                     since=since,
@@ -731,7 +804,7 @@ class OpenRouterProvider:
                 )
                 valid_sources = [
                     self._validate_discovery_source(
-                        source,
+                        self._enrich_discovery_geographies(source, geographies),
                         geographies=geographies,
                         since=since,
                         until=until,
@@ -770,14 +843,14 @@ class OpenRouterProvider:
             )
 
         async def run_extract(urls: list[str]) -> str:
-            normalized = [normalize_url(url) for url in urls]
-            reserve_tool_call(sum(len(url) for url in normalized))
-            if any(url not in known_sources for url in normalized):
-                raise ValueError("extraction URL was not returned by Tavily Search")
-            requested_extraction_urls.update(normalized)
-            input_hash = self._tool_input_hash(None, normalized)
+            input_hash = self._tool_input_hash(None, urls)
             started = monotonic()
             try:
+                normalized = [normalize_url(url) for url in urls]
+                reserve_tool_call(sum(len(url) for url in normalized))
+                if any(url not in known_sources for url in normalized):
+                    raise ValueError("extraction URL was not returned by Tavily Search")
+                requested_extraction_urls.update(normalized)
                 extracted = await tavily.extract(
                     [known_sources[url] for url in normalized[:MAX_DISCOVERY_SOURCES]]
                 )
@@ -848,8 +921,16 @@ class OpenRouterProvider:
                 tool_latency_by_input=tool_latency_by_input,
             )
         except ProviderError as error:
+            if tool_calls > MAX_DISCOVERY_TOOL_CALLS:
+                raise discovery_error("discovery tool-call budget exceeded") from error
+            if tool_input_chars > MAX_DISCOVERY_INPUT_CHARS:
+                raise discovery_error("discovery tool-input budget exceeded") from error
             error.attempts = list(attempt_sink)
             raise
+        if tool_calls > MAX_DISCOVERY_TOOL_CALLS:
+            raise discovery_error("discovery tool-call budget exceeded")
+        if tool_input_chars > MAX_DISCOVERY_INPUT_CHARS:
+            raise discovery_error("discovery tool-input budget exceeded")
         if tool_errors:
             raise discovery_error("discovery tool execution failed")
         known_urls = set(known_sources)
