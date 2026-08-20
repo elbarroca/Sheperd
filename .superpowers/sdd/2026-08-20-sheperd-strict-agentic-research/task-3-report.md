@@ -104,6 +104,40 @@
 - Live `source-map --check --strict --json` verification remains outside this fix round; no Tavily production credential check was run.
 - Existing unrelated staged and untracked work remains in the checkout and was not touched.
 
+## Fix Round 4
+
+### Status
+
+- Promoted any normalized source collision involving a seed to `is_seed=true`, `source_kind=seed-only`, and `UNVERIFIED` evidence state in both the in-memory and Postgres repositories.
+- Preserved existing normal extracted-source behavior when no seed is involved; seed-only state cannot be demoted by a later normal source.
+
+### Files
+
+- `research-agents/src/sheperd_research/db.py`
+- `research-agents/tests/test_db.py`
+
+### Commits
+
+- `d479f76` `fix: merge seed provenance during source upsert`
+
+### Exact Tests
+
+- `uv run pytest tests/test_db.py::test_in_memory_source_upsert_promotes_existing_source_for_seed tests/test_db.py::test_in_memory_source_upsert_preserves_normal_source_without_seed tests/test_db.py::test_postgres_source_upsert_promotes_seed_metadata`
+  - `3 passed in 0.09s`
+- `uv run pytest tests/test_openrouter_agents.py tests/test_source_catalog.py tests/test_validators.py tests/test_validation.py tests/test_workflow.py tests/test_db.py tests/test_contracts.py`
+  - `79 passed in 0.55s`
+- `uv run ruff check src/sheperd_research/db.py tests/test_db.py`
+  - `All checks passed!`
+- `uv run mypy src/sheperd_research/db.py tests/test_db.py`
+  - `Success: no issues found in 2 source files`
+- `git diff --cached --check`
+  - passed before the code commit
+
+### Concerns
+
+- Live `source-map --check --strict --json` verification remains outside this fix round; no Tavily production credential check was run.
+- Existing unrelated staged and untracked work remains in the checkout and was not touched; website and recovery paths were not modified.
+
 ## Fix Round 3
 
 ### Status
