@@ -136,4 +136,30 @@ describe("ReportAccordion", () => {
     expect(markup).toContain("fmc enforcement");
     expect(markup).toContain("critic-v4");
   });
+
+  it("marks failed validation as non-decision-ready", () => {
+    const failedValidationReport: ReportPayload = {
+      ...report,
+      run: report.run ? { ...report.run, status: "succeeded", error: null } : null,
+      validation: report.validation ? { ...report.validation, status: "failed" } : null,
+    };
+
+    const markup = renderToStaticMarkup(<ReportAccordion report={failedValidationReport} />);
+
+    expect(markup).toContain("Run is blocked or failed.");
+    expect(markup).toContain("not decision-ready");
+  });
+
+  it("marks missing validation as non-decision-ready", () => {
+    const missingValidationReport: ReportPayload = {
+      ...report,
+      run: report.run ? { ...report.run, status: "succeeded", error: null } : null,
+      validation: null,
+    };
+
+    const markup = renderToStaticMarkup(<ReportAccordion report={missingValidationReport} />);
+
+    expect(markup).toContain("status-blocked");
+    expect(markup).toContain("Run is blocked or failed.");
+  });
 });

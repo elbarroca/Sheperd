@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
@@ -135,6 +136,62 @@ def test_in_memory_repository_exposes_structured_step_audit_and_source_hashes() 
     assert step["prompt_version"] == "critic-v4"
     assert step["total_tokens"] == 18
     assert repository.get_run_snapshot_hashes("audit-run")
+
+
+def test_repositories_redact_raw_step_metadata_before_persistence() -> None:
+    metadata = {
+        "source_count": 1,
+        "prompt": "PROMPT_SECRET",
+        "reasoning": "REASONING_SECRET",
+        "article_body": "BODY_SECRET",
+        "api_key": "KEY_SECRET",
+        "call": {
+            "requested_model": "google/gemma-4-26b-a4b-it:free",
+            "prompt_version": "critic-v4",
+            "input_tokens": 11,
+            "tool_call_receipts": [
+                {
+                    "tool_name": "tavily_search",
+                    "query": "QUERY_SECRET",
+                    "input_hash": "input-hash",
+                    "result_count": 2,
+                    "status": "succeeded",
+                }
+            ],
+            "prompt": "NESTED_PROMPT_SECRET",
+        },
+        "attempts": [{"reasoning": "NESTED_REASONING_SECRET"}],
+    }
+
+    repository = InMemoryRepository()
+    repository.record_step("run-1", "critic", "succeeded", metadata)
+
+    stored = json.dumps(repository.get_run_steps("run-1")[0]["metadata"])
+
+    assert '"source_count": 1' in stored
+    assert "critic-v4" in stored
+    assert "tavily_search" in stored
+    for secret in (
+        "PROMPT_SECRET",
+        "REASONING_SECRET",
+        "BODY_SECRET",
+        "KEY_SECRET",
+        "QUERY_SECRET",
+        "NESTED_PROMPT_SECRET",
+        "NESTED_REASONING_SECRET",
+    ):
+        assert secret not in stored
+
+    postgres = PostgresRepository(Mock())
+    with patch.object(postgres, "_execute", return_value=[]) as execute:
+        postgres.record_step("run-1", "critic", "succeeded", metadata)
+
+    persisted = json.loads(execute.call_args.args[1][3])
+    assert persisted["source_count"] == 1
+    assert persisted["call"]["prompt_version"] == "critic-v4"
+    assert "prompt" not in persisted
+    assert "reasoning" not in persisted
+    assert "api_key" not in persisted
 
 
 def test_postgres_repository_persists_sanitized_tool_arguments() -> None:

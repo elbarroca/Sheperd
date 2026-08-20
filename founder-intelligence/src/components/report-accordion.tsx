@@ -169,7 +169,11 @@ function AgentStepList({ steps }: { steps: AgentStep[] }) {
 export function ReportAccordion({ report }: { report: ReportPayload }) {
   const brief: WeeklyBrief = report.brief;
   const checks = report.validation?.checks ?? [];
-  const blocked = report.validation?.status === "blocked" || report.run?.status === "failed";
+  const validationStatus = report.validation?.status ?? "blocked";
+  const blocked =
+    report.run?.status === "failed" ||
+    validationStatus === "blocked" ||
+    validationStatus === "failed";
   const workflowStates = ["critic", "synthesis", "validation"].map((agentName) => ({
     agentName,
     step: report.steps.find((item) => item.agent_name === agentName),

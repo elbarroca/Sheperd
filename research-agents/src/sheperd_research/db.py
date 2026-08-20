@@ -5,6 +5,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol, cast
+from urllib.parse import parse_qsl, urlsplit
 
 from psycopg import Connection, OperationalError
 
@@ -24,6 +25,318 @@ from .contracts import (
 from .validators import content_hash, normalize_url
 
 MIGRATION_VERSION = "0008_audit_surfaces"
+_AUDIT_TEXT_LIMIT = 400
+_AUDIT_LIST_LIMIT = 100
+_AUDIT_SENSITIVE_MARKERS = (
+    "api_key",
+    "apikey",
+    "authorization",
+    "bearer ",
+    "password",
+    "private key",
+    "-----begin",
+    "prompt:",
+    "reasoning:",
+    "article_body",
+    "article body",
+    "raw_body",
+    "raw body",
+    "secret",
+)
+_AUDIT_SENSITIVE_QUERY_KEYS = frozenset(
+    {
+        "access_token",
+        "api_key",
+        "apikey",
+        "auth",
+        "authorization",
+        "key",
+        "password",
+        "secret",
+        "token",
+    }
+)
+_AUDIT_METADATA_TEXT_FIELDS = frozenset(
+    {
+        "brief_id",
+        "content_hash",
+        "error",
+        "fallback_reason",
+        "input_hash",
+        "lane",
+        "mode",
+        "operation",
+        "output_hash",
+        "provider_attempt",
+        "prompt_version",
+        "request_id",
+        "resolved_model",
+        "requested_model",
+        "source_url",
+        "status",
+    }
+)
+_AUDIT_METADATA_INT_FIELDS = frozenset(
+    {
+        "accepted_seed_count",
+        "attempt",
+        "claim_count",
+        "extracted_count",
+        "input_tokens",
+        "lane_count",
+        "latency_ms",
+        "llm_calls",
+        "llm_input_chars",
+        "missing_agent_extractions",
+        "model_index",
+        "output_tokens",
+        "provider_attempt",
+        "quarantined_seed_count",
+        "reasoning_tokens",
+        "record_attempt",
+        "search_calls",
+        "seed_only_count",
+        "source_count",
+        "tool_calls",
+        "tool_input_chars",
+        "total_tokens",
+    }
+)
+_AUDIT_METADATA_FLOAT_FIELDS = frozenset({"citation_coverage"})
+_AUDIT_METADATA_LIST_FIELDS = frozenset(
+    {
+        "errors",
+        "partial_reasons",
+        "quarantined_seed_domains",
+        "required_tools",
+        "source_hashes",
+        "tool_errors",
+    }
+)
+_AUDIT_CALL_TEXT_FIELDS = frozenset(
+    {
+        "capability_manifest_hash",
+        "error_code",
+        "error_type",
+        "fallback_reason",
+        "finish_reason",
+        "input_hash",
+        "operation",
+        "output_hash",
+        "prompt_version",
+        "request_id",
+        "resolved_model",
+        "requested_model",
+        "source_url",
+    }
+)
+_AUDIT_CALL_INT_FIELDS = frozenset(
+    {
+        "attempt",
+        "input_tokens",
+        "latency_ms",
+        "model_index",
+        "output_tokens",
+        "record_attempt",
+        "reasoning_tokens",
+        "tool_calls",
+        "total_tokens",
+    }
+)
+_AUDIT_CALL_LIST_FIELDS = frozenset({"required_tools"})
+_AUDIT_CALL_FIELDS = (
+    _AUDIT_CALL_TEXT_FIELDS
+    | _AUDIT_CALL_INT_FIELDS
+    | _AUDIT_CALL_LIST_FIELDS
+    | {"tool_call_receipts"}
+)
+_AUDIT_RECEIPT_TEXT_FIELDS = frozenset(
+    {"call_id", "error_code", "input_hash", "result_hash", "status", "tool_name"}
+)
+_AUDIT_RECEIPT_INT_FIELDS = frozenset(
+    {"call_index", "latency_ms", "result_count", "url_count"}
+)
+_AUDIT_RECEIPT_FIELDS = _AUDIT_RECEIPT_TEXT_FIELDS | _AUDIT_RECEIPT_INT_FIELDS
+
+
+def _safe_audit_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value[:_AUDIT_TEXT_LIMIT]
+    lowered = text.casefold()
+    if any(marker in lowered for marker in _AUDIT_SENSITIVE_MARKERS):
+        return "[redacted]"
+    return text
+
+
+def _safe_audit_url(value: object) -> str | None:
+    text = _safe_audit_text(value)
+    if text is None or not text.startswith(("http://", "https://")):
+        return None
+    try:
+        parsed = urlsplit(text)
+        query_keys = {
+            key.casefold() for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
+        }
+    except ValueError:
+        return None
+    if parsed.username or parsed.password or query_keys.intersection(_AUDIT_SENSITIVE_QUERY_KEYS):
+        return None
+    return text
+
+
+def _safe_audit_int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _safe_audit_float(value: object) -> float | None:
+    return value if isinstance(value, float) and not isinstance(value, bool) else None
+
+
+def _safe_audit_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [
+        safe
+        for item in value[:_AUDIT_LIST_LIMIT]
+        if (safe := _safe_audit_text(item)) is not None
+    ]
+
+
+def _safe_audit_int_mapping(value: object) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: safe
+        for key, item in list(value.items())[:_AUDIT_LIST_LIMIT]
+        if isinstance(key, str) and (safe := _safe_audit_int(item)) is not None
+    }
+
+
+def _safe_audit_status_mapping(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: safe
+        for key, item in list(value.items())[:_AUDIT_LIST_LIMIT]
+        if isinstance(key, str) and (safe := _safe_audit_text(item)) is not None
+    }
+
+
+def _redact_audit_receipts(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    receipts: list[dict[str, object]] = []
+    for item in value[:_AUDIT_LIST_LIMIT]:
+        if not isinstance(item, dict):
+            continue
+        receipt: dict[str, object] = {}
+        for key in _AUDIT_RECEIPT_FIELDS:
+            if key not in item:
+                continue
+            raw = item[key]
+            if raw is None:
+                receipt[key] = None
+            elif key in _AUDIT_RECEIPT_TEXT_FIELDS:
+                safe_text = _safe_audit_text(raw)
+                if safe_text is not None:
+                    receipt[key] = safe_text
+            else:
+                safe_int = _safe_audit_int(raw)
+                if safe_int is not None:
+                    receipt[key] = safe_int
+        receipts.append(receipt)
+    return receipts
+
+
+def _redact_audit_call(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    call: dict[str, object] = {}
+    for key in _AUDIT_CALL_FIELDS:
+        if key not in value:
+            continue
+        raw = value[key]
+        if raw is None:
+            call[key] = None
+        elif key == "tool_call_receipts":
+            call[key] = _redact_audit_receipts(raw)
+        elif key in _AUDIT_CALL_LIST_FIELDS:
+            call[key] = _safe_audit_string_list(raw)
+        elif key in _AUDIT_CALL_TEXT_FIELDS:
+            safe_text = _safe_audit_url(raw) if key == "source_url" else _safe_audit_text(raw)
+            if safe_text is not None:
+                call[key] = safe_text
+        else:
+            safe_int = _safe_audit_int(raw)
+            if safe_int is not None:
+                call[key] = safe_int
+    return call
+
+
+def _redact_audit_calls(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [
+        safe
+        for item in value[:_AUDIT_LIST_LIMIT]
+        if isinstance(item, dict) and (safe := _redact_audit_call(item))
+    ]
+
+
+def _redact_audit_metadata(metadata: dict[str, object]) -> dict[str, object]:
+    """Persist only structured audit fields; never store raw workflow payloads."""
+    safe_metadata: dict[str, object] = {}
+    for key in _AUDIT_METADATA_TEXT_FIELDS:
+        if key not in metadata:
+            continue
+        raw = metadata[key]
+        if raw is None:
+            safe_metadata[key] = None
+        else:
+            safe_text = _safe_audit_url(raw) if key == "source_url" else _safe_audit_text(raw)
+            if safe_text is not None:
+                safe_metadata[key] = safe_text
+    for key in _AUDIT_METADATA_INT_FIELDS:
+        if key not in metadata:
+            continue
+        raw = metadata[key]
+        if raw is None:
+            safe_metadata[key] = None
+        else:
+            safe_int = _safe_audit_int(raw)
+            if safe_int is not None:
+                safe_metadata[key] = safe_int
+    for key in _AUDIT_METADATA_FLOAT_FIELDS:
+        if key not in metadata:
+            continue
+        raw = metadata[key]
+        if raw is None:
+            safe_metadata[key] = None
+        else:
+            safe_float = _safe_audit_float(raw)
+            if safe_float is not None:
+                safe_metadata[key] = safe_float
+    for key in _AUDIT_METADATA_LIST_FIELDS:
+        if key in metadata:
+            safe_metadata[key] = _safe_audit_string_list(metadata[key])
+    if "quarantined_seed_reasons" in metadata:
+        safe_metadata["quarantined_seed_reasons"] = _safe_audit_int_mapping(
+            metadata["quarantined_seed_reasons"]
+        )
+    if "lane_statuses" in metadata:
+        safe_metadata["lane_statuses"] = _safe_audit_status_mapping(metadata["lane_statuses"])
+    for key in ("call", "agent_call"):
+        if key in metadata:
+            safe_metadata[key] = _redact_audit_call(metadata[key])
+    for key in ("attempts", "calls"):
+        if key in metadata:
+            safe_metadata[key] = _redact_audit_calls(metadata[key])
+    if "tool_call_receipts" in metadata:
+        safe_metadata["tool_call_receipts"] = _redact_audit_receipts(
+            metadata["tool_call_receipts"]
+        )
+    return safe_metadata
 
 
 def _sanitized_tool_args(receipt: dict[str, object]) -> dict[str, object]:
@@ -268,14 +581,15 @@ class InMemoryRepository:
             ),
             None,
         )
-        call_metadata = metadata.get("call")
+        safe_metadata = _redact_audit_metadata(metadata)
+        call_metadata = safe_metadata.get("call")
         if not isinstance(call_metadata, dict):
-            call_metadata = metadata
+            call_metadata = safe_metadata
         record: dict[str, object] = {
             "run_id": run_id,
             "agent_name": agent_name,
             "status": status,
-            "metadata": metadata,
+            "metadata": safe_metadata,
             "lane": lane,
             "attempt": attempt,
             "duration_ms": duration_ms,
@@ -864,9 +1178,10 @@ class PostgresRepository:
         output_hash: str | None = None,
         error_code: str | None = None,
     ) -> None:
-        call_metadata = metadata.get("call")
+        safe_metadata = _redact_audit_metadata(metadata)
+        call_metadata = safe_metadata.get("call")
         if not isinstance(call_metadata, dict):
-            call_metadata = metadata
+            call_metadata = safe_metadata
 
         def optional_int(name: str) -> int | None:
             value = call_metadata.get(name)
@@ -911,7 +1226,7 @@ class PostgresRepository:
                 run_id,
                 agent_name,
                 status,
-                json.dumps(metadata, default=str),
+                json.dumps(safe_metadata, default=str),
                 lane,
                 attempt,
                 duration_ms,
