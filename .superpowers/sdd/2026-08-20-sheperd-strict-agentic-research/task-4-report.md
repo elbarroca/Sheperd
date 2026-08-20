@@ -6,6 +6,8 @@ PASS. Task 4 is implemented on `feat/research-agents-neon`.
 
 The implementation persists and serves the existing structured audit contract: lane, agent, attempt, requested/resolved model, prompt version, sanitized tool arguments, hashes, latency, token counts, errors, source snapshot hashes, distillations, claims/citations, signals, critic/synthesis/validation state, Neon branch and migration metadata, and `as_of`. API projections exclude raw step metadata and legacy unsanitized tool fields from browser responses.
 
+Reviewer fix round 1 is complete: step metadata now passes through an explicit structured-audit allowlist/redaction boundary, including nested call and tool-receipt fields, and failed or missing validation renders as non-decision-ready.
+
 ## Changed files
 
 - `research-agents/migrations/0008_audit_surfaces.sql`
@@ -51,3 +53,30 @@ The frontend commands emitted the environment warning that the package requests 
 
 - The migration was not applied to a live Neon branch in this run; no Neon credential or connection was available or used.
 - The existing dirty migration/rename set remains staged or untracked by the user and was not included.
+
+## Task 4 fix round 1
+
+### Changed behavior
+
+- `record_step` now persists only allow-listed scalar audit fields and safe nested call/attempt/receipt fields. Raw prompts, bodies, reasoning, arbitrary metadata, and credential-bearing values are dropped or redacted before both in-memory and Postgres persistence.
+- Report validation with status `failed` or no validation record now shows the existing explicit blocked/failed alert and remains non-decision-ready.
+- Added focused regression coverage for both repository implementations and both UI states.
+
+### Exact verification commands and results
+
+- `uv run pytest tests/test_db.py::test_repositories_redact_raw_step_metadata_before_persistence tests/test_db.py::test_in_memory_repository_exposes_structured_step_audit_and_source_hashes tests/test_workflow.py::test_record_step_preserves_provider_attempt_and_input_correlation tests/test_workflow.py::test_workflow_persists_quarantined_seed_leads_without_processing_them` — **4 passed**.
+- `uv run pytest tests/test_db.py tests/test_web.py tests/test_workflow.py` — **27 passed**.
+- `uv run ruff check src tests` — **All checks passed**.
+- `uv run mypy src` — **Success: no issues found in 20 source files**.
+- `pnpm exec vitest run src/components/report-accordion.test.tsx` — **1 test file, 3 tests passed**.
+- `pnpm lint` — **passed**.
+- `pnpm typecheck` — **passed**.
+- `pnpm test` — **17 test files, 50 tests passed**.
+- `git diff --cached --check` — **passed with no output** before the fix commit.
+
+The frontend commands emitted the existing Node 24.x package-engine warning under Node 26.0.0; it did not affect results. No migration, website, recovery, Neon branch, or credential state was changed.
+
+### Fix-round commits
+
+- Implementation: `0f0fca5869ce06d10578f1c396b02f4d7cc5705c` (`fix: redact audit metadata and block invalid reports`)
+- Fix-round report: follow-up documentation commit containing this section.
