@@ -44,6 +44,10 @@ The workflow no longer performs a direct Tavily extraction fallback.
 - `research-agents/tests/test_openrouter_agents.py`
 - `research-agents/tests/test_workflow.py`
 
+### Commit
+
+- `d845164 fix: fail closed on invalid research evidence`
+
 ### Fixes
 
 - Validates returned Tavily host/domain, publisher, geography, and inclusive
