@@ -32,6 +32,7 @@ const report: ReportPayload = {
     migration_version: "0008_audit_surfaces",
   },
   validation: {
+    run_id: "blocked-run",
     status: "blocked",
     citation_coverage: 0,
     lane_coverage: ["regulatory"],

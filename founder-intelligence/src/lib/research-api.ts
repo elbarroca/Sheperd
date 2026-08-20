@@ -104,6 +104,7 @@ export interface ToolCallReceipt {
 }
 
 export interface ValidationReport {
+  run_id: string;
   status: string;
   citation_coverage: number;
   lane_coverage: string[];
@@ -306,7 +307,7 @@ function isValidationCheck(value: unknown): boolean {
 
 function isValidation(value: unknown): value is ValidationReport {
   return isRecord(value)
-    && hasStrings(value, ["status"])
+    && hasStrings(value, ["run_id", "status"])
     && isNumber(value.citation_coverage)
     && isStringArray(value.lane_coverage)
     && Array.isArray(value.checks)
@@ -428,6 +429,18 @@ function isReportPayload(value: unknown): value is ReportPayload {
     && hasStrings(value, ["as_of", "covered_from", "covered_until"]);
 }
 
+function hasConsistentReportIdentities(value: ReportPayload): boolean {
+  return value.run?.run_id === value.brief.run_id
+    && (value.validation === null || value.validation.run_id === value.brief.run_id);
+}
+
+function isReportForRun(value: unknown, runId: string): value is ReportPayload {
+  return isReportPayload(value)
+    && value.brief.run_id === runId
+    && value.run?.run_id === runId
+    && value.validation?.run_id === runId;
+}
+
 function isHealthPayload(value: unknown): value is ResearchHealth {
   return isRecord(value)
     && value.status === "pass"
@@ -440,7 +453,7 @@ function isWeeklyResponse(value: unknown): value is WeeklyResponse {
   return isRecord(value)
     && isNonNegativeInteger(value.count)
     && Array.isArray(value.reports)
-    && value.reports.every(isReportPayload);
+    && value.reports.every((report) => isReportPayload(report) && hasConsistentReportIdentities(report));
 }
 
 function isMonthlyRollup(value: unknown): value is MonthlyRollup {
@@ -492,7 +505,7 @@ export function getWeeklyReports(): Promise<ResearchResponse<WeeklyResponse>> {
 export function getWeeklyReport(runId: string): Promise<ResearchResponse<ReportPayload>> {
   return getJson(
     `/api/reports/weekly/${encodeURIComponent(runId)}`,
-    (value) => isReportPayload(value) ? value : null,
+    (value) => isReportForRun(value, runId) ? value : null,
   );
 }
 

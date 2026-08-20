@@ -95,6 +95,15 @@ _PUBLIC_TOOL_FIELDS = (
     "error_code",
     "created_at",
 )
+_PUBLIC_RUN_FIELDS = (
+    "run_id",
+    "topic_set",
+    "status",
+    "as_of",
+    "error",
+    "neon_branch_id",
+    "migration_version",
+)
 
 
 def _public_steps(steps: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -109,6 +118,24 @@ def _public_tool_calls(calls: list[dict[str, object]]) -> list[dict[str, object]
         {key: call.get(key) for key in _PUBLIC_TOOL_FIELDS if key in call}
         for call in calls
     ]
+
+
+def _public_run(run: dict[str, object] | None) -> dict[str, object] | None:
+    """Project a run for public responses without exposing its request payload."""
+    if run is None:
+        return None
+    public_run = {
+        key: run[key]
+        for key in _PUBLIC_RUN_FIELDS
+        if key in run and key != "topic_set"
+    }
+    topic_set = run.get("topic_set")
+    if not isinstance(topic_set, str):
+        request = run.get("request")
+        topic_set = getattr(request, "topic_set", None)
+    if isinstance(topic_set, str):
+        public_run["topic_set"] = topic_set
+    return public_run
 
 
 def create_app(repository: RepositoryProtocol) -> FastAPI:
@@ -144,9 +171,10 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         brief_model = selected_brief.model_id
         if brief_model and str(brief_model) not in resolved_models:
             resolved_models.append(str(brief_model))
+        public_run = _public_run(run)
         return {
             "brief": selected_brief,
-            "run": run,
+            "run": public_run,
             "validation": validation,
             "lane_coverage": validation.lane_coverage if validation else [],
             "models": resolved_models,
@@ -159,7 +187,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
             "distillations": distillations,
             "claims": claims,
             "signals": signals,
-            "as_of": run.get("as_of") if run else selected_brief.covered_until,
+            "as_of": public_run.get("as_of") if public_run else selected_brief.covered_until,
             "covered_from": selected_brief.covered_from,
             "covered_until": selected_brief.covered_until,
         }
@@ -522,7 +550,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         return JSONResponse(
             jsonable_encoder(
                 {
-                    "run": run,
+                    "run": _public_run(run),
                     "steps": _public_steps(repository.get_run_steps(run_id)),
                     "sources": repository.get_run_sources(run_id),
                     "claims": repository.get_run_claims(run_id),
@@ -552,7 +580,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
             jsonable_encoder(
                 {
                     "run_id": run_id,
-                    "run": run,
+                    "run": _public_run(run),
                     "validation": repository.get_validation(run_id),
                     "steps": steps,
                     "tool_calls": tool_calls,

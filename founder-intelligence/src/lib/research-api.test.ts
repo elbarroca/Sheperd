@@ -37,7 +37,7 @@ const validReport: ReportPayload = {
     neon_branch_id: null,
     migration_version: "0008_audit_surfaces",
   },
-  validation: { status: "pass", citation_coverage: 1, lane_coverage: [], checks: [] },
+  validation: { run_id: "run-1", status: "pass", citation_coverage: 1, lane_coverage: [], checks: [] },
   lane_coverage: [],
   models: ["model"],
   steps: [],
@@ -108,6 +108,28 @@ describe("research API runtime validation", () => {
     await expect(getWeeklyReports()).resolves.toMatchObject({ status: "ok" });
     await expect(getWeeklyReport("run-1")).resolves.toMatchObject({ status: "ok" });
     await expect(getMonthlyRollups()).resolves.toMatchObject({ status: "ok" });
+  });
+
+  it("rejects report details whose brief, run, or validation belongs to another run", async () => {
+    const mismatchedReports: ReportPayload[] = [
+      { ...validReport, brief: { ...validReport.brief, run_id: "run-2" } },
+      { ...validReport, run: validReport.run ? { ...validReport.run, run_id: "run-2" } : null },
+      {
+        ...validReport,
+        validation: validReport.validation
+          ? { ...validReport.validation, run_id: "run-2" }
+          : null,
+      },
+      { ...validReport, validation: null },
+    ];
+
+    for (const report of mismatchedReports) {
+      fetchMock.mockResolvedValueOnce(jsonResponse(report));
+      await expect(getWeeklyReport("run-1")).resolves.toEqual({
+        status: "unavailable",
+        error: "Research API returned malformed data",
+      });
+    }
   });
 
   it("returns unavailable for an unavailable HTTP response", async () => {
