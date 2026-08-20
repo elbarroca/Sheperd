@@ -570,34 +570,54 @@ def test_discovery_maps_live_tavily_fmc_result_to_catalog_geography() -> None:
 def test_discovery_maps_every_configured_query_family_from_domain_evidence() -> None:
     topics = load_topic_configs(Path(__file__).resolve().parents[1] / "config/topics.yml")
     queries = topics["dnd-port"].queries
-    cases = (
-        (0, "www.fmc.gov", "Regulatory"),
-        (1, "www.gcaptain.com", "West Coast"),
-        (1, "www.oaklandca.gov", "West Coast"),
-        (2, "www.gcaptain.com", "East Coast"),
-        (2, "www.panynj.gov", "East Coast"),
-        (2, "www.porthouston.com", "Gulf"),
-        (3, "www.gcaptain.com", "Mexico"),
-        (3, "www.puertomanzanillo.com.mx", "Mexico"),
-        (4, "www.gaports.com", "East Coast"),
+    domain_cases = (
+        ("fmc.gov", "Regulatory"),
+        ("ecfr.gov", "Regulatory"),
+        ("portoflosangeles.org", "West Coast"),
+        ("polb.com", "West Coast"),
+        ("oaklandca.gov", "West Coast"),
+        ("nwseaportalliance.com", "West Coast"),
+        ("gaports.com", "East Coast"),
+        ("scspa.com", "East Coast"),
+        ("panynj.gov", "East Coast"),
+        ("porthouston.com", "Gulf"),
+        ("puertomanzanillo.com.mx", "Mexico"),
     )
 
-    for query_index, host, expected_geography in cases:
-        source = TavilyProvider._source_from_result(
-            {
-                "url": f"https://{host}/example",
-                "published_date": "2026-08-10T00:00:00Z",
-            },
-            queries[query_index],
-        )
+    assert topics["dnd-port"].include_domains == [case[0] for case in domain_cases]
+    for host, expected_geography in domain_cases:
         enriched = OpenRouterProvider._enrich_discovery_geographies(
-            source,
+            SourceCandidate(url=f"https://www.{host}/example"),
             ("Regulatory", "United States", "West Coast", "East Coast", "Gulf", "Mexico"),
             queries,
             topics["dnd-port"].include_domains,
         )
 
         assert expected_geography in enriched.geographies
+
+    query_cases = (
+        (queries[0], {"Regulatory", "United States"}),
+        (queries[1], {"West Coast"}),
+        (queries[2], {"East Coast", "Gulf"}),
+        (queries[3], {"Mexico"}),
+    )
+    assert len(queries) == len(query_cases)
+    for query, expected_geographies in query_cases:
+        enriched = OpenRouterProvider._enrich_discovery_geographies(
+            SourceCandidate(url="https://news.example/article", topics=[query]),
+            ("Regulatory", "United States", "West Coast", "East Coast", "Gulf", "Mexico"),
+            queries,
+            ["news.example"],
+        )
+
+        assert set(enriched.geographies) == expected_geographies
+
+    assert not {
+        "apmterminals.com",
+        "maersk.com",
+        "hapag-lloyd.com",
+        "gcaptain.com",
+    }.intersection(topics["dnd-port"].include_domains)
 
 
 def test_tool_receipts_fail_closed_on_malformed_and_unpaired_messages() -> None:
@@ -642,6 +662,126 @@ def test_tool_receipts_fail_closed_on_malformed_and_unpaired_messages() -> None:
     assert next(receipt for receipt in receipts if receipt["call_id"] == "search-2")[
         "status"
     ] == "failed"
+
+
+@pytest.mark.parametrize("result", [None, {}, {"messages": "malformed"}])
+def test_tool_receipts_record_malformed_top_level_results(result: object) -> None:
+    receipts = OpenRouterProvider._tool_call_receipts(result)
+
+    assert len(receipts) == 1
+    assert receipts[0]["tool_name"] == "unknown"
+    assert receipts[0]["status"] == "failed"
+    assert "content" not in receipts[0]
+
+
+def test_invoke_agent_preserves_unknown_and_malformed_receipts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class InvalidReceiptAgent:
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            return {
+                "messages": [
+                    SimpleNamespace(
+                        tool_calls=[
+                            {"id": "unknown-1", "name": "unknown_tool", "args": {}},
+                            "malformed",
+                        ],
+                    ),
+                    ToolMessage(content='{"ok": true}', tool_call_id="unknown-1"),
+                    ToolMessage(content='{"ok": true}', tool_call_id="unpaired-1"),
+                ]
+            }
+
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+    monkeypatch.setattr(openrouter_module, "create_agent", lambda **_: InvalidReceiptAgent())
+
+    with pytest.raises(ProviderError, match="OpenRouter health failed"):
+        asyncio.run(
+            provider._invoke_structured(
+                openrouter_module.HealthOutput,
+                "health",
+                prompt_version="health-v1",
+                operation="health",
+            )
+        )
+
+    metadata = provider.call_history[-1]
+    receipts = metadata["tool_call_receipts"]
+    assert metadata["tool_calls"] == 3
+    assert isinstance(receipts, list)
+    assert all(receipt["status"] == "failed" for receipt in receipts)
+
+
+def test_invoke_agent_records_malformed_top_level_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class MalformedResultAgent:
+        async def ainvoke(self, *_: object, **__: object) -> object:
+            return "malformed"
+
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+    monkeypatch.setattr(openrouter_module, "create_agent", lambda **_: MalformedResultAgent())
+
+    with pytest.raises(ProviderError, match="OpenRouter health failed"):
+        asyncio.run(
+            provider._invoke_structured(
+                openrouter_module.HealthOutput,
+                "health",
+                prompt_version="health-v1",
+                operation="health",
+            )
+        )
+
+    assert provider.call_history[-1]["tool_calls"] == 1
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "payload"),
+    [
+        ("tavily_search", {"query": "configured", "sources": [1]}),
+        (
+            "tavily_search",
+            {
+                "query": "configured",
+                "sources": [{"url": "https://www.fmc.gov/example"}],
+            },
+        ),
+        ("tavily_search", {"query": "configured", "sources": [], "extra": True}),
+        (
+            "tavily_extract",
+            {"extracted_urls": [1], "extracted_count": 1},
+        ),
+        (
+            "tavily_extract",
+            {"extracted_urls": ["https://www.fmc.gov/example"], "extracted_count": 0},
+        ),
+        (
+            "tavily_extract",
+            {"extracted_urls": [], "extracted_count": False},
+        ),
+        (
+            "tavily_extract",
+            {"extracted_urls": [], "extracted_count": 0, "extra": True},
+        ),
+    ],
+)
+def test_tool_receipts_reject_malformed_success_payloads(
+    tool_name: str,
+    payload: dict[str, object],
+) -> None:
+    result = {
+        "messages": [
+            AIMessage(
+                content="",
+                tool_calls=[{"id": "call-1", "name": tool_name, "args": {}}],
+            ),
+            ToolMessage(content=json.dumps(payload), tool_call_id="call-1"),
+        ]
+    }
+
+    assert OpenRouterProvider._tool_call_receipts(result)[0]["status"] == "failed"
 
 
 def test_discovery_rejects_a_failed_extra_tool_receipt(
@@ -836,7 +976,12 @@ def test_tool_receipts_parse_langchain_ai_messages() -> None:
                 ],
             ),
             ToolMessage(
-                content='{"sources": [{"url": "https://www.fmc.gov/example"}]}',
+                content=(
+                    '{"query": "fmc enforcement", "sources": [{'
+                    '"url": "https://www.fmc.gov/example", '
+                    '"title": "FMC example", "publisher": "fmc.gov", '
+                    '"published_at": "2026-08-10T00:00:00Z", "snippet": "Update"}]}'
+                ),
                 tool_call_id="search-1",
             ),
             ToolMessage(

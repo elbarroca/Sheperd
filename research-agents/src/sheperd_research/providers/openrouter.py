@@ -66,7 +66,7 @@ GEOGRAPHY_QUERY_CATALOG: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("u.s.", "united states"), ("United States",)),
     (("west coast", "los angeles", "long beach", "oakland", "seattle", "tacoma"), ("West Coast",)),
     (("east coast", "savannah", "charleston", "new york", "new jersey"), ("East Coast",)),
-    (("gulf",), ("Gulf",)),
+    (("gulf", "houston"), ("Gulf",)),
     (("mexico", "manzanillo", "veracruz", "altamira"), ("Mexico",)),
 )
 AGENT_NAMES = {
@@ -502,11 +502,21 @@ class OpenRouterProvider:
     def _tool_call_receipts(result: object) -> list[dict[str, object]]:
         """Return redacted tool-call receipts without storing tool output."""
 
+        malformed_result = [
+            {
+                "call_id": "malformed-result",
+                "call_index": 0,
+                "tool_name": "unknown",
+                "url_count": 0,
+                "status": "failed",
+                "input_hash": OpenRouterProvider._tool_input_hash(None, ()),
+            }
+        ]
         if not isinstance(result, dict):
-            return []
+            return malformed_result
         messages = result.get("messages")
         if not isinstance(messages, list):
-            return []
+            return malformed_result
 
         receipts: list[dict[str, object]] = []
         by_call_id: dict[str, dict[str, object]] = {}
@@ -638,17 +648,40 @@ class OpenRouterProvider:
                 receipt["status"] = "failed"
                 continue
             if receipt["tool_name"] == "tavily_search":
-                if isinstance(parsed.get("sources"), list):
-                    receipt["result_count"] = len(parsed["sources"])
-                elif parsed.get("reused") is True and isinstance(parsed.get("query"), str):
+                sources = parsed.get("sources")
+                source_fields = {"url", "title", "publisher", "published_at", "snippet"}
+                if (
+                    set(parsed) == {"query", "sources"}
+                    and isinstance(parsed.get("query"), str)
+                    and isinstance(sources, list)
+                    and all(
+                        isinstance(source, dict)
+                        and set(source) == source_fields
+                        and all(isinstance(source[field], str) for field in source_fields)
+                        for source in sources
+                    )
+                ):
+                    receipt["result_count"] = len(sources)
+                elif (
+                    set(parsed) == {"query", "reused"}
+                    and parsed.get("reused") is True
+                    and isinstance(parsed.get("query"), str)
+                ):
                     receipt["result_count"] = 0
                 else:
                     receipt["status"] = "failed"
             elif receipt["tool_name"] == "tavily_extract":
-                if isinstance(parsed.get("extracted_urls"), list) and isinstance(
-                    parsed.get("extracted_count"), int
+                extracted_urls = parsed.get("extracted_urls")
+                extracted_count = parsed.get("extracted_count")
+                if (
+                    set(parsed) == {"extracted_urls", "extracted_count"}
+                    and isinstance(extracted_urls, list)
+                    and all(isinstance(url, str) for url in extracted_urls)
+                    and isinstance(extracted_count, int)
+                    and not isinstance(extracted_count, bool)
+                    and extracted_count == len(extracted_urls)
                 ):
-                    receipt["result_count"] = len(parsed["extracted_urls"])
+                    receipt["result_count"] = extracted_count
                 else:
                     receipt["status"] = "failed"
             else:
@@ -710,22 +743,20 @@ class OpenRouterProvider:
                         "messages": [{"role": "user", "content": prompt}],
                     },
                 )
-                all_receipts = self._tool_call_receipts(result)
+                tool_receipts = self._tool_call_receipts(result)
                 tool_names = {tool.name for tool in tools}
+                for receipt in tool_receipts:
+                    if receipt.get("tool_name") not in tool_names:
+                        receipt["status"] = "failed"
                 unknown_tools = {
                     str(receipt.get("tool_name"))
-                    for receipt in all_receipts
+                    for receipt in tool_receipts
                     if receipt.get("tool_name") not in tool_names
                 }
                 if unknown_tools:
                     raise ProviderError(
                         "unexpected tool call: " + ", ".join(sorted(unknown_tools))
                     )
-                tool_receipts = [
-                    receipt
-                    for receipt in all_receipts
-                    if receipt.get("tool_name") in tool_names
-                ]
                 if any(receipt.get("status") != "succeeded" for receipt in tool_receipts):
                     raise ProviderError("agent tool call did not succeed")
                 if tool_latency_by_input is not None:
