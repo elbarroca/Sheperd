@@ -69,3 +69,37 @@
 ### Concerns
 
 - `source-map --check --strict --json` remains unit-stubbed in this fix round; no live Tavily credential check was run.
+
+## Fix Round 2
+
+### Status
+
+- Closed the three reviewer URL-policy bypasses without changing Gemma/no-fallback behavior, source scope, or redacted output.
+- `normalize_url` now sorts surviving query pairs, workflow lane validation rejects model-returned URLs failing the centralized policy before persistence, and domain matching canonicalizes terminal DNS dots.
+
+### Files
+
+- `research-agents/src/sheperd_research/validators.py`
+- `research-agents/src/sheperd_research/workflow.py`
+- `research-agents/tests/test_validators.py`
+- `research-agents/tests/test_workflow.py`
+
+### Commits
+
+- `ff46d52` `fix: close URL policy bypasses`
+
+### Exact Tests
+
+- `uv run pytest tests/test_openrouter_agents.py tests/test_source_catalog.py tests/test_validators.py tests/test_workflow.py`
+  - `67 passed in 0.67s`
+- `uv run ruff check src/sheperd_research/validators.py src/sheperd_research/workflow.py tests/test_validators.py tests/test_workflow.py`
+  - `All checks passed!`
+- `uv run mypy src/sheperd_research/validators.py src/sheperd_research/workflow.py src/sheperd_research/source_catalog.py tests/test_validators.py tests/test_workflow.py tests/test_source_catalog.py`
+  - `Success: no issues found in 6 source files`
+- `git diff --check`
+  - passed
+
+### Concerns
+
+- Live `source-map --check --strict --json` verification remains outside this fix round; no Tavily production credential check was run.
+- Existing unrelated staged and untracked work remains in the checkout and was not touched.
