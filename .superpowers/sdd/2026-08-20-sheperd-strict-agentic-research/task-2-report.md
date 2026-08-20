@@ -113,3 +113,40 @@ Failed, unknown, malformed, and unpaired tool receipts are terminal.
 
 - No live Tavily or OpenRouter request was made. New domains or query families
   without a catalog or returned geography deliberately fail scope validation.
+
+## Fix Round 3
+
+### Status
+
+Completed. Geography enrichment now uses only configured query and domain evidence
+plus the explicit port catalog. Receipt parsing rejects every malformed, unpaired,
+unsucceeded, or operation-invalid tool result.
+
+### Commit
+
+- `2ec0441 fix: harden research geography receipts`
+
+### Files
+
+- `research-agents/src/sheperd_research/providers/openrouter.py`
+- `research-agents/tests/test_openrouter_agents.py`
+
+### Fixes
+
+- Extends configured US-port domain and city-query evidence for Oakland, PANYNJ,
+  Georgia Ports, and all configured query families without assigning geography
+  outside the active lane scope.
+- Emits failed receipts for malformed calls, non-list call collections, unpaired
+  tool messages, missing statuses, invalid JSON, and payloads that do not match
+  Search or Extract success schemas.
+
+### Verification
+
+- `uv run pytest -q` — 70 passed.
+- `uv run ruff check src tests` — passed.
+- `uv run mypy src` — passed (19 source files).
+
+### Concerns
+
+- No live Tavily or OpenRouter request was made. Results without configured
+  domain/query evidence or returned geography remain fail-closed by design.
