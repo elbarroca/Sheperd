@@ -26,6 +26,17 @@ from .validators import content_hash, normalize_url
 MIGRATION_VERSION = "0007_redact_checkpoint_transients"
 
 
+def _seed_safe_source(source: SourceCandidate) -> SourceCandidate:
+    if not source.is_seed:
+        return source
+    return source.model_copy(
+        update={
+            "source_kind": "seed-only",
+            "evidence_status": EvidenceStatus.UNVERIFIED,
+        }
+    )
+
+
 class RepositoryProtocol(Protocol):
     def create_run(self, run_id: str, request: ResearchRunRequest) -> None: ...
 
@@ -248,7 +259,19 @@ class InMemoryRepository:
 
     def record_source(self, source: SourceCandidate) -> None:
         normalized = normalize_url(source.url)
-        self.sources.setdefault(normalized, source.model_copy(update={"url": normalized}))
+        stored = _seed_safe_source(source).model_copy(update={"url": normalized})
+        existing = self.sources.get(normalized)
+        if existing is None:
+            self.sources[normalized] = stored
+            return
+        if existing.is_seed or stored.is_seed:
+            self.sources[normalized] = existing.model_copy(
+                update={
+                    "is_seed": True,
+                    "source_kind": "seed-only",
+                    "evidence_status": EvidenceStatus.UNVERIFIED,
+                }
+            )
 
     def record_tool_calls(
         self,
@@ -818,7 +841,8 @@ class PostgresRepository:
         )
 
     def record_source(self, source: SourceCandidate) -> None:
-        normalized = normalize_url(source.url)
+        stored = _seed_safe_source(source)
+        normalized = normalize_url(stored.url)
         self._execute(
             """
             INSERT INTO sources (
@@ -838,7 +862,15 @@ class PostgresRepository:
                     WHEN sources.lane = 'unassigned' THEN EXCLUDED.lane
                     ELSE sources.lane
                 END,
-                is_seed = sources.is_seed OR EXCLUDED.is_seed
+                source_kind = CASE
+                    WHEN sources.is_seed OR EXCLUDED.is_seed THEN 'seed-only'
+                    ELSE sources.source_kind
+                END,
+                is_seed = sources.is_seed OR EXCLUDED.is_seed,
+                evidence_status = CASE
+                    WHEN sources.is_seed OR EXCLUDED.is_seed THEN 'unverified'
+                    ELSE sources.evidence_status
+                END
             """,
             (
                 normalized,
@@ -847,13 +879,13 @@ class PostgresRepository:
                 source.publisher,
                 source.published_at,
                 source.retrieved_at,
-                source.source_kind,
-                source.snippet,
-                source.topics,
-                source.geographies,
-                source.lane,
-                source.is_seed,
-                source.evidence_status,
+                stored.source_kind,
+                stored.snippet,
+                stored.topics,
+                stored.geographies,
+                stored.lane,
+                stored.is_seed,
+                stored.evidence_status,
             ),
         )
 
