@@ -597,7 +597,7 @@ class ResearchWorkflow:
         seeds = [
             SourceCandidate(
                 url=url,
-                source_kind="user-seed",
+                source_kind="seed-only",
                 is_seed=True,
                 topics=[request.topic_set],
                 lane=self._seed_lane(url),
@@ -658,12 +658,17 @@ class ResearchWorkflow:
     async def _extract(self, state: GraphState) -> dict[str, object]:
         started_at = monotonic()
         sources = state.get("sources", [])
+        extractable_sources = [source for source in sources if not source.is_seed]
         content = dict(state.get("content", {}))
-        missing = [source for source in sources if normalize_url(source.url) not in content]
+        missing = [
+            source
+            for source in extractable_sources
+            if normalize_url(source.url) not in content
+        ]
         try:
             missing_content = [
                 normalize_url(source.url)
-                for source in sources
+                for source in extractable_sources
                 if not content.get(normalize_url(source.url), "").strip()
             ]
             if missing_content:
@@ -671,7 +676,7 @@ class ResearchWorkflow:
                     "extraction missing content for: " + ", ".join(missing_content)
                 )
             source_hashes: list[str] = []
-            for source in sources:
+            for source in extractable_sources:
                 normalized_url = normalize_url(source.url)
                 body = content[normalized_url]
                 if body.strip():
@@ -684,9 +689,10 @@ class ResearchWorkflow:
                 {
                     "extracted_count": len(content),
                     "missing_agent_extractions": len(missing),
+                    "seed_only_count": len(sources) - len(extractable_sources),
                 },
                 started_at=started_at,
-                input_payload=[source.url for source in sources],
+                input_payload=[source.url for source in extractable_sources],
                 output_payload=source_hashes,
             )
             return {
@@ -702,10 +708,11 @@ class ResearchWorkflow:
                 {
                     "extracted_count": len(content),
                     "missing_agent_extractions": len(missing),
+                    "seed_only_count": len(sources) - len(extractable_sources),
                     "error": str(provider_error),
                 },
                 started_at=started_at,
-                input_payload=[source.url for source in sources],
+                input_payload=[source.url for source in extractable_sources],
                 output_payload=None,
                 error_code="provider",
             )
@@ -758,7 +765,8 @@ class ResearchWorkflow:
 
     async def _distill(self, state: GraphState) -> dict[str, object]:
         started_at = monotonic()
-        sources = state.get("sources", [])
+        all_sources = state.get("sources", [])
+        sources = [source for source in all_sources if not source.is_seed]
         content = dict(state.get("content", {}))
         missing_bodies = [
             normalize_url(source.url)

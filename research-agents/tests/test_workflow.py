@@ -12,6 +12,7 @@ from sheperd_research.contracts import (
     LaneDiscoveryResult,
     ResearchRunRequest,
     SourceCandidate,
+    TopicConfig,
     WeeklyBrief,
 )
 from sheperd_research.db import InMemoryRepository
@@ -24,9 +25,9 @@ class FakeTavily:
     async def search(self, query: str, **_: object) -> list[SourceCandidate]:
         return [
             SourceCandidate(
-                url=f"https://example.com/{query.replace(' ', '-')}",
+                url=f"https://www.fmc.gov/{query.replace(' ', '-')}",
                 title=f"{query} update",
-                publisher="example.com",
+                publisher="fmc.gov",
                 published_at=datetime(2026, 8, 18, tzinfo=UTC),
                 topics=["dnd"],
                 geographies=["West Coast"],
@@ -226,6 +227,48 @@ def test_workflow_records_a_cited_draft_and_is_idempotent() -> None:
     assert repository.briefs[first.run_id].signal_event_ids
     assert repository.briefs[first.run_id].review_state.value == "draft"
     assert first.distillation_count == first.source_count
+
+
+def test_workflow_retains_seed_only_sources_without_extracting_or_distilling_them() -> None:
+    seed_urls = [
+        "https://gcaptain.com/example?subscriber=true",
+        "https://www.linkedin.com/posts/example",
+    ]
+    topic = TopicConfig(
+        name="dnd-port",
+        description="Fixture topic",
+        queries=["regulatory", "west", "east gulf", "mexico"],
+        seed_urls=seed_urls,
+        geographies=["West Coast", "East Coast", "Gulf", "Mexico"],
+        include_domains=["fmc.gov"],
+        exclude_domains=["linkedin.com"],
+    )
+    repository = InMemoryRepository()
+    workflow = ResearchWorkflow(
+        repository,
+        FakeTavily(),
+        FakeLLM(),
+        topic_configs={"dnd-port": topic},
+    )
+
+    result = asyncio.run(
+        workflow.run(
+            ResearchRunRequest(
+                topic_set="dnd-port",
+                max_sources=10,
+                validation_profile="canary",
+            )
+        )
+    )
+
+    assert result.status == "succeeded"
+    assert result.source_count == 6
+    assert result.distillation_count == 4
+    for seed_url in seed_urls:
+        seed = repository.sources[seed_url]
+        assert seed.is_seed is True
+        assert seed.source_kind == "seed-only"
+        assert all(item.source_url != seed_url for item in repository.distillations.values())
 
 
 def test_llm_input_budget_matches_provider_source_truncation() -> None:

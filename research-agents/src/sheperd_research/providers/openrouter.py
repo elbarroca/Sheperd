@@ -376,26 +376,30 @@ class OpenRouterProvider:
             for geography in source.geographies
             if geography.casefold() in allowed
         }
+        domain_verified: set[str] = set()
         for domain, geographies in GEOGRAPHY_DOMAIN_CATALOG.items():
             if cls._matches_domain(host, (domain,)) and cls._matches_domain(
                 host, configured_domains
             ):
-                verified.update(
+                domain_verified.update(
                     geography.casefold()
                     for geography in geographies
                     if geography.casefold() in allowed
                 )
-        for query in source.topics:
-            if query not in configured_queries:
-                continue
-            lowered_query = query.casefold()
-            for markers, geographies in GEOGRAPHY_QUERY_CATALOG:
-                if any(marker in lowered_query for marker in markers):
-                    verified.update(
-                        geography.casefold()
-                        for geography in geographies
-                        if geography.casefold() in allowed
-                    )
+        if domain_verified:
+            verified = domain_verified
+        else:
+            for query in source.topics:
+                if query not in configured_queries:
+                    continue
+                lowered_query = query.casefold()
+                for markers, geographies in GEOGRAPHY_QUERY_CATALOG:
+                    if any(marker in lowered_query for marker in markers):
+                        verified.update(
+                            geography.casefold()
+                            for geography in geographies
+                            if geography.casefold() in allowed
+                        )
         return source.model_copy(
             update={"geographies": sorted(allowed[geography] for geography in verified)}
         )
@@ -685,6 +689,9 @@ class OpenRouterProvider:
                 else:
                     receipt["status"] = "failed"
             else:
+                receipt["status"] = "failed"
+        for receipt in receipts:
+            if receipt["status"] == "requested":
                 receipt["status"] = "failed"
         return receipts
 

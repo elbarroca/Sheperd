@@ -200,3 +200,54 @@ schemas. Geography configuration contains only scoped domains and query families
 
 - No live Tavily or OpenRouter request was made. Exact Gemma, no fallback, Search +
   Extract, redaction, budgets, and citation gates remain unchanged.
+
+## Fix Round 5 (Final)
+
+### Status
+
+Completed. Seed-only leads no longer enter extraction or distillation, discovery
+defaults remain allowlisted, authoritative domains prevent ambiguous geography
+union, and unmatched tool requests persist as failed receipts.
+
+### Files
+
+- `research-agents/src/sheperd_research/providers/openrouter.py`
+- `research-agents/src/sheperd_research/topics.py`
+- `research-agents/src/sheperd_research/workflow.py`
+- `research-agents/src/sheperd_research/db.py`
+- `research-agents/tests/test_openrouter_agents.py`
+- `research-agents/tests/test_validators.py`
+- `research-agents/tests/test_workflow.py`
+- `research-agents/pyproject.toml`
+- `research-agents/uv.lock`
+
+### Fixes
+
+- Retains configured gCaptain, LinkedIn, and other supplied leads as `seed-only`
+  source metadata while excluding every seed-only record from snapshot extraction
+  and source distillation. LinkedIn and paywall-marked URLs remain non-extractable.
+- Makes configured authoritative domain geography override ambiguous query evidence;
+  Port Houston now resolves to Gulf only, without an inferred East Coast label.
+- Gives missing topic configuration the exact configured discovery allowlist and
+  LinkedIn exclusion instead of unrestricted discovery.
+- Converts requested tool calls without a matched result to failed receipts before
+  attempt metadata can be persisted.
+- Tracks the service manifests and remaining import/test dependencies required for
+  Task 2 tests to collect from a clean scoped head.
+
+### Verification
+
+- Red/green regressions for all four behavior findings — 4 passed after failing for
+  the reported reasons.
+- `uv run pytest` — 84 passed.
+- `uv run ruff check src tests` — passed.
+- `uv run mypy src` — passed (19 source files).
+- `uv lock --check` — passed (67 packages resolved).
+- Temporary clean scoped-head run of Task 2 tests — 59 passed; `pyproject.toml`,
+  `uv.lock`, `db.py`, and `test_validators.py` were present and collection succeeded.
+
+### Concerns
+
+- No live Tavily or OpenRouter request was made. Exact Gemma, no fallback, strict
+  Search + Extract, operation-specific payload schemas, budgets, redaction, and
+  citation gates remain unchanged.

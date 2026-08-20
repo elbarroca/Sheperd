@@ -6,6 +6,20 @@ import yaml
 
 from .contracts import TopicConfig
 
+DND_PORT_INCLUDE_DOMAINS = [
+    "fmc.gov",
+    "ecfr.gov",
+    "portoflosangeles.org",
+    "polb.com",
+    "oaklandca.gov",
+    "nwseaportalliance.com",
+    "gaports.com",
+    "scspa.com",
+    "panynj.gov",
+    "porthouston.com",
+    "puertomanzanillo.com.mx",
+]
+
 
 def default_topic_configs() -> dict[str, TopicConfig]:
     return {
@@ -19,6 +33,8 @@ def default_topic_configs() -> dict[str, TopicConfig]:
                 "latest Mexico container port Manzanillo Veracruz trade shipping update",
             ],
             geographies=["West Coast", "East Coast", "Gulf", "Mexico"],
+            include_domains=DND_PORT_INCLUDE_DOMAINS,
+            exclude_domains=["linkedin.com"],
             lookback_days=14,
         )
     }

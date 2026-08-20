@@ -619,6 +619,25 @@ def test_discovery_maps_every_configured_query_family_from_domain_evidence() -> 
         "gcaptain.com",
     }.intersection(topics["dnd-port"].include_domains)
 
+    houston = OpenRouterProvider._enrich_discovery_geographies(
+        SourceCandidate(
+            url="https://www.porthouston.com/example",
+            topics=[queries[2]],
+        ),
+        ("East Coast", "Gulf"),
+        queries,
+        topics["dnd-port"].include_domains,
+    )
+    assert houston.geographies == ["Gulf"]
+
+
+def test_missing_topics_config_uses_the_configured_allowlist(tmp_path: Path) -> None:
+    configured = load_topic_configs(Path(__file__).resolve().parents[1] / "config/topics.yml")
+    fallback = load_topic_configs(tmp_path / "missing.yml")
+
+    assert fallback["dnd-port"].include_domains == configured["dnd-port"].include_domains
+    assert fallback["dnd-port"].exclude_domains == configured["dnd-port"].exclude_domains
+
 
 def test_tool_receipts_fail_closed_on_malformed_and_unpaired_messages() -> None:
     result = {
@@ -641,6 +660,11 @@ def test_tool_receipts_fail_closed_on_malformed_and_unpaired_messages() -> None:
                         "name": "tavily_search",
                         "args": {"query": "configured"},
                     },
+                    {
+                        "id": "search-4",
+                        "name": "tavily_search",
+                        "args": {"query": "configured"},
+                    },
                 ]
             ),
             SimpleNamespace(tool_calls="malformed"),
@@ -660,6 +684,9 @@ def test_tool_receipts_fail_closed_on_malformed_and_unpaired_messages() -> None:
     assert all(receipt["status"] == "failed" for receipt in receipts[1:])
     assert any(receipt["tool_name"] == "unknown" for receipt in receipts)
     assert next(receipt for receipt in receipts if receipt["call_id"] == "search-2")[
+        "status"
+    ] == "failed"
+    assert next(receipt for receipt in receipts if receipt["call_id"] == "search-4")[
         "status"
     ] == "failed"
 
