@@ -14,6 +14,7 @@ import httpx
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
@@ -46,9 +47,15 @@ MAX_DISCOVERY_INPUT_CHARS = 20_000
 MAX_DISCOVERY_RECURSION = 12
 GEOGRAPHY_DOMAIN_CATALOG: dict[str, tuple[str, ...]] = {
     "fmc.gov": ("Regulatory", "United States"),
+    "ecfr.gov": ("Regulatory", "United States"),
     "portoflosangeles.org": ("West Coast",),
     "polb.com": ("West Coast",),
+    "oaklandca.gov": ("West Coast",),
+    "nwseaportalliance.com": ("West Coast",),
     "portofnewyorkandnewjersey.com": ("East Coast",),
+    "panynj.gov": ("East Coast",),
+    "gaports.com": ("East Coast",),
+    "scspa.com": ("East Coast",),
     "portmiami.biz": ("East Coast",),
     "porthouston.com": ("Gulf",),
     "puertomanzanillo.com.mx": ("Mexico",),
@@ -57,8 +64,8 @@ GEOGRAPHY_DOMAIN_CATALOG: dict[str, tuple[str, ...]] = {
 GEOGRAPHY_QUERY_CATALOG: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("fmc",), ("Regulatory", "United States")),
     (("u.s.", "united states"), ("United States",)),
-    (("west coast",), ("West Coast",)),
-    (("east coast",), ("East Coast",)),
+    (("west coast", "los angeles", "long beach", "oakland", "seattle", "tacoma"), ("West Coast",)),
+    (("east coast", "savannah", "charleston", "new york", "new jersey"), ("East Coast",)),
     (("gulf",), ("Gulf",)),
     (("mexico", "manzanillo", "veracruz", "altamira"), ("Mexico",)),
 )
@@ -359,6 +366,8 @@ class OpenRouterProvider:
         cls,
         source: SourceCandidate,
         allowed_geographies: tuple[str, ...],
+        configured_queries: Sequence[str],
+        configured_domains: Sequence[str],
     ) -> SourceCandidate:
         host = (urlsplit(normalize_url(source.url)).hostname or "").lower()
         allowed = {value.casefold(): value for value in allowed_geographies}
@@ -368,13 +377,17 @@ class OpenRouterProvider:
             if geography.casefold() in allowed
         }
         for domain, geographies in GEOGRAPHY_DOMAIN_CATALOG.items():
-            if cls._matches_domain(host, (domain,)):
+            if cls._matches_domain(host, (domain,)) and cls._matches_domain(
+                host, configured_domains
+            ):
                 verified.update(
                     geography.casefold()
                     for geography in geographies
                     if geography.casefold() in allowed
                 )
         for query in source.topics:
+            if query not in configured_queries:
+                continue
             lowered_query = query.casefold()
             for markers, geographies in GEOGRAPHY_QUERY_CATALOG:
                 if any(marker in lowered_query for marker in markers):
@@ -497,18 +510,60 @@ class OpenRouterProvider:
 
         receipts: list[dict[str, object]] = []
         by_call_id: dict[str, dict[str, object]] = {}
-        for message in messages:
-            raw_calls = getattr(message, "tool_calls", [])
-            if not isinstance(raw_calls, list):
+        for message_index, message in enumerate(messages):
+            raw_calls = getattr(message, "tool_calls", None)
+            if raw_calls is None:
                 continue
-            for raw_call in raw_calls:
+            if not isinstance(raw_calls, list):
+                receipts.append(
+                    {
+                        "call_id": f"malformed-{message_index}",
+                        "call_index": len(receipts),
+                        "tool_name": "unknown",
+                        "url_count": 0,
+                        "status": "failed",
+                        "input_hash": OpenRouterProvider._tool_input_hash(None, ()),
+                    }
+                )
+                continue
+            for call_index, raw_call in enumerate(raw_calls):
                 if not isinstance(raw_call, dict):
+                    receipts.append(
+                        {
+                            "call_id": f"malformed-{message_index}-{call_index}",
+                            "call_index": len(receipts),
+                            "tool_name": "unknown",
+                            "url_count": 0,
+                            "status": "failed",
+                            "input_hash": OpenRouterProvider._tool_input_hash(None, ()),
+                        }
+                    )
                     continue
-                call_id = str(raw_call.get("id") or f"call-{len(receipts) + 1}")
-                name = str(raw_call.get("name") or "unknown")
+                raw_call_id = raw_call.get("id")
+                name = raw_call.get("name")
                 arguments = raw_call.get("args")
-                if not isinstance(arguments, dict):
-                    arguments = {}
+                if (
+                    not isinstance(raw_call_id, str)
+                    or not raw_call_id
+                    or not isinstance(name, str)
+                    or not name
+                    or not isinstance(arguments, dict)
+                    or raw_call_id in by_call_id
+                ):
+                    receipts.append(
+                        {
+                            "call_id": raw_call_id
+                            if isinstance(raw_call_id, str) and raw_call_id
+                            else f"malformed-{message_index}-{call_index}",
+                            "call_index": len(receipts),
+                            "tool_name": name if isinstance(name, str) and name else "unknown",
+                            "url_count": 0,
+                            "status": "failed",
+                            "input_hash": OpenRouterProvider._tool_input_hash(None, ()),
+                        }
+                    )
+                    continue
+                call_id = raw_call_id
                 urls = arguments.get("urls")
                 normalized_urls: list[str] = []
                 if isinstance(urls, list):
@@ -539,6 +594,17 @@ class OpenRouterProvider:
         for message in messages:
             tool_message_call_id: object = getattr(message, "tool_call_id", None)
             if not isinstance(tool_message_call_id, str):
+                if isinstance(message, ToolMessage):
+                    receipts.append(
+                        {
+                            "call_id": f"unpaired-{len(receipts) + 1}",
+                            "call_index": len(receipts),
+                            "tool_name": "unknown",
+                            "url_count": 0,
+                            "status": "failed",
+                            "input_hash": OpenRouterProvider._tool_input_hash(None, ()),
+                        }
+                    )
                 continue
             if tool_message_call_id not in by_call_id:
                 receipts.append(
@@ -560,7 +626,7 @@ class OpenRouterProvider:
             receipt["result_hash"] = hashlib.sha256(content_text.encode()).hexdigest()
             receipt["status"] = (
                 "succeeded"
-                if getattr(message, "status", None) in {None, "success", "succeeded"}
+                if getattr(message, "status", None) in {"success", "succeeded"}
                 else "failed"
             )
             try:
@@ -568,13 +634,25 @@ class OpenRouterProvider:
             except (TypeError, json.JSONDecodeError):
                 parsed = None
                 receipt["status"] = "failed"
-            if isinstance(parsed, dict):
+            if not isinstance(parsed, dict):
+                receipt["status"] = "failed"
+                continue
+            if receipt["tool_name"] == "tavily_search":
                 if isinstance(parsed.get("sources"), list):
                     receipt["result_count"] = len(parsed["sources"])
-                elif isinstance(parsed.get("extracted_urls"), list):
-                    receipt["result_count"] = len(parsed["extracted_urls"])
-                elif parsed.get("error"):
+                elif parsed.get("reused") is True and isinstance(parsed.get("query"), str):
+                    receipt["result_count"] = 0
+                else:
                     receipt["status"] = "failed"
+            elif receipt["tool_name"] == "tavily_extract":
+                if isinstance(parsed.get("extracted_urls"), list) and isinstance(
+                    parsed.get("extracted_count"), int
+                ):
+                    receipt["result_count"] = len(parsed["extracted_urls"])
+                else:
+                    receipt["status"] = "failed"
+            else:
+                receipt["status"] = "failed"
         return receipts
 
     @staticmethod
@@ -804,7 +882,12 @@ class OpenRouterProvider:
                 )
                 valid_sources = [
                     self._validate_discovery_source(
-                        self._enrich_discovery_geographies(source, geographies),
+                        self._enrich_discovery_geographies(
+                            source,
+                            geographies,
+                            queries,
+                            include_domains,
+                        ),
                         geographies=geographies,
                         since=since,
                         until=until,

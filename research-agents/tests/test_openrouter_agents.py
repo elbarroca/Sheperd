@@ -5,6 +5,7 @@ import json
 import sys
 from contextvars import ContextVar
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -18,6 +19,7 @@ from sheperd_research.providers.errors import ProviderError
 from sheperd_research.providers.openrouter import OpenRouterProvider
 from sheperd_research.providers.tavily import TavilyProvider
 from sheperd_research.settings import STRICT_OPENROUTER_MODEL
+from sheperd_research.topics import load_topic_configs
 
 
 def _live_capability_report() -> CapabilityReport:
@@ -550,6 +552,8 @@ def test_discovery_maps_live_tavily_fmc_result_to_catalog_geography() -> None:
     enriched = OpenRouterProvider._enrich_discovery_geographies(
         source,
         ("Regulatory", "United States"),
+        ["latest U.S. demurrage detention FMC court carrier terminal update"],
+        ["fmc.gov"],
     )
     validated = OpenRouterProvider._validate_discovery_source(
         enriched,
@@ -561,6 +565,83 @@ def test_discovery_maps_live_tavily_fmc_result_to_catalog_geography() -> None:
     )
 
     assert validated.geographies == ["Regulatory", "United States"]
+
+
+def test_discovery_maps_every_configured_query_family_from_domain_evidence() -> None:
+    topics = load_topic_configs(Path(__file__).resolve().parents[1] / "config/topics.yml")
+    queries = topics["dnd-port"].queries
+    cases = (
+        (0, "www.fmc.gov", "Regulatory"),
+        (1, "www.gcaptain.com", "West Coast"),
+        (1, "www.oaklandca.gov", "West Coast"),
+        (2, "www.gcaptain.com", "East Coast"),
+        (2, "www.panynj.gov", "East Coast"),
+        (2, "www.porthouston.com", "Gulf"),
+        (3, "www.gcaptain.com", "Mexico"),
+        (3, "www.puertomanzanillo.com.mx", "Mexico"),
+        (4, "www.gaports.com", "East Coast"),
+    )
+
+    for query_index, host, expected_geography in cases:
+        source = TavilyProvider._source_from_result(
+            {
+                "url": f"https://{host}/example",
+                "published_date": "2026-08-10T00:00:00Z",
+            },
+            queries[query_index],
+        )
+        enriched = OpenRouterProvider._enrich_discovery_geographies(
+            source,
+            ("Regulatory", "United States", "West Coast", "East Coast", "Gulf", "Mexico"),
+            queries,
+            topics["dnd-port"].include_domains,
+        )
+
+        assert expected_geography in enriched.geographies
+
+
+def test_tool_receipts_fail_closed_on_malformed_and_unpaired_messages() -> None:
+    result = {
+        "messages": [
+            SimpleNamespace(
+                tool_calls=[
+                    {
+                        "id": "search-1",
+                        "name": "tavily_search",
+                        "args": {"query": "configured"},
+                    },
+                    "malformed",
+                    {
+                        "id": "search-2",
+                        "name": "tavily_search",
+                        "args": {"query": "configured"},
+                    },
+                    {
+                        "id": "search-3",
+                        "name": "tavily_search",
+                        "args": {"query": "configured"},
+                    },
+                ]
+            ),
+            SimpleNamespace(tool_calls="malformed"),
+            ToolMessage(content='{"sources": []}', tool_call_id="search-1"),
+            ToolMessage(content='{"unexpected": true}', tool_call_id="search-2"),
+            SimpleNamespace(
+                tool_call_id="search-3",
+                content='{"sources": []}',
+                status=None,
+            ),
+            ToolMessage(content='{"sources": []}', tool_call_id="unpaired"),
+        ]
+    }
+
+    receipts = OpenRouterProvider._tool_call_receipts(result)
+
+    assert all(receipt["status"] == "failed" for receipt in receipts[1:])
+    assert any(receipt["tool_name"] == "unknown" for receipt in receipts)
+    assert next(receipt for receipt in receipts if receipt["call_id"] == "search-2")[
+        "status"
+    ] == "failed"
 
 
 def test_discovery_rejects_a_failed_extra_tool_receipt(
@@ -759,7 +840,10 @@ def test_tool_receipts_parse_langchain_ai_messages() -> None:
                 tool_call_id="search-1",
             ),
             ToolMessage(
-                content='{"extracted_urls": ["https://www.fmc.gov/example"]}',
+                content=(
+                    '{"extracted_urls": ["https://www.fmc.gov/example"], '
+                    '"extracted_count": 1}'
+                ),
                 tool_call_id="extract-1",
             ),
         ]
