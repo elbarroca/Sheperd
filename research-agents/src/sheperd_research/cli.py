@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
+import yaml
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     BaseCheckpointSaver,
@@ -17,6 +18,7 @@ from langgraph.checkpoint.base import (
     Checkpoint,
     CheckpointMetadata,
 )
+from pydantic import ValidationError
 
 from .contracts import (
     LaneDiscoveryResult,
@@ -624,19 +626,45 @@ def _validate_command(args: argparse.Namespace, settings: Settings) -> int:
 
 def _source_map_command(args: argparse.Namespace, settings: Settings) -> int:
     del args.json
+    if args.strict and not args.check:
+        _print_json(
+            {
+                "status": "blocked",
+                "error_code": "source_map_check_required",
+                "message": "source-map --strict requires --check",
+            }
+        )
+        return 2
     try:
         catalog = load_source_catalog(settings.resolved_source_catalog_path)
-    except (FileNotFoundError, ValueError) as error:
-        _print_json({"status": "blocked", "message": str(error)})
+    except FileNotFoundError:
+        _print_json(
+            {
+                "status": "blocked",
+                "error_code": "source_catalog_missing",
+                "message": "source catalog not found",
+            }
+        )
+        return 2
+    except (ValidationError, ValueError, yaml.YAMLError):
+        _print_json(
+            {
+                "status": "blocked",
+                "error_code": "source_catalog_invalid",
+                "message": "source catalog failed validation",
+            }
+        )
         return 2
 
     statuses: dict[str, str] = {}
+    validation_error_code: str | None = None
     validation_message: str | None = None
     if args.check:
         if settings.tavily_api_key is None:
             _print_json(
                 {
                     "status": "blocked",
+                    "error_code": "source_map_credentials_required",
                     "message": "Tavily credentials are required for source-map --check",
                 }
             )
@@ -652,20 +680,27 @@ def _source_map_command(args: argparse.Namespace, settings: Settings) -> int:
                 observation.source_id: observation.status
                 for observation in observations
             }
-        except ProviderError as error:
-            validation_message = str(error)
-            statuses = {
-                source.source_id: "failed"
-                for source in catalog.required_sources()
-            }
+        except ProviderError:
+            validation_error_code = "source_map_check_failed"
+            validation_message = "required-domain validation failed"
+        except ValueError:
+            validation_error_code = "source_map_check_incomplete"
+            validation_message = "required-domain validation missing observations"
 
+    required_ids = {source.source_id for source in catalog.required_sources()}
+    missing_observations = sorted(required_ids - set(statuses))
+    if args.check and missing_observations and validation_error_code is None:
+        validation_error_code = "source_map_check_incomplete"
+        validation_message = "required-domain validation missing observations"
     failing_required = sorted(
         source.source_id
         for source in catalog.required_sources()
-        if statuses.get(source.source_id) not in {None, "pass"}
+        if statuses.get(source.source_id) != "pass"
     )
     status = "pass"
-    if validation_message is not None or (args.check and failing_required):
+    if validation_message is not None or (
+        args.check and (missing_observations or failing_required)
+    ):
         status = "failed" if args.strict else "partial"
 
     _print_json(
@@ -677,6 +712,8 @@ def _source_map_command(args: argparse.Namespace, settings: Settings) -> int:
                 "required": len(catalog.required_sources()),
                 "coverage_weights": catalog.coverage_weights.as_dict(),
                 "required_failures": failing_required,
+                "missing_observations": missing_observations,
+                "validation_error_code": validation_error_code,
                 "validation_message": validation_message,
             },
             "sources": catalog.redacted_rows(statuses),

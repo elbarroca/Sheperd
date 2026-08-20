@@ -39,6 +39,7 @@ from .validators import (
     content_hash,
     deduplicate_sources,
     normalize_url,
+    url_policy_error,
     validate_claim_citations,
     validate_source_dates,
     with_draft_prefix,
@@ -594,16 +595,11 @@ class ResearchWorkflow:
         seed_urls = [*request.seed_urls]
         if request.include_topic_seeds:
             seed_urls = [*topic.seed_urls, *seed_urls]
-        seeds = [
-            SourceCandidate(
-                url=url,
-                source_kind="seed-only",
-                is_seed=True,
-                topics=[request.topic_set],
-                lane=self._seed_lane(url),
-            )
-            for url in seed_urls
-        ]
+        seeds, seed_metadata = self._safe_seed_sources(
+            seed_urls,
+            topic,
+            request.topic_set,
+        )
         ordered: list[SourceCandidate] = [*seeds]
         max_lane_sources = max((len(items) for items in lane_sources.values()), default=0)
         for index in range(max_lane_sources):
@@ -621,6 +617,7 @@ class ResearchWorkflow:
             {
                 "source_count": len(unique),
                 "lane_count": len(LANES),
+                **seed_metadata,
                 "errors": lane_errors,
             },
             started_at=started_at,
@@ -654,6 +651,41 @@ class ResearchWorkflow:
         if "gcaptain.com" in lowered or "port" in lowered:
             return "us-ports"
         return "unassigned"
+
+    @classmethod
+    def _safe_seed_sources(
+        cls,
+        seed_urls: list[str],
+        topic: TopicConfig,
+        topic_set: str,
+    ) -> tuple[list[SourceCandidate], dict[str, object]]:
+        accepted: list[SourceCandidate] = []
+        quarantined_reasons: dict[str, int] = {}
+        quarantined_domains: set[str] = set()
+        for seed_url in seed_urls:
+            normalized = normalize_url(seed_url)
+            reason = url_policy_error(normalized, excluded_domains=topic.exclude_domains)
+            host = (urlsplit(normalized).hostname or "").lower().removeprefix("www.")
+            if reason is not None:
+                quarantined_reasons[reason] = quarantined_reasons.get(reason, 0) + 1
+                if host:
+                    quarantined_domains.add(host)
+                continue
+            accepted.append(
+                SourceCandidate(
+                    url=normalized,
+                    source_kind="seed-only",
+                    is_seed=True,
+                    topics=[topic_set],
+                    lane=cls._seed_lane(normalized),
+                )
+            )
+        return accepted, {
+            "accepted_seed_count": len(accepted),
+            "quarantined_seed_count": len(seed_urls) - len(accepted),
+            "quarantined_seed_domains": sorted(quarantined_domains),
+            "quarantined_seed_reasons": quarantined_reasons,
+        }
 
     async def _extract(self, state: GraphState) -> dict[str, object]:
         started_at = monotonic()

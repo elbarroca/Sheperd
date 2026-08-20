@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 
 from .contracts import TopicConfig
-from .source_catalog import MANDATORY_EXCLUDED_DOMAINS
+from .validators import MANDATORY_EXCLUDED_DOMAINS
 
 DND_PORT_INCLUDE_DOMAINS = [
     "fmc.gov",
@@ -42,7 +42,9 @@ def default_topic_configs() -> dict[str, TopicConfig]:
 
 
 def _validate_topic_config(topic: TopicConfig) -> TopicConfig:
-    if topic.geographies and not topic.include_domains:
+    if not topic.geographies:
+        raise ValueError(f"topic {topic.name} must define non-empty geographies")
+    if not topic.include_domains:
         raise ValueError(
             f"topic {topic.name} must define a non-empty include_domains allowlist"
         )
@@ -52,7 +54,7 @@ def _validate_topic_config(topic: TopicConfig) -> TopicConfig:
     missing_exclusions = {
         domain for domain in MANDATORY_EXCLUDED_DOMAINS if domain not in observed_exclusions
     }
-    if topic.geographies and (not topic.exclude_domains or missing_exclusions):
+    if not topic.exclude_domains or missing_exclusions:
         raise ValueError(
             f"topic {topic.name} must define non-empty exclude_domains including "
             f"mandatory exclusions: {sorted(MANDATORY_EXCLUDED_DOMAINS)}"

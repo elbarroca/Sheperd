@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from typing import Any, cast
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 
 from sheperd_research.contracts import (
@@ -229,16 +231,19 @@ def test_workflow_records_a_cited_draft_and_is_idempotent() -> None:
     assert first.distillation_count == first.source_count
 
 
-def test_workflow_retains_seed_only_sources_without_extracting_or_distilling_them() -> None:
-    seed_urls = [
+def test_workflow_quarantines_unsafe_seeds_and_retains_safe_seed_only_sources() -> None:
+    topic_seed_urls = [
         "https://gcaptain.com/example?subscriber=true",
         "https://www.linkedin.com/posts/example",
+    ]
+    request_seed_urls = [
+        "https://www.fmc.gov/articles/example",
     ]
     topic = TopicConfig(
         name="dnd-port",
         description="Fixture topic",
         queries=["regulatory", "west", "east gulf", "mexico"],
-        seed_urls=seed_urls,
+        seed_urls=topic_seed_urls,
         geographies=["West Coast", "East Coast", "Gulf", "Mexico"],
         include_domains=["fmc.gov"],
         exclude_domains=["linkedin.com"],
@@ -256,19 +261,28 @@ def test_workflow_retains_seed_only_sources_without_extracting_or_distilling_the
             ResearchRunRequest(
                 topic_set="dnd-port",
                 max_sources=10,
+                seed_urls=request_seed_urls,
                 validation_profile="canary",
             )
         )
     )
 
     assert result.status == "succeeded"
-    assert result.source_count == 6
+    assert result.source_count == 5
     assert result.distillation_count == 4
-    for seed_url in seed_urls:
-        seed = repository.sources[seed_url]
-        assert seed.is_seed is True
-        assert seed.source_kind == "seed-only"
-        assert all(item.source_url != seed_url for item in repository.distillations.values())
+    safe_seed = repository.sources["https://www.fmc.gov/articles/example"]
+    assert safe_seed.is_seed is True
+    assert safe_seed.source_kind == "seed-only"
+    assert all(
+        item.source_url != "https://www.fmc.gov/articles/example"
+        for item in repository.distillations.values()
+    )
+    assert "https://gcaptain.com/example?subscriber=true" not in repository.sources
+    assert "https://www.linkedin.com/posts/example" not in repository.sources
+    discovery_step = next(step for step in repository.steps if step["agent_name"] == "discovery")
+    metadata = cast(dict[str, object], discovery_step["metadata"])
+    assert metadata["accepted_seed_count"] == 1
+    assert metadata["quarantined_seed_count"] == 2
 
 
 def test_llm_input_budget_matches_provider_source_truncation() -> None:
@@ -312,7 +326,7 @@ def test_checkpoint_pause_resume_uses_an_explicit_contract_allowlist() -> None:
         )
         repository.create_run("paused-run", request)
         graph = workflow._build_graph(checkpointer)
-        config = {"configurable": {"thread_id": "paused-run"}}
+        config: RunnableConfig = {"configurable": {"thread_id": "paused-run"}}
         initial = {
             "run_id": "paused-run",
             "request": request,
@@ -320,8 +334,14 @@ def test_checkpoint_pause_resume_uses_an_explicit_contract_allowlist() -> None:
             "partial_reasons": [],
         }
 
-        paused = await graph.ainvoke(initial, config, interrupt_after=["extract"])
-        resumed = await graph.ainvoke(None, config)
+        paused = cast(
+            dict[str, object],
+            await cast(Any, graph).ainvoke(initial, config=config, interrupt_after=["extract"]),
+        )
+        resumed = cast(
+            dict[str, object],
+            await cast(Any, graph).ainvoke(None, config=config),
+        )
 
         assert paused.get("content") is not None
         assert resumed.get("brief") is not None
@@ -463,11 +483,12 @@ def test_record_step_preserves_provider_attempt_and_input_correlation() -> None:
         },
     )
 
-    first, second = repository.steps
+    first = repository.steps[0]
+    second = repository.steps[1]
     assert first["attempt"] == 1
     assert second["attempt"] == 2
-    assert first["metadata"]["provider_attempt"] == 1
-    assert second["metadata"]["provider_attempt"] == 1
+    assert cast(dict[str, object], first["metadata"])["provider_attempt"] == 1
+    assert cast(dict[str, object], second["metadata"])["provider_attempt"] == 1
     assert first["input_hash"] == "input-a"
     assert second["input_hash"] == "input-b"
 

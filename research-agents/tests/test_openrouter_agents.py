@@ -675,6 +675,55 @@ def test_scoped_topics_fail_closed_without_mandatory_exclusions(tmp_path: Path) 
         load_topic_configs(topic_path)
 
 
+def test_runnable_topics_fail_closed_without_geographies_or_allowlist(tmp_path: Path) -> None:
+    topic_path = tmp_path / "topics.yml"
+    topic_path.write_text(
+        "\n".join(
+            [
+                "topics:",
+                "  dnd-port:",
+                "    description: scoped topic",
+                "    queries:",
+                "      - latest los angeles port update",
+                "    geographies: []",
+                "    include_domains: []",
+                "    exclude_domains:",
+                "      - linkedin.com",
+                "    lookback_days: 14",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="non-empty geographies"):
+        load_topic_configs(topic_path)
+
+
+def test_runnable_topics_fail_closed_without_allowlist(tmp_path: Path) -> None:
+    topic_path = tmp_path / "topics.yml"
+    topic_path.write_text(
+        "\n".join(
+            [
+                "topics:",
+                "  dnd-port:",
+                "    description: scoped topic",
+                "    queries:",
+                "      - latest los angeles port update",
+                "    geographies:",
+                "      - West Coast",
+                "    include_domains: []",
+                "    exclude_domains:",
+                "      - linkedin.com",
+                "    lookback_days: 14",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="include_domains allowlist"):
+        load_topic_configs(topic_path)
+
+
 def test_tool_receipts_fail_closed_on_malformed_and_unpaired_messages() -> None:
     result = {
         "messages": [

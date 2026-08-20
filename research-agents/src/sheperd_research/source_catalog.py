@@ -10,7 +10,14 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .contracts import SourceCandidate
-from .validators import can_extract_url, deduplicate_sources, normalize_url
+from .validators import (
+    MANDATORY_EXCLUDED_DOMAINS,
+    can_extract_url,
+    deduplicate_sources,
+    matches_domain,
+    normalize_url,
+    url_policy_error,
+)
 
 DEFAULT_SOURCE_CATALOG_PATH = Path(__file__).resolve().parents[2] / "config/source_catalog.yml"
 CATALOG_WEIGHT_TARGETS = {
@@ -63,7 +70,6 @@ SIGNAL_TYPES = frozenset(
 )
 ACCESS_TYPES = frozenset({"public-html", "public-dataset"})
 REFRESH_CADENCES = frozenset({"daily", "weekly", "monthly"})
-MANDATORY_EXCLUDED_DOMAINS = ("linkedin.com",)
 AUTHORITATIVE_SOURCE_TYPES = frozenset(
     {
         "regulator",
@@ -104,8 +110,19 @@ def _host(url: str) -> str:
 
 
 def _matches_domain(host: str, domain: str) -> bool:
-    canonical = domain.lower().removeprefix("www.")
-    return host == canonical or host.endswith(f".{canonical}")
+    return matches_domain(host, domain)
+
+
+def _validation_request_key(
+    query: str,
+    include_domains: list[str],
+    exclude_domains: list[str],
+) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+    return (
+        query.strip().casefold(),
+        tuple(sorted(_normalize_domain(domain) for domain in include_domains)),
+        tuple(sorted(_normalize_domain(domain) for domain in exclude_domains)),
+    )
 
 
 class CoverageWeights(BaseModel):
@@ -208,7 +225,7 @@ class CatalogSource(BaseModel):
     @classmethod
     def validate_url(cls, value: str) -> str:
         normalized = normalize_url(value)
-        if not can_extract_url(normalized):
+        if url_policy_error(normalized) is not None:
             raise ValueError("catalog URLs must exclude LinkedIn and paywall markers")
         return normalized
 
@@ -245,6 +262,7 @@ class SourceCatalog(BaseModel):
         source_ids: set[str] = set()
         domains: set[str] = set()
         enabled_regions = {source.region for source in self.sources if source.enabled}
+        required_domains: set[str] = set()
         for source in self.sources:
             if source.source_id in source_ids:
                 raise ValueError(f"duplicate source_id: {source.source_id}")
@@ -252,11 +270,15 @@ class SourceCatalog(BaseModel):
                 raise ValueError(f"duplicate domain: {source.domain}")
             source_ids.add(source.source_id)
             domains.add(source.domain)
+            if source.enabled and source.required:
+                required_domains.add(source.domain)
         missing_regions = set(CATALOG_WEIGHT_TARGETS) - enabled_regions
         if missing_regions:
             raise ValueError(
                 "catalog must include at least one enabled source for every coverage region"
             )
+        if not required_domains:
+            raise ValueError("catalog must define a non-empty required-domain set")
         return self
 
     def enabled_sources(self) -> list[CatalogSource]:
@@ -342,11 +364,19 @@ async def validate_required_sources(
     catalog: SourceCatalog,
     tavily: CatalogSearchProvider,
 ) -> list[CatalogValidationObservation]:
-    async def validate(source: CatalogSource) -> CatalogValidationObservation:
+    required_sources = catalog.required_sources()
+    if not required_sources:
+        raise ValueError("catalog must define a non-empty required-domain set")
+
+    async def validate(
+        key: tuple[str, tuple[str, ...], tuple[str, ...]],
+        sources: list[CatalogSource],
+    ) -> list[CatalogValidationObservation]:
+        query, include_domains, exclude_domains = key
         results = await tavily.search(
-            source.domain,
-            include_domains=[source.domain],
-            exclude_domains=list(MANDATORY_EXCLUDED_DOMAINS),
+            query,
+            include_domains=list(include_domains),
+            exclude_domains=list(exclude_domains),
             max_results=3,
         )
         deduped = deduplicate_sources(results)
@@ -355,15 +385,40 @@ async def validate_required_sources(
                 _host(candidate.url)
                 for candidate in deduped
                 if can_extract_url(candidate.url)
-                and _matches_domain(_host(candidate.url), source.domain)
+                and any(
+                    _matches_domain(_host(candidate.url), domain)
+                    for domain in include_domains
+                )
             }
         )
         status = "pass" if matched else "unknown"
-        return CatalogValidationObservation(
-            source_id=source.source_id,
-            status=status,
-            matched_domains=matched,
-        )
+        return [
+            CatalogValidationObservation(
+                source_id=source.source_id,
+                status=status,
+                matched_domains=matched,
+            )
+            for source in sources
+        ]
 
-    tasks = [validate(source) for source in catalog.required_sources()]
-    return await asyncio.gather(*tasks)
+    grouped_requests: dict[
+        tuple[str, tuple[str, ...], tuple[str, ...]],
+        list[CatalogSource],
+    ] = {}
+    for source in required_sources:
+        key = _validation_request_key(
+            source.domain,
+            [source.domain],
+            list(MANDATORY_EXCLUDED_DOMAINS),
+        )
+        grouped_requests.setdefault(key, []).append(source)
+
+    results = await asyncio.gather(
+        *(validate(key, sources) for key, sources in grouped_requests.items())
+    )
+    observations = [item for group in results for item in group]
+    required_ids = {source.source_id for source in required_sources}
+    observed_ids = {observation.source_id for observation in observations}
+    if observed_ids != required_ids:
+        raise ValueError("required-domain validation missing observations")
+    return observations

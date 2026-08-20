@@ -19,6 +19,8 @@ def test_can_extract_url_blocks_linkedin_and_paywall_markers() -> None:
     assert can_extract_url("https://www.linkedin.com/posts/example") is False
     assert can_extract_url("https://m.linkedin.com/posts/example") is False
     assert can_extract_url("https://example.com/article?subscriber=true") is False
+    assert can_extract_url("https://example.com/article?subscription=true") is False
+    assert can_extract_url("ftp://example.com/article") is False
 
 
 def test_normalize_url_removes_tracking_values_and_fragment() -> None:

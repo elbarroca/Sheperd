@@ -19,8 +19,16 @@ TRACKING_KEYS = {
     "utm_term",
 }
 REQUIRED_DRAFT_PREFIX = "DRAFT - HUMAN REVIEW REQUIRED"
-NON_SCRAPEABLE_HOSTS = {"linkedin.com", "www.linkedin.com"}
-PAYWALL_QUERY_KEYS = {"paywall", "premium", "subscriber"}
+MANDATORY_EXCLUDED_DOMAINS = ("linkedin.com",)
+PAYWALL_QUERY_MARKERS = {
+    "member-only",
+    "members-only",
+    "paywall",
+    "premium",
+    "subscriber",
+    "subscription",
+}
+ALLOWED_URL_SCHEMES = {"http", "https"}
 
 
 def normalize_url(url: str) -> str:
@@ -46,12 +54,42 @@ def content_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def can_extract_url(url: str) -> bool:
-    parsed = urlsplit(url)
+def matches_domain(host: str, domain: str) -> bool:
+    canonical = domain.lower().removeprefix("www.")
+    return host == canonical or host.endswith(f".{canonical}")
+
+
+def matches_any_domain(host: str, domains: tuple[str, ...] | list[str]) -> bool:
+    return any(matches_domain(host, domain) for domain in domains)
+
+
+def url_policy_error(
+    url: str,
+    *,
+    excluded_domains: tuple[str, ...] | list[str] = (),
+) -> str | None:
+    parsed = urlsplit(url.strip())
+    scheme = parsed.scheme.lower()
+    if scheme not in ALLOWED_URL_SCHEMES:
+        return "unsupported_scheme"
     hostname = (parsed.hostname or "").lower()
-    query_keys = {key.lower() for key, _ in parse_qsl(parsed.query, keep_blank_values=True)}
-    is_linkedin = hostname in NON_SCRAPEABLE_HOSTS or hostname.endswith(".linkedin.com")
-    return not is_linkedin and not query_keys.intersection(PAYWALL_QUERY_KEYS)
+    if not hostname:
+        return "missing_host"
+    if matches_any_domain(hostname, tuple(MANDATORY_EXCLUDED_DOMAINS) + tuple(excluded_domains)):
+        return "excluded_domain"
+    query_markers = {
+        item.strip().lower()
+        for pair in parse_qsl(parsed.query, keep_blank_values=True)
+        for item in pair
+        if item.strip()
+    }
+    if query_markers.intersection(PAYWALL_QUERY_MARKERS):
+        return "inaccessible_paywall"
+    return None
+
+
+def can_extract_url(url: str) -> bool:
+    return url_policy_error(url) is None
 
 
 def validate_source_dates(sources: list[SourceCandidate], as_of: datetime) -> None:
