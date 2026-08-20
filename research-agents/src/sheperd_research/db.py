@@ -490,6 +490,15 @@ class RepositoryProtocol(Protocol):
 
     def get_run_signal_events(self, run_id: str) -> list[SignalEvent]: ...
 
+    def get_trailing_evidence(
+        self,
+        *,
+        topic_set: str,
+        since: datetime,
+        until: datetime,
+        limit: int = 1000,
+    ) -> tuple[list[SourceCandidate], list[ArticleDistillation]]: ...
+
     def list_runs(
         self,
         *,
@@ -869,6 +878,52 @@ class InMemoryRepository:
     def get_run_signal_events(self, run_id: str) -> list[SignalEvent]:
         return [event for event in self.signal_events.values() if event.run_id == run_id]
 
+    def get_trailing_evidence(
+        self,
+        *,
+        topic_set: str,
+        since: datetime,
+        until: datetime,
+        limit: int = 1000,
+    ) -> tuple[list[SourceCandidate], list[ArticleDistillation]]:
+        candidates: dict[
+            str, tuple[SourceCandidate, ArticleDistillation, datetime]
+        ] = {}
+        for (run_id, normalized_url), item in self.distillations.items():
+            source = self.sources.get(normalized_url)
+            if source is None or source.is_seed:
+                continue
+            run = self.runs.get(run_id, {})
+            request = run.get("request")
+            if not (
+                topic_set in source.topics
+                or isinstance(request, ResearchRunRequest)
+                and request.topic_set == topic_set
+            ):
+                continue
+            run_as_of = run.get("as_of")
+            observed_at = source.published_at or (
+                run_as_of if isinstance(run_as_of, datetime) else source.retrieved_at
+            )
+            if not since <= observed_at <= until:
+                continue
+            claims = [
+                claim
+                for claim in self.get_run_claims(run_id)
+                if normalized_url
+                in {normalize_url(url) for url in claim.source_urls}
+            ]
+            retained = item.model_copy(update={"claims": claims or item.claims})
+            previous = candidates.get(normalized_url)
+            if previous is None or observed_at > previous[2]:
+                candidates[normalized_url] = (source, retained, observed_at)
+
+        ordered = sorted(
+            candidates.values(),
+            key=lambda item: (-item[2].timestamp(), normalize_url(item[0].url)),
+        )[: max(1, min(limit, 1000))]
+        return [item[0] for item in ordered], [item[1] for item in ordered]
+
     def list_runs(
         self,
         *,
@@ -972,7 +1027,9 @@ class InMemoryRepository:
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict[str, object]]:
-        buckets: dict[str, dict[str, object]] = {}
+        buckets: dict[
+            tuple[str, str, str, str, str, str, str], dict[str, set[str]]
+        ] = {}
         for event in self.signal_events.values():
             event_at = event.event_at or self.runs.get(event.run_id, {}).get("started_at")
             if not isinstance(event_at, datetime):
@@ -981,28 +1038,62 @@ class InMemoryRepository:
                 continue
             if until is not None and event_at > until:
                 continue
-            month = event_at.strftime("%Y-%m-01")
-            bucket = buckets.setdefault(
-                month,
-                {"month": month, "signals": 0, "runs": set(), "geographies": set()},
-            )
-            bucket["signals"] = cast(int, bucket["signals"]) + 1
-            cast_runs = bucket["runs"]
-            cast_geographies = bucket["geographies"]
-            if isinstance(cast_runs, set):
-                cast_runs.add(event.run_id)
-            if isinstance(cast_geographies, set):
-                cast_geographies.update(event.geographies)
+            source_matches: list[SourceCandidate | None] = [
+                self.sources[normalize_url(url)]
+                for url in event.source_urls
+                if normalize_url(url) in self.sources
+            ]
+            if not source_matches:
+                source_matches = [None]
+            groups: set[tuple[str, str, str, str, str, str]] = set()
+            for source in source_matches:
+                lane = source.lane if source is not None else "unknown"
+                authority = source.publisher if source is not None else "unknown"
+                geographies = (
+                    event.geographies
+                    or (source.geographies if source is not None else [])
+                    or ["unknown"]
+                )
+                for geography in geographies:
+                    groups.add(
+                        (
+                            event_at.strftime("%Y-%m-01"),
+                            event_at.strftime("%Y-%m-%d"),
+                            lane,
+                            geography,
+                            authority,
+                            event.event_type,
+                        )
+                    )
+            for month, date, lane, geography, authority, signal in groups:
+                key = (
+                    month,
+                    date,
+                    lane,
+                    geography,
+                    authority,
+                    signal,
+                    event.evidence_status.value,
+                )
+                bucket = buckets.setdefault(
+                    key,
+                    {"signals": set(), "runs": set()},
+                )
+                bucket["signals"].add(event.event_id)
+                bucket["runs"].add(event.run_id)
         values = [
             {
-                "month": month,
-                "signals": cast(int, bucket["signals"]),
-                "runs": len(bucket["runs"]) if isinstance(bucket["runs"], set) else 0,
-                "geographies": sorted(bucket["geographies"])
-                if isinstance(bucket["geographies"], set)
-                else [],
+                "month": key[0],
+                "date": key[1],
+                "lane": key[2],
+                "geography": key[3],
+                "authority": key[4],
+                "signal": key[5],
+                "evidence": key[6],
+                "signals": len(bucket["signals"]),
+                "runs": len(bucket["runs"]),
             }
-            for month, bucket in sorted(buckets.items(), reverse=True)
+            for key, bucket in sorted(buckets.items(), reverse=True)
         ]
         bounded_limit = max(1, min(limit, 1000))
         return values[max(0, offset) : max(0, offset) + bounded_limit]
@@ -1849,6 +1940,82 @@ class PostgresRepository:
             for row in rows
         ]
 
+    def get_trailing_evidence(
+        self,
+        *,
+        topic_set: str,
+        since: datetime,
+        until: datetime,
+        limit: int = 1000,
+    ) -> tuple[list[SourceCandidate], list[ArticleDistillation]]:
+        bounded_limit = max(1, min(limit, 1000))
+        rows = self._execute(
+            """
+            SELECT ad.run_id, s.url, s.title, s.publisher, s.published_at,
+                   s.retrieved_at, s.source_kind, s.snippet, s.topics, s.geographies,
+                   s.lane, s.is_seed, s.evidence_status, ad.summary, ad.key_points,
+                   ad.entities, ad.signals, ad.limitations, ad.model_id,
+                   ad.prompt_version, ad.evidence_status, ad.content_hash
+            FROM article_distillations ad
+            JOIN sources s ON s.normalized_url = ad.normalized_url
+            JOIN research_runs rr ON rr.run_id = ad.run_id
+            WHERE rr.topic_set = %s
+              AND NOT s.is_seed
+              AND coalesce(s.published_at, rr.as_of) >= %s
+              AND coalesce(s.published_at, rr.as_of) <= %s
+            ORDER BY coalesce(s.published_at, rr.as_of) DESC, ad.distillation_id
+            LIMIT %s
+            """,
+            (topic_set, since, until, bounded_limit),
+        )
+        claims_by_run_url: dict[tuple[str, str], list[ClaimDraft]] = defaultdict(list)
+        for run_id in {cast(str, row[0]) for row in rows}:
+            for claim in self.get_run_claims(run_id):
+                for url in claim.source_urls:
+                    claims_by_run_url[(run_id, normalize_url(url))].append(claim)
+
+        sources: list[SourceCandidate] = []
+        distillations: list[ArticleDistillation] = []
+        seen_urls: set[str] = set()
+        for row in rows:
+            normalized_url = normalize_url(cast(str, row[1]))
+            if normalized_url in seen_urls:
+                continue
+            seen_urls.add(normalized_url)
+            run_id = cast(str, row[0])
+            source = SourceCandidate(
+                url=normalized_url,
+                title=cast(str, row[2]),
+                publisher=cast(str, row[3]),
+                published_at=cast(datetime | None, row[4]),
+                retrieved_at=cast(datetime, row[5]),
+                source_kind=cast(str, row[6]),
+                snippet=cast(str, row[7]),
+                topics=cast(list[str], row[8] or []),
+                geographies=cast(list[str], row[9] or []),
+                lane=cast(str, row[10]),
+                is_seed=cast(bool, row[11]),
+                evidence_status=EvidenceStatus(cast(str, row[12])),
+            )
+            sources.append(source)
+            distillations.append(
+                ArticleDistillation(
+                    source_url=normalized_url,
+                    summary=cast(str, row[13]),
+                    key_points=cast(list[str], row[14] or []),
+                    entities=cast(list[str], row[15] or []),
+                    signals=cast(list[str], row[16] or []),
+                    claims=claims_by_run_url.get((run_id, normalized_url), []),
+                    limitations=cast(list[str], row[17] or []),
+                    published_at=cast(datetime | None, row[4]),
+                    model_id=cast(str, row[18]),
+                    prompt_version=cast(str, row[19]),
+                    evidence_status=EvidenceStatus(cast(str, row[20])),
+                    content_hash=cast(str | None, row[21]),
+                )
+            )
+        return sources, distillations
+
     def list_distillations(
         self,
         *,
@@ -2153,28 +2320,47 @@ class PostgresRepository:
         clauses = ["TRUE"]
         params: list[object] = []
         if since is not None:
-            clauses.append("coalesce(se.event_at, se.created_at) >= %s")
+            clauses.append("event_rows.event_date >= %s")
             params.append(since)
         if until is not None:
-            clauses.append("coalesce(se.event_at, se.created_at) <= %s")
+            clauses.append("event_rows.event_date <= %s")
             params.append(until)
         params.extend((max(1, min(limit, 1000)), max(0, offset)))
         rows = self._execute(
-            "SELECT date_trunc('month', coalesce(se.event_at, se.created_at))::date, "
-            "count(DISTINCT se.event_id), count(DISTINCT se.run_id), "
-            "array_agg(DISTINCT geography.value) FILTER (WHERE geography.value IS NOT NULL) "
+            "WITH event_rows AS ("
+            "SELECT se.event_id, se.run_id, se.event_type, se.evidence_status, "
+            "coalesce(se.event_at, se.created_at) AS event_date, "
+            "coalesce(nullif(s.lane, ''), 'unknown') AS lane, "
+            "coalesce(nullif(s.publisher, ''), 'unknown') AS authority, "
+            "CASE WHEN cardinality(se.geographies) > 0 THEN se.geographies "
+            "WHEN s.geographies IS NOT NULL THEN s.geographies "
+            "ELSE ARRAY['unknown']::text[] END AS geographies "
             "FROM signal_events se "
-            "LEFT JOIN LATERAL unnest(se.geographies) AS geography(value) ON TRUE "
+            "LEFT JOIN LATERAL jsonb_array_elements_text(se.source_urls) AS source_url(value) "
+            "ON TRUE "
+            "LEFT JOIN sources s ON s.normalized_url = source_url.value"
+            ") SELECT date_trunc('month', event_rows.event_date)::date, "
+            "event_rows.event_date::date, event_rows.lane, geography.value, "
+            "event_rows.authority, event_rows.event_type, event_rows.evidence_status, "
+            "count(DISTINCT event_rows.event_id), count(DISTINCT event_rows.run_id) "
+            "FROM event_rows "
+            "LEFT JOIN LATERAL unnest(event_rows.geographies) AS geography(value) ON TRUE "
             f"WHERE {' AND '.join(clauses)} "
-            "GROUP BY 1 ORDER BY 1 DESC LIMIT %s OFFSET %s",
+            "GROUP BY 1, 2, 3, 4, 5, 6, 7 "
+            "ORDER BY 2 DESC, 3, 4, 5, 6, 7 LIMIT %s OFFSET %s",
             tuple(params),
         )
         return [
             {
-                "month": row[0],
-                "signals": row[1],
-                "runs": row[2],
-                "geographies": row[3] or [],
+                "month": row[0].isoformat() if hasattr(row[0], "isoformat") else row[0],
+                "date": row[1].isoformat() if hasattr(row[1], "isoformat") else row[1],
+                "lane": row[2],
+                "geography": row[3] or "unknown",
+                "authority": row[4],
+                "signal": row[5],
+                "evidence": row[6],
+                "signals": row[7],
+                "runs": row[8],
             }
             for row in rows
         ]

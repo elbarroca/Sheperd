@@ -55,6 +55,11 @@ class ValidationStatus(StrEnum):
     FAILED = "failed"
 
 
+class ResearchCadence(StrEnum):
+    DAILY = "daily"
+    WEEKLY = "weekly"
+
+
 class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -185,6 +190,7 @@ class TopicConfig(ContractModel):
 
 class ResearchRunRequest(ContractModel):
     topic_set: str
+    cadence: ResearchCadence = ResearchCadence.WEEKLY
     as_of: datetime = Field(default_factory=utc_now)
     since: datetime | None = None
     max_sources: int = Field(default=25, ge=1, le=100)
@@ -228,6 +234,7 @@ class ResearchRunRequest(ContractModel):
 class RunResult(ContractModel):
     run_id: str
     status: RunStatus
+    cadence: ResearchCadence = ResearchCadence.WEEKLY
     source_count: int = 0
     distillation_count: int = 0
     claim_count: int = 0

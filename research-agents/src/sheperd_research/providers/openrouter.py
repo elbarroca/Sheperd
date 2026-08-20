@@ -1174,13 +1174,14 @@ class OpenRouterProvider:
         prompt_version: str = "weekly-brief-v4",
     ) -> WeeklyBrief:
         self._reset_task_call_state()
+        cadence_label = "daily" if prompt_version.startswith("daily-") else "weekly"
         evidence = "\n\n".join(
             f"URL: {item.source_url}\nSUMMARY: {item.summary}\nCLAIMS: "
             f"{[claim.claim for claim in item.claims]}"
             for item in distillations
         )
         prompt = (
-            "Create a concise weekly maritime intelligence brief using only the "
+            f"Create a concise {cadence_label} maritime intelligence brief using only the "
             "source-bound evidence below. Write an executive summary suitable for "
             "a dashboard: short bullets first, then material developments, risks, "
             "opportunities, uncertainty, and follow-up questions. Separate facts "

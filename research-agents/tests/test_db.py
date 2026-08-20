@@ -317,9 +317,14 @@ def test_repository_keeps_report_sections_and_monthly_rollups() -> None:
     assert brief.executive_bullets[0].text == "Signal"
     assert repository.monthly_rollup()[0] == {
         "month": "2026-08-01",
+        "date": "2026-08-19",
+        "lane": "mexico",
+        "geography": "Mexico",
+        "authority": "Unknown publisher",
+        "signal": "signal",
+        "evidence": "unverified",
         "signals": 1,
         "runs": 1,
-        "geographies": ["Mexico"],
     }
 
 

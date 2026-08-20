@@ -22,6 +22,7 @@ from pydantic import ValidationError
 
 from .contracts import (
     LaneDiscoveryResult,
+    ResearchCadence,
     ResearchRunRequest,
     ReviewState,
     RunResult,
@@ -163,6 +164,14 @@ def _print_json(value: object) -> None:
     print(json.dumps(value, default=str, sort_keys=True))
 
 
+def _blocked(args: argparse.Namespace, message: str) -> int:
+    if getattr(args, "json", False):
+        _print_json({"status": "blocked", "error": message})
+    else:
+        print(message if message.startswith("BLOCKED:") else f"BLOCKED: {message}")
+    return 2
+
+
 def _capability_report(
     settings: Settings,
     models: tuple[str, ...],
@@ -184,15 +193,15 @@ def _capability_report(
 
 
 def _run_command(args: argparse.Namespace, settings: Settings) -> int:
+    if not getattr(args, "strict", True):
+        return _blocked(args, "run requires --strict")
     if not settings.has_database_credentials:
-        print("BLOCKED: set pooled DATABASE_URL in the repository-root .env.local")
-        return 2
+        return _blocked(args, "set pooled DATABASE_URL in the repository-root .env.local")
     if not settings.has_live_provider_credentials:
-        print(
-            "BLOCKED: set replacement Tavily and OpenRouter keys "
-            "in the repository-root .env.local"
+        return _blocked(
+            args,
+            "set replacement Tavily and OpenRouter keys in the repository-root .env.local",
         )
-        return 2
     requested_model = args.model or settings.openrouter_model
     policy_error = strict_openrouter_policy_error(
         requested_model,
@@ -200,11 +209,11 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
         raw_fallback_config=settings.openrouter_fallback_models,
     )
     if policy_error is not None:
-        print(f"BLOCKED: {policy_error}")
-        return 2
+        return _blocked(args, policy_error)
     try:
         request = ResearchRunRequest(
             topic_set=args.topic_set,
+            cadence=ResearchCadence(getattr(args, "cadence", "weekly")),
             as_of=_parse_datetime(args.as_of) or datetime.now(UTC),
             since=_parse_datetime(args.since),
             max_sources=args.max_sources,
@@ -212,8 +221,7 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
             seed_urls=args.seed_url,
         )
     except ValueError as error:
-        print(f"BLOCKED: {error}")
-        return 2
+        return _blocked(args, str(error))
     try:
         capabilities = _capability_report(
             settings,
@@ -222,22 +230,18 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
             allow_cached=False,
         )
     except ProviderError as error:
-        print(f"BLOCKED: {error}")
-        return 2
+        return _blocked(args, str(error))
     if not capabilities.eligible_models:
-        print("BLOCKED: no free model supports discovery tools and structured output")
-        return 2
+        return _blocked(args, "no free model supports discovery tools and structured output")
     try:
         repository = _database(settings)
     except RuntimeError as error:
-        print(str(error))
-        return 2
+        return _blocked(args, str(error))
     try:
         tavily_key = settings.tavily_api_key
         openrouter_key = settings.openrouter_api_key
         if tavily_key is None or openrouter_key is None:
-            print("BLOCKED: provider credentials are incomplete")
-            return 2
+            return _blocked(args, "provider credentials are incomplete")
 
         async def execute() -> RunResult:
             async with _checkpoint_saver(settings.database_url or "") as checkpointer:
@@ -268,6 +272,35 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
         result = asyncio.run(execute())
         _print_json(result.model_dump(mode="json"))
         return 0 if result.validation_status is ValidationStatus.PASS else 2
+    finally:
+        repository.close()
+
+
+def _rollup_command(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        month = datetime.strptime(args.month, "%Y-%m").replace(tzinfo=UTC)
+        if month.strftime("%Y-%m") != args.month:
+            raise ValueError
+    except ValueError:
+        return _blocked(args, "--month must use YYYY-MM")
+    next_month = (
+        datetime(month.year + 1, 1, 1, tzinfo=UTC)
+        if month.month == 12
+        else datetime(month.year, month.month + 1, 1, tzinfo=UTC)
+    )
+    try:
+        repository = _database(settings)
+    except RuntimeError as error:
+        return _blocked(args, str(error))
+    try:
+        rollups = repository.monthly_rollup(
+            since=month,
+            until=next_month - timedelta(microseconds=1),
+        )
+        _print_json({"status": "pass", "month": args.month, "rollups": rollups})
+        return 0
+    except Exception as error:
+        return _blocked(args, f"monthly rollup failed: {error.__class__.__name__}")
     finally:
         repository.close()
 
@@ -794,6 +827,9 @@ def _parser() -> argparse.ArgumentParser:
 
     run = subparsers.add_parser("run")
     run.add_argument("--topic-set", default="dnd-port")
+    run.add_argument("--cadence", choices=["daily", "weekly"], default="weekly")
+    run.add_argument("--strict", action="store_true")
+    run.add_argument("--json", action="store_true")
     run.add_argument("--run-id")
     run.add_argument("--since")
     run.add_argument("--as-of")
@@ -821,6 +857,10 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser("dashboard")
     subparsers.add_parser("migrate")
 
+    rollup = subparsers.add_parser("rollup")
+    rollup.add_argument("--month", required=True)
+    rollup.add_argument("--json", action="store_true")
+
     validate = subparsers.add_parser("validate")
     validate.add_argument("--run-id", required=True)
 
@@ -843,6 +883,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     settings = Settings()
     if args.command == "run":
         return _run_command(args, settings)
+    if args.command == "rollup":
+        return _rollup_command(args, settings)
     if args.command == "e2e":
         return _e2e_command(args, settings)
     if args.command == "agent-check":

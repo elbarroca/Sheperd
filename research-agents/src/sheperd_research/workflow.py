@@ -20,6 +20,7 @@ from .contracts import (
     EvidenceStatus,
     LaneDiscoveryResult,
     ReportBullet,
+    ResearchCadence,
     ResearchRunRequest,
     ReviewState,
     RunResult,
@@ -53,6 +54,8 @@ DEFAULT_MAX_RUN_SECONDS = 900
 # Keep workflow accounting aligned with the provider's bounded source window.
 MAX_LLM_SOURCE_CHARS = 8_000
 PROMPT_VERSION = "workflow-v3"
+DAILY_BRIEF_PROMPT_VERSION = "daily-brief-v4"
+WEEKLY_BRIEF_PROMPT_VERSION = "weekly-brief-v4"
 CHECKPOINT_ALLOWED_MODULES = tuple(
     ("sheperd_research.contracts", name)
     for name in (
@@ -69,6 +72,7 @@ CHECKPOINT_ALLOWED_MODULES = tuple(
         "WeeklyBrief",
         "TopicConfig",
         "ResearchRunRequest",
+        "ResearchCadence",
         "RunResult",
         "ValidationCheck",
         "ValidationReport",
@@ -169,6 +173,8 @@ class GraphState(TypedDict, total=False):
     validation: ValidationReport
     lane_statuses: dict[str, str]
     partial_reasons: list[str]
+    retained_sources: list[SourceCandidate]
+    retained_distillations: list[ArticleDistillation]
 
 
 class ResearchWorkflow:
@@ -329,6 +335,59 @@ class ResearchWorkflow:
                 protected.append(claim)
         return protected
 
+    @staticmethod
+    def _merge_claims(claims: list[ClaimDraft]) -> list[ClaimDraft]:
+        unique: dict[tuple[str, tuple[str, ...]], ClaimDraft] = {}
+        for claim in claims:
+            key = (
+                claim.claim,
+                tuple(sorted(normalize_url(url) for url in claim.source_urls)),
+            )
+            unique.setdefault(key, claim)
+        return list(unique.values())
+
+    @staticmethod
+    def _merge_distillations(
+        fresh: list[ArticleDistillation], retained: list[ArticleDistillation]
+    ) -> list[ArticleDistillation]:
+        unique: dict[str, ArticleDistillation] = {}
+        for item in [*fresh, *retained]:
+            unique.setdefault(normalize_url(item.source_url), item)
+        return list(unique.values())
+
+    @staticmethod
+    def _merge_sources(
+        fresh: list[SourceCandidate], retained: list[SourceCandidate]
+    ) -> list[SourceCandidate]:
+        return deduplicate_sources([*fresh, *retained])
+
+    @staticmethod
+    def _run_since(request: ResearchRunRequest, topic: TopicConfig) -> datetime:
+        if request.since is not None:
+            return request.since
+        days = topic.lookback_days if request.cadence is ResearchCadence.DAILY else 7
+        return request.as_of - timedelta(days=days)
+
+    def _retained_evidence(
+        self,
+        request: ResearchRunRequest,
+    ) -> tuple[list[SourceCandidate], list[ArticleDistillation]]:
+        if request.cadence is not ResearchCadence.WEEKLY:
+            return [], []
+        method = getattr(self.repository, "get_trailing_evidence", None)
+        if not callable(method):
+            return [], []
+        sources, distillations = method(
+            topic_set=request.topic_set,
+            since=request.as_of - timedelta(days=7),
+            until=request.as_of,
+            limit=request.max_sources * 10,
+        )
+        return (
+            [source for source in sources if not source.is_seed],
+            [item for item in distillations if item.source_url],
+        )
+
     async def run(self, request: ResearchRunRequest, run_id: str | None = None) -> RunResult:
         run_id = run_id or str(uuid.uuid4())
         self._llm_calls = 0
@@ -338,6 +397,7 @@ class ResearchWorkflow:
             topic = self.topic_configs.get(request.topic_set)
             if topic is None:
                 raise ValueError(f"unknown topic set: {request.topic_set}")
+            retained_sources, retained_distillations = self._retained_evidence(request)
             graph = self._build_graph(self.checkpointer)
             final_state = await asyncio.wait_for(
                 graph.ainvoke(
@@ -346,6 +406,8 @@ class ResearchWorkflow:
                         "request": request,
                         "topic": topic,
                         "partial_reasons": [],
+                        "retained_sources": retained_sources,
+                        "retained_distillations": retained_distillations,
                     },
                     config={"configurable": {"thread_id": run_id}},
                 ),
@@ -371,9 +433,33 @@ class ResearchWorkflow:
             return RunResult(
                 run_id=run_id,
                 status=status,
-                source_count=len(source_quality_sources(final_state.get("sources", []))),
-                distillation_count=len(final_state.get("distillations", [])),
-                claim_count=len(final_state.get("claims", [])),
+                cadence=request.cadence,
+                source_count=len(
+                    source_quality_sources(
+                        self._merge_sources(
+                            final_state.get("sources", []),
+                            final_state.get("retained_sources", []),
+                        )
+                    )
+                ),
+                distillation_count=len(
+                    self._merge_distillations(
+                        final_state.get("distillations", []),
+                        final_state.get("retained_distillations", []),
+                    )
+                ),
+                claim_count=len(
+                    self._merge_claims(
+                        [
+                            *final_state.get("claims", []),
+                            *[
+                                claim
+                                for item in final_state.get("retained_distillations", [])
+                                for claim in item.claims
+                            ],
+                        ]
+                    )
+                ),
                 brief_id=brief.run_id if brief else None,
                 error=error,
                 citation_coverage=validation.citation_coverage if validation else 0.0,
@@ -387,19 +473,34 @@ class ResearchWorkflow:
             status_error = self._safe_update_run_status(run_id, RunStatus.FAILED, message)
             if status_error:
                 message = f"{message}; {status_error}"
-            return RunResult(run_id=run_id, status=RunStatus.FAILED, error=message)
+            return RunResult(
+                run_id=run_id,
+                status=RunStatus.FAILED,
+                cadence=request.cadence,
+                error=message,
+            )
         except ProviderError as error:
             message = str(error)
             status_error = self._safe_update_run_status(run_id, RunStatus.FAILED, message)
             if status_error:
                 message = f"{message}; {status_error}"
-            return RunResult(run_id=run_id, status=RunStatus.FAILED, error=message)
+            return RunResult(
+                run_id=run_id,
+                status=RunStatus.FAILED,
+                cadence=request.cadence,
+                error=message,
+            )
         except Exception as error:
             message = str(error) or error.__class__.__name__
             status_error = self._safe_update_run_status(run_id, RunStatus.FAILED, message)
             if status_error:
                 message = f"{message}; {status_error}"
-            return RunResult(run_id=run_id, status=RunStatus.FAILED, error=message)
+            return RunResult(
+                run_id=run_id,
+                status=RunStatus.FAILED,
+                cadence=request.cadence,
+                error=message,
+            )
 
     def _build_graph(
         self, checkpointer: BaseCheckpointSaver[str] | None = None
@@ -470,7 +571,7 @@ class ResearchWorkflow:
         dict[str, object],
     ]:
         started_at = monotonic()
-        since = request.since or request.as_of - timedelta(days=topic.lookback_days)
+        since = self._run_since(request, topic)
         sources: list[SourceCandidate] = []
         content: dict[str, str] = {}
         metadata: dict[str, object] = {}
@@ -902,8 +1003,19 @@ class ResearchWorkflow:
 
     async def _critic(self, state: GraphState) -> dict[str, object]:
         started_at = monotonic()
-        claims = list(state.get("claims", []))
-        source_urls = {url for claim in claims for url in claim.source_urls}
+        retained_claims = [
+            claim
+            for item in state.get("retained_distillations", [])
+            for claim in item.claims
+        ]
+        claims = self._merge_claims([*state.get("claims", []), *retained_claims])
+        source_urls = {
+            normalize_url(url)
+            for source in self._merge_sources(
+                state.get("sources", []), state.get("retained_sources", [])
+            )
+            for url in [source.url]
+        }
         revised = claims
         mode = "deterministic"
         critic_call: dict[str, object] = {}
@@ -937,7 +1049,9 @@ class ResearchWorkflow:
                     )
                 }
             )
-            for item in state.get("distillations", [])
+            for item in self._merge_distillations(
+                state.get("distillations", []), state.get("retained_distillations", [])
+            )
         ]
         self.repository.record_claims(state["run_id"], revised)
         self._record_step(
@@ -1003,12 +1117,35 @@ class ResearchWorkflow:
     async def _synthesize(self, state: GraphState) -> dict[str, object]:
         started_at = monotonic()
         request = state["request"]
-        distillations = state.get("distillations", [])
-        claims = state.get("claims", [])
-        source_urls = {source.url for source in state.get("sources", [])}
+        distillations = self._merge_distillations(
+            state.get("distillations", []), state.get("retained_distillations", [])
+        )
+        claims = self._merge_claims(
+            [
+                *state.get("claims", []),
+                *[
+                    claim
+                    for item in state.get("retained_distillations", [])
+                    for claim in item.claims
+                ],
+            ]
+        )
+        source_urls = {
+            normalize_url(source.url)
+            for source in self._merge_sources(
+                state.get("sources", []), state.get("retained_sources", [])
+            )
+        }
         validate_claim_citations(claims, source_urls, request.as_of)
-        known_urls = {url for claim in claims for url in claim.source_urls}
-        source_by_url = {normalize_url(source.url): source for source in state.get("sources", [])}
+        known_urls = {
+            normalize_url(url) for claim in claims for url in claim.source_urls
+        }
+        source_by_url = {
+            normalize_url(source.url): source
+            for source in self._merge_sources(
+                state.get("sources", []), state.get("retained_sources", [])
+            )
+        }
         events = [
             SignalEvent(
                 event_id=content_hash(
@@ -1036,19 +1173,24 @@ class ResearchWorkflow:
         brief: WeeklyBrief | None = None
         synthesis_call: dict[str, object] = {}
         synthesis_error: str | None = None
-        if not self._reserve_llm_call(sum(len(item.summary) for item in distillations)):
+        if not distillations or not claims:
+            synthesis_error = "synthesis: no retained or freshly extracted evidence"
+        elif not self._reserve_llm_call(sum(len(item.summary) for item in distillations)):
             synthesis_error = "synthesis: llm budget exceeded"
         else:
             try:
-                since = request.since or request.as_of - timedelta(
-                    days=state["topic"].lookback_days
+                since = self._run_since(request, state["topic"])
+                prompt_version = (
+                    DAILY_BRIEF_PROMPT_VERSION
+                    if request.cadence is ResearchCadence.DAILY
+                    else WEEKLY_BRIEF_PROMPT_VERSION
                 )
                 brief = await self.llm.synthesize(
                     state["run_id"],
                     distillations,
                     covered_from=since,
                     covered_until=request.as_of,
-                    prompt_version="weekly-brief-v4",
+                    prompt_version=prompt_version,
                 )
                 synthesis_call = self._llm_metadata()
                 brief = self._validate_report_bullets(brief, claims, {
@@ -1060,6 +1202,7 @@ class ResearchWorkflow:
                         "review_state": ReviewState.DRAFT,
                         "source_urls": sorted(known_urls),
                         "signal_event_ids": [event.event_id for event in events],
+                        "prompt_version": prompt_version,
                     }
                 )
                 self.repository.record_brief(brief)
@@ -1112,7 +1255,9 @@ class ResearchWorkflow:
         )
         report = build_validation_report(
             run_id=state["run_id"],
-            sources=state.get("sources", []),
+            sources=self._merge_sources(
+                state.get("sources", []), state.get("retained_sources", [])
+            ),
             claims=state.get("claims", []),
             as_of=request.as_of,
             model_id=model_id,
