@@ -438,81 +438,47 @@ class ResearchWorkflow:
         content: dict[str, str] = {}
         metadata: dict[str, object] = {}
         try:
-            if isinstance(self.llm, LaneResearchLike):
-                configured_queries = [
-                    topic.queries[index]
-                    for index in lane.query_indexes
-                    if index < len(topic.queries)
-                ]
-                result = await self.llm.discover_lane(
-                    lane.name,
-                    configured_queries,
-                    lane.geographies,
-                    since=since,
-                    until=request.as_of,
-                    include_domains=topic.include_domains,
-                    exclude_domains=topic.exclude_domains,
-                    max_results=max(1, request.max_sources // 5),
-                    tavily=self.tavily,
+            if not isinstance(self.llm, LaneResearchLike):
+                raise ProviderError("workflow requires model-issued lane discovery")
+            configured_queries = [
+                topic.queries[index]
+                for index in lane.query_indexes
+                if index < len(topic.queries)
+            ]
+            result = await self.llm.discover_lane(
+                lane.name,
+                configured_queries,
+                lane.geographies,
+                since=since,
+                until=request.as_of,
+                include_domains=topic.include_domains,
+                exclude_domains=topic.exclude_domains,
+                max_results=max(1, request.max_sources // 5),
+                tavily=self.tavily,
+            )
+            sources = [
+                source.model_copy(
+                    update={
+                        "topics": sorted(set(source.topics + [request.topic_set, lane.name])),
+                        "geographies": sorted(set(source.geographies).union(lane.geographies)),
+                        "lane": lane.name,
+                    }
                 )
-                sources = [
-                    source.model_copy(
-                        update={
-                            "topics": sorted(set(source.topics + [request.topic_set, lane.name])),
-                            "geographies": sorted(
-                                set(source.geographies).union(lane.geographies)
-                            ),
-                            "lane": lane.name,
-                        }
-                    )
-                    for source in result.sources
-                ]
-                content = dict(result.content)
-                metadata = {
-                    **dict(result.metadata),
-                    "packet": result.packet.model_dump(mode="json"),
-                }
-                if not sources:
-                    return (
-                        lane.name,
-                        sources,
-                        content,
-                        "discovery worker returned no sources",
-                        max(0, int((monotonic() - started_at) * 1000)),
-                        metadata,
-                    )
+                for source in result.sources
+            ]
+            content = dict(result.content)
+            metadata = {
+                **dict(result.metadata),
+                "packet": result.packet.model_dump(mode="json"),
+            }
+            if not sources:
                 return (
                     lane.name,
                     sources,
                     content,
-                    None,
+                    "discovery worker returned no sources",
                     max(0, int((monotonic() - started_at) * 1000)),
                     metadata,
-                )
-            for query_index in lane.query_indexes:
-                if query_index >= len(topic.queries):
-                    continue
-                found = await self.tavily.search(
-                    topic.queries[query_index],
-                    since=since,
-                    until=request.as_of,
-                    include_domains=topic.include_domains,
-                    exclude_domains=topic.exclude_domains,
-                    max_results=max(1, request.max_sources // 5),
-                )
-                sources.extend(
-                    source.model_copy(
-                        update={
-                            "topics": sorted(
-                                set(source.topics + [request.topic_set, lane.name])
-                            ),
-                            "geographies": sorted(
-                                set(source.geographies).union(lane.geographies)
-                            ),
-                            "lane": lane.name,
-                        }
-                    )
-                    for source in found
                 )
             return (
                 lane.name,

@@ -8,6 +8,7 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
+import sheperd_research.providers.openrouter as openrouter_module
 from sheperd_research.contracts import SourceCandidate
 from sheperd_research.providers.errors import ProviderError
 from sheperd_research.providers.openrouter import OpenRouterProvider
@@ -147,24 +148,6 @@ def test_openrouter_malformed_structured_output_is_explicit() -> None:
         )
 
 
-class CapturedStructuredOutput:
-    def __init__(self, result: dict[str, object]) -> None:
-        self.result = result
-        self.prompt = ""
-
-    async def ainvoke(self, prompt: str) -> dict[str, object]:
-        self.prompt = prompt
-        return self.result
-
-
-class CapturingModel:
-    def __init__(self, output: CapturedStructuredOutput) -> None:
-        self.output = output
-
-    def with_structured_output(self, _: type[BaseModel]) -> CapturedStructuredOutput:
-        return self.output
-
-
 class RawResponse:
     response_metadata = {
         "model_name": STRICT_OPENROUTER_MODEL,
@@ -173,35 +156,42 @@ class RawResponse:
     }
 
 
-class StrictStructuredOutput:
-    async def ainvoke(self, _: str) -> dict[str, object]:
-        return {
-            "raw": RawResponse(),
-            "parsed": {
+class CapturingAgent:
+    def __init__(self, result: dict[str, object]) -> None:
+        self.result = result
+        self.prompt = ""
+
+    async def ainvoke(self, payload: dict[str, object], **_: object) -> dict[str, object]:
+        messages = payload["messages"]
+        assert isinstance(messages, list)
+        message = messages[0]
+        assert isinstance(message, dict)
+        self.prompt = str(message["content"])
+        return self.result
+
+
+def test_openrouter_uses_create_agent_schema_and_records_resolved_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created: dict[str, object] = {}
+    agent = CapturingAgent(
+        {
+            "structured_response": {
                 "summary": "A source-bound summary.",
                 "key_points": ["A reported point."],
                 "claims": [],
                 "limitations": [],
             },
-            "parsing_error": None,
+            "messages": [RawResponse()],
         }
-
-
-class StrictCapturingModel:
-    def __init__(self) -> None:
-        self.kwargs: dict[str, object] = {}
-
-    def with_structured_output(
-        self, _: type[BaseModel], **kwargs: object
-    ) -> StrictStructuredOutput:
-        self.kwargs = kwargs
-        return StrictStructuredOutput()
-
-
-def test_openrouter_uses_strict_schema_and_records_resolved_model() -> None:
-    model = StrictCapturingModel()
+    )
     provider = _stub_provider()
-    provider._model = model
+    provider._model_for = lambda _: object()
+    monkeypatch.setattr(
+        openrouter_module,
+        "create_agent",
+        lambda **kwargs: created.update(kwargs) or agent,
+    )
 
     result = asyncio.run(
         provider.distill(
@@ -211,31 +201,34 @@ def test_openrouter_uses_strict_schema_and_records_resolved_model() -> None:
         )
     )
 
-    assert model.kwargs == {"method": "json_schema", "strict": True, "include_raw": True}
+    assert type(created["response_format"]).__name__ == "ToolStrategy"
+    assert created["name"] == "source_distillation_agent"
     assert result.model_id == STRICT_OPENROUTER_MODEL
     assert provider.last_call_metadata["request_id"] == "request-1"
     assert provider.last_call_metadata["total_tokens"] == 20
 
 
-def test_openrouter_distillation_prompt_is_source_bound() -> None:
+def test_openrouter_distillation_prompt_is_source_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     source = SourceCandidate(url="https://example.com/article", is_seed=True)
-    output = CapturedStructuredOutput(
+    agent = CapturingAgent(
         {
-            "raw": RawResponse(),
-            "parsed": {
+            "structured_response": {
                 "summary": "A source-bound summary.",
                 "key_points": ["A reported point."],
                 "claims": [{"claim": "A reported point.", "source_urls": [source.url]}],
                 "limitations": ["Public source only."],
             },
-            "parsing_error": None,
+            "messages": [RawResponse()],
         }
     )
     provider = _stub_provider()
-    provider._model = CapturingModel(output)
+    provider._model_for = lambda _: object()
+    monkeypatch.setattr(openrouter_module, "create_agent", lambda **_: agent)
 
     asyncio.run(provider.distill(source, "source body"))
 
-    assert "User-provided seed links remain unverified" in output.prompt
-    assert "source URL exactly as provided" in output.prompt
-    assert "Do not provide legal advice" in output.prompt
+    assert "User-provided seed links remain unverified" in agent.prompt
+    assert "source URL exactly as provided" in agent.prompt
+    assert "Do not provide legal advice" in agent.prompt

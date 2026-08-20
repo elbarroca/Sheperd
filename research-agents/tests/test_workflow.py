@@ -8,11 +8,15 @@ from langgraph.checkpoint.memory import InMemorySaver
 from sheperd_research.contracts import (
     ArticleDistillation,
     ClaimDraft,
+    LaneDiscoveryPacket,
+    LaneDiscoveryResult,
     ResearchRunRequest,
     SourceCandidate,
     WeeklyBrief,
 )
 from sheperd_research.db import InMemoryRepository
+from sheperd_research.providers.errors import ProviderError
+from sheperd_research.validators import can_extract_url
 from sheperd_research.workflow import ResearchWorkflow, checkpoint_serializer
 
 
@@ -34,6 +38,62 @@ class FakeTavily:
 
 
 class FakeLLM:
+    async def discover_lane(
+        self,
+        lane: str,
+        queries: list[str],
+        geographies: tuple[str, ...],
+        *,
+        since: datetime,
+        until: datetime,
+        include_domains: list[str],
+        exclude_domains: list[str],
+        max_results: int,
+        tavily: FakeTavily,
+    ) -> LaneDiscoveryResult:
+        del geographies, since, until, include_domains, exclude_domains
+        sources: list[SourceCandidate] = []
+        content: dict[str, str] = {}
+        for query in queries:
+            found = await tavily.search(query, max_results=max_results)
+            extractable = [source for source in found if can_extract_url(source.url)]
+            sources.extend(extractable)
+            content.update(await tavily.extract(extractable))
+        if not content:
+            raise ProviderError("discovery agent did not extract any source content")
+        return LaneDiscoveryResult(
+            packet=LaneDiscoveryPacket(
+                source_urls=[source.url for source in sources],
+                selected_queries=queries,
+                evidence_notes=["fixture"],
+            ),
+            sources=sources,
+            content=content,
+            metadata={
+                "agent_call": {"tool_calls": 2},
+                "attempts": [
+                    {
+                        "tool_call_receipts": [
+                            {
+                                "call_id": f"{lane}-search",
+                                "call_index": 0,
+                                "tool_name": "tavily_search",
+                                "status": "succeeded",
+                                "input_hash": f"{lane}-search",
+                            },
+                            {
+                                "call_id": f"{lane}-extract",
+                                "call_index": 1,
+                                "tool_name": "tavily_extract",
+                                "status": "succeeded",
+                                "input_hash": f"{lane}-extract",
+                            },
+                        ]
+                    }
+                ],
+            },
+        )
+
     async def distill(
         self,
         source: SourceCandidate,
@@ -123,6 +183,7 @@ def test_workflow_records_a_cited_draft_and_is_idempotent() -> None:
     assert len(repository.signal_events) == claim_count
     assert repository.briefs[first.run_id].signal_event_ids
     assert repository.briefs[first.run_id].review_state.value == "draft"
+    assert first.distillation_count == first.source_count
 
 
 def test_llm_input_budget_matches_provider_source_truncation() -> None:
@@ -221,7 +282,7 @@ def test_workflow_fails_closed_when_extraction_is_incomplete() -> None:
     )
 
     assert result.status == "failed"
-    assert result.error and "extraction" in result.error
+    assert result.error and "did not extract any source content" in result.error
 
 
 def test_workflow_fails_when_non_extractable_source_has_no_body() -> None:
@@ -240,7 +301,7 @@ def test_workflow_fails_when_non_extractable_source_has_no_body() -> None:
     )
 
     assert result.status == "failed"
-    assert result.error and "extraction missing content" in result.error
+    assert result.error and "did not extract any source content" in result.error
 
 
 def test_record_step_preserves_provider_attempt_and_input_correlation() -> None:
@@ -298,3 +359,58 @@ def test_workflow_fails_when_validation_does_not_pass() -> None:
     assert result.status == "failed"
     assert result.validation_status.value == "blocked"
     assert result.error and "validation" in result.error
+
+
+def test_discovery_schedules_all_three_lanes_concurrently() -> None:
+    class ConcurrentLLM(FakeLLM):
+        def __init__(self) -> None:
+            self.in_flight = 0
+            self.maximum_in_flight = 0
+
+        async def discover_lane(
+            self,
+            lane: str,
+            queries: list[str],
+            geographies: tuple[str, ...],
+            *,
+            since: datetime,
+            until: datetime,
+            include_domains: list[str],
+            exclude_domains: list[str],
+            max_results: int,
+            tavily: FakeTavily,
+        ) -> LaneDiscoveryResult:
+            self.in_flight += 1
+            self.maximum_in_flight = max(self.maximum_in_flight, self.in_flight)
+            try:
+                await asyncio.sleep(0.01)
+                return await super().discover_lane(
+                    lane,
+                    queries,
+                    geographies,
+                    since=since,
+                    until=until,
+                    include_domains=include_domains,
+                    exclude_domains=exclude_domains,
+                    max_results=max_results,
+                    tavily=tavily,
+                )
+            finally:
+                self.in_flight -= 1
+
+    repository = InMemoryRepository()
+    llm = ConcurrentLLM()
+    workflow = ResearchWorkflow(repository, FakeTavily(), llm)
+    request = ResearchRunRequest(topic_set="dnd-port", max_sources=3, validation_profile="canary")
+
+    asyncio.run(
+        workflow._discover_lanes(
+            {
+                "run_id": "run-1",
+                "request": request,
+                "topic": workflow.topic_configs[request.topic_set],
+            }
+        )
+    )
+
+    assert llm.maximum_in_flight == 3

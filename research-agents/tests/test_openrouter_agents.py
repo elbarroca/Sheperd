@@ -8,9 +8,11 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.tools import BaseTool
 
 import sheperd_research.providers.openrouter as openrouter_module
-from sheperd_research.contracts import SourceCandidate
+from sheperd_research.contracts import ArticleDistillation, ClaimDraft, SourceCandidate
 from sheperd_research.providers.capabilities import CapabilityReport, ModelCapability
 from sheperd_research.providers.errors import ProviderError
 from sheperd_research.providers.openrouter import OpenRouterProvider
@@ -40,7 +42,6 @@ def _live_capability_report() -> CapabilityReport:
 def _stub_provider() -> OpenRouterProvider:
     provider = object.__new__(OpenRouterProvider)
     provider.model_name = STRICT_OPENROUTER_MODEL
-    provider.model_chain = (STRICT_OPENROUTER_MODEL,)
     provider.call_history = []
     provider.last_call_metadata = {}
     provider.timeout_seconds = 60
@@ -435,3 +436,241 @@ def test_discovery_rejects_a_zero_tool_response(monkeypatch: pytest.MonkeyPatch)
             )
         )
     assert provider.call_history[-1]["error_code"] == "missing_tool_call"
+
+
+def test_discovery_rejects_a_model_invented_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    class InventedUrlAgent:
+        def __init__(self, tools: list[BaseTool]) -> None:
+            self.tools = {tool.name: tool for tool in tools}
+
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            search = await self.tools["tavily_search"].ainvoke({"query": "configured"})
+            urls = [item["url"] for item in json.loads(search)["sources"]]
+            extract = await self.tools["tavily_extract"].ainvoke({"urls": urls})
+            return {
+                "structured_response": {
+                    "source_urls": ["https://invented.example/article"],
+                    "selected_queries": ["configured"],
+                    "evidence_notes": ["fixture"],
+                },
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": "search-1",
+                                "name": "tavily_search",
+                                "args": {"query": "configured"},
+                            },
+                            {
+                                "id": "extract-1",
+                                "name": "tavily_extract",
+                                "args": {"urls": urls},
+                            },
+                        ],
+                    ),
+                    ToolMessage(content=search, tool_call_id="search-1"),
+                    ToolMessage(content=extract, tool_call_id="extract-1"),
+                    SimpleNamespace(
+                        response_metadata={"model_name": STRICT_OPENROUTER_MODEL},
+                        usage_metadata={},
+                        tool_calls=[],
+                    ),
+                ],
+            }
+
+    class TavilyStub:
+        async def search(self, _: str, **__: object) -> list[SourceCandidate]:
+            return [SourceCandidate(url="https://known.example/article")]
+
+        async def extract(self, sources: list[SourceCandidate]) -> dict[str, str]:
+            return {source.url: "fixture" for source in sources}
+
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+    monkeypatch.setattr(
+        openrouter_module,
+        "create_agent",
+        lambda *, tools, **_: InventedUrlAgent(tools),
+    )
+
+    with pytest.raises(ProviderError, match="introduced an unknown source URL"):
+        asyncio.run(
+            provider.discover_lane(
+                "regulatory",
+                ["configured"],
+                ("Regulatory",),
+                since=datetime(2026, 8, 1, tzinfo=UTC),
+                until=datetime(2026, 8, 20, tzinfo=UTC),
+                include_domains=[],
+                exclude_domains=[],
+                max_results=1,
+                tavily=TavilyStub(),
+            )
+        )
+
+
+def test_tool_receipts_parse_langchain_ai_messages() -> None:
+    result = {
+        "messages": [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "search-1",
+                        "name": "tavily_search",
+                        "args": {"query": "fmc enforcement"},
+                    },
+                    {
+                        "id": "extract-1",
+                        "name": "tavily_extract",
+                        "args": {"urls": ["https://www.fmc.gov/example"]},
+                    },
+                ],
+            ),
+            ToolMessage(
+                content='{"sources": [{"url": "https://www.fmc.gov/example"}]}',
+                tool_call_id="search-1",
+            ),
+            ToolMessage(
+                content='{"extracted_urls": ["https://www.fmc.gov/example"]}',
+                tool_call_id="extract-1",
+            ),
+        ]
+    }
+
+    receipts = OpenRouterProvider._tool_call_receipts(result)
+
+    assert [receipt["tool_name"] for receipt in receipts] == [
+        "tavily_search",
+        "tavily_extract",
+    ]
+    assert [receipt["status"] for receipt in receipts] == ["succeeded", "succeeded"]
+    assert receipts[1]["url_count"] == 1
+
+
+def test_create_agent_names_all_six_workers(monkeypatch: pytest.MonkeyPatch) -> None:
+    class TavilyStub:
+        async def search(self, query: str, **_: object) -> list[SourceCandidate]:
+            return [
+                SourceCandidate(
+                    url="https://www.fmc.gov/example-agent-source",
+                    title="FMC fixture",
+                    publisher="fmc.gov",
+                    published_at=datetime(2026, 8, 19, tzinfo=UTC),
+                    snippet=query,
+                )
+            ]
+
+        async def extract(self, sources: list[SourceCandidate]) -> dict[str, str]:
+            return {source.url: "Public evidence fixture." for source in sources}
+
+    names: list[str] = []
+
+    class Agent:
+        def __init__(self, name: str, tools: list[BaseTool]) -> None:
+            self.name = name
+            self.tools = {tool.name: tool for tool in tools}
+
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            response = SimpleNamespace(
+                response_metadata={
+                    "model_name": STRICT_OPENROUTER_MODEL,
+                    "token_usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                },
+                usage_metadata={},
+                tool_calls=[],
+            )
+            if self.tools:
+                search = await self.tools["tavily_search"].ainvoke({"query": "configured"})
+                urls = [item["url"] for item in json.loads(search)["sources"]]
+                extract = await self.tools["tavily_extract"].ainvoke({"urls": urls})
+                return {
+                    "structured_response": {
+                        "source_urls": urls,
+                        "selected_queries": ["configured"],
+                        "evidence_notes": ["fixture"],
+                    },
+                    "messages": [
+                        AIMessage(
+                            content="",
+                            tool_calls=[
+                                {
+                                    "id": "search-1",
+                                    "name": "tavily_search",
+                                    "args": {"query": "configured"},
+                                },
+                                {
+                                    "id": "extract-1",
+                                    "name": "tavily_extract",
+                                    "args": {"urls": urls},
+                                },
+                            ],
+                        ),
+                        ToolMessage(content=search, tool_call_id="search-1"),
+                        ToolMessage(content=extract, tool_call_id="extract-1"),
+                        response,
+                    ],
+                }
+            structured_response: dict[str, object]
+            if self.name == "source_distillation_agent":
+                structured_response = {
+                    "summary": "Source-bound summary.",
+                    "key_points": ["Reported point."],
+                    "claims": [],
+                    "limitations": [],
+                }
+            elif self.name == "critic_agent":
+                structured_response = {"claims": []}
+            else:
+                structured_response = {"title": "Weekly", "summary": "Cited draft."}
+            return {"structured_response": structured_response, "messages": [response]}
+
+    def create_named_agent(*, name: str, tools: list[BaseTool], **_: object) -> Agent:
+        names.append(name)
+        return Agent(name, tools)
+
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+    monkeypatch.setattr(openrouter_module, "create_agent", create_named_agent)
+    tavily = TavilyStub()
+    for lane in ("regulatory", "us-ports", "mexico"):
+        asyncio.run(
+            provider.discover_lane(
+                lane,
+                ["configured"],
+                (lane,),
+                since=datetime(2026, 8, 1, tzinfo=UTC),
+                until=datetime(2026, 8, 20, tzinfo=UTC),
+                include_domains=[],
+                exclude_domains=[],
+                max_results=1,
+                tavily=tavily,
+            )
+        )
+    source = SourceCandidate(url="https://www.fmc.gov/example-agent-source")
+    asyncio.run(provider.distill(source, "body"))
+    asyncio.run(provider.critic([], {source.url}))
+    asyncio.run(
+        provider.synthesize(
+            "run-1",
+            [
+                ArticleDistillation(
+                    source_url=source.url,
+                    summary="Source-bound summary.",
+                    claims=[ClaimDraft(claim="Reported point.", source_urls=[source.url])],
+                )
+            ],
+            covered_from=datetime(2026, 8, 13, tzinfo=UTC),
+            covered_until=datetime(2026, 8, 20, tzinfo=UTC),
+        )
+    )
+
+    assert names == [
+        "regulatory_research_agent",
+        "us_ports_research_agent",
+        "mexico_europe_research_agent",
+        "source_distillation_agent",
+        "critic_agent",
+        "weekly_synthesis_agent",
+    ]

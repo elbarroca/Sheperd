@@ -11,7 +11,7 @@ from typing import Protocol, TypeVar, cast
 
 import httpx
 from langchain.agents import create_agent
-from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
+from langchain.agents.structured_output import ToolStrategy
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
@@ -42,15 +42,14 @@ MAX_KEY_POINTS_PER_SOURCE = 8
 MAX_DISCOVERY_SOURCES = 8
 MAX_DISCOVERY_TOOL_CALLS = 6
 MAX_DISCOVERY_RECURSION = 12
-NATIVE_STRUCTURED_MODELS = frozenset(
-    {
-        "google/gemma-4-26b-a4b-it:free",
-        "dots-studio/dots-3-note-preview:free",
-        "openai/gpt-oss-20b:free",
-        "z-ai/glm-5.2:free",
-        "nvidia/nemotron-3-super-120b-a12b:free",
-    }
-)
+AGENT_NAMES = {
+    "discovery:regulatory": "regulatory_research_agent",
+    "discovery:us-ports": "us_ports_research_agent",
+    "discovery:mexico": "mexico_europe_research_agent",
+    "distillation": "source_distillation_agent",
+    "critic": "critic_agent",
+    "synthesis": "weekly_synthesis_agent",
+}
 OutputT = TypeVar("OutputT", bound=BaseModel)
 
 
@@ -160,8 +159,7 @@ class OpenRouterProvider:
             or capability_evidence.reason is not None
         ):
             raise ProviderError("configured strict model failed capability checks")
-        configured_chain = (model,)
-        if any(not is_free_model(candidate) for candidate in configured_chain):
+        if not is_free_model(model):
             raise ProviderError(f"OpenRouter model must be {STRICT_OPENROUTER_MODEL}")
         if max_output_tokens < 1:
             raise ValueError("OpenRouter output-token budget must be positive")
@@ -170,7 +168,6 @@ class OpenRouterProvider:
         if max_concurrent_requests < 1:
             raise ValueError("OpenRouter concurrency must be positive")
         self.model_name = model
-        self.model_chain = (STRICT_OPENROUTER_MODEL,)
         self.max_output_tokens = max_output_tokens
         self.capability_manifest_hash = capability_report.manifest_hash
         self.capability_report = capability_report
@@ -191,9 +188,11 @@ class OpenRouterProvider:
             f"openrouter_attempts_{id(self)}",
             default=(),
         )
-        self._model = self._model_for(self.model_chain[0])
+        self._model = self._model_for(self.model_name)
 
     def _model_for(self, model: str) -> BaseChatModel:
+        if model != STRICT_OPENROUTER_MODEL:
+            raise ProviderError(f"OpenRouter model must be {STRICT_OPENROUTER_MODEL}")
         cached = self._models.get(model)
         if cached is not None:
             return cached
@@ -475,86 +474,6 @@ class OpenRouterProvider:
                     receipt["status"] = "failed"
         return receipts
 
-    async def _invoke_legacy_structured(
-        self,
-        schema: type[OutputT],
-        prompt: str,
-        *,
-        prompt_version: str,
-        operation: str,
-    ) -> OutputT:
-        last_error: BaseException | None = None
-        for attempt in range(1, 3):
-            started_at = monotonic()
-            try:
-                try:
-                    runnable = self._model.with_structured_output(
-                        schema,
-                        method="json_schema",
-                        strict=True,
-                        include_raw=True,
-                    )
-                except TypeError as error:
-                    if "unexpected keyword" not in str(error).lower():
-                        raise
-                    runnable = self._model.with_structured_output(schema)
-                result = await runnable.ainvoke(prompt)
-                raw: object = result
-                parsed: object = result
-                if isinstance(result, dict) and "parsed" in result:
-                    raw = result.get("raw")
-                    parsed = result.get("parsed")
-                    if result.get("parsing_error") is not None or parsed is None:
-                        raise ValueError("malformed output")
-                output = schema.model_validate(parsed)
-                metadata = self._metadata_from_raw(raw)
-                resolved_model = self._require_strict_resolved_model(metadata)
-                metadata.update(
-                    {
-                        "requested_model": getattr(self, "model_name", STRICT_OPENROUTER_MODEL),
-                        "resolved_model": resolved_model,
-                        "prompt_version": prompt_version,
-                        "operation": operation,
-                        "attempt": attempt,
-                        "latency_ms": max(0, int((monotonic() - started_at) * 1000)),
-                        "error_code": None,
-                        "output_hash": self._output_hash(output),
-                        "capability_manifest_hash": getattr(
-                            self, "capability_manifest_hash", None
-                        ),
-                    }
-                )
-                self._record_attempt(metadata)
-                return output
-            except Exception as error:
-                last_error = error
-                metadata = {
-                    "requested_model": getattr(self, "model_name", STRICT_OPENROUTER_MODEL),
-                    "resolved_model": None,
-                    "prompt_version": prompt_version,
-                    "operation": operation,
-                    "attempt": attempt,
-                    "latency_ms": max(0, int((monotonic() - started_at) * 1000)),
-                    "error_code": self._error_code(error),
-                    "error_type": type(error).__name__,
-                    "output_hash": None,
-                    "capability_manifest_hash": getattr(
-                        self, "capability_manifest_hash", None
-                    ),
-                }
-                self._record_attempt(metadata)
-                if self._should_retry(
-                    error,
-                    model_name=getattr(self, "model_name", STRICT_OPENROUTER_MODEL),
-                    attempt=attempt,
-                ):
-                    await asyncio.sleep(0.2)
-                    continue
-                if isinstance(error, ValueError) or not isinstance(error, ProviderError):
-                    raise ProviderError(f"OpenRouter {operation} failed") from error
-                raise
-        raise ProviderError(f"OpenRouter {operation} failed") from last_error
-
     @staticmethod
     def _structured_response(result: object, operation: str) -> object:
         if not isinstance(result, dict):
@@ -588,20 +507,12 @@ class OpenRouterProvider:
         tool_latency_by_input: dict[str, int] | None = None,
     ) -> OutputT:
         last_error: BaseException | None = None
-        model_name = self.model_chain[0]
+        model_name = self.model_name
         for attempt in range(1, 3):
             started_at = monotonic()
             tool_receipts: list[dict[str, object]] = []
             try:
-                strategy = (
-                    ToolStrategy(schema, handle_errors=False)
-                    if tools
-                    else (
-                        ProviderStrategy(schema)
-                        if model_name in NATIVE_STRUCTURED_MODELS
-                        else ToolStrategy(schema, handle_errors=False)
-                    )
-                )
+                strategy = ToolStrategy(schema, handle_errors=False)
                 agent = create_agent(
                     model=self._model_for(model_name),
                     tools=list(tools),
@@ -610,6 +521,7 @@ class OpenRouterProvider:
                         "Do not reveal reasoning or add unsupported facts."
                     ),
                     response_format=strategy,
+                    name=AGENT_NAMES.get(operation),
                 )
                 result = await self._invoke_agent_request(
                     agent,
@@ -652,8 +564,6 @@ class OpenRouterProvider:
                         "prompt_version": prompt_version,
                         "operation": operation,
                         "attempt": attempt,
-                        "model_index": 0,
-                        "fallback_reason": None,
                         "tool_calls": len(tool_receipts),
                         "tool_call_receipts": tool_receipts,
                         "required_tools": list(required_tools),
@@ -676,8 +586,6 @@ class OpenRouterProvider:
                     "prompt_version": prompt_version,
                     "operation": operation,
                     "attempt": attempt,
-                    "model_index": 0,
-                    "fallback_reason": None,
                     "tool_calls": len(tool_receipts),
                     "tool_call_receipts": tool_receipts,
                     "required_tools": list(required_tools),
@@ -710,13 +618,6 @@ class OpenRouterProvider:
         attempt_sink: list[dict[str, object]] | None = None,
         tool_latency_by_input: dict[str, int] | None = None,
     ) -> OutputT:
-        if not hasattr(self, "model_chain"):
-            return await self._invoke_legacy_structured(
-                schema,
-                prompt,
-                prompt_version=prompt_version,
-                operation=operation,
-            )
         return await self._invoke_agent(
             schema,
             prompt,
