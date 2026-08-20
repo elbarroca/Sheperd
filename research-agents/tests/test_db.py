@@ -309,6 +309,35 @@ def test_postgres_source_persistence_uses_sanitized_url() -> None:
     assert "TOKEN_SECRET" not in json.dumps(params, default=str)
 
 
+def test_postgres_public_source_reads_strip_sensitive_query_values() -> None:
+    row = (
+        "https://safe.example/article?api_key=KEY_SECRET&token=TOKEN_SECRET",
+        "Article",
+        "Example",
+        datetime(2026, 8, 19, tzinfo=UTC),
+        datetime(2026, 8, 20, tzinfo=UTC),
+        "discovery",
+        "Snippet",
+        [],
+        ["Europe"],
+        "mexico",
+        False,
+        "unverified",
+    )
+    repository = PostgresRepository(Mock())
+
+    with patch.object(repository, "_execute", return_value=[row]):
+        listed = repository.list_sources()
+    with patch.object(repository, "_execute", return_value=[row]):
+        run_sources = repository.get_run_sources("run-1")
+
+    assert listed[0].url == "https://safe.example/article"
+    assert run_sources[0].url == "https://safe.example/article"
+    serialized = json.dumps(listed + run_sources, default=str)
+    assert "KEY_SECRET" not in serialized
+    assert "TOKEN_SECRET" not in serialized
+
+
 def test_postgres_repository_persists_sanitized_tool_arguments() -> None:
     repository = PostgresRepository(Mock())
 

@@ -386,6 +386,55 @@ def _seed_safe_source(source: SourceCandidate) -> SourceCandidate:
     )
 
 
+def _safe_public_url(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        normalized = normalize_url(value)
+    except ValueError:
+        return None
+    return normalized if normalized.startswith(("http://", "https://")) else None
+
+
+def _require_public_url(value: object) -> str:
+    normalized = _safe_public_url(value)
+    if normalized is None:
+        raise ValueError("stored source URL is malformed")
+    return normalized
+
+
+def _safe_public_urls(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [
+        normalized
+        for item in value
+        if (normalized := _safe_public_url(item)) is not None
+    ]
+
+
+def _safe_public_bullets(value: object) -> list[ReportBullet]:
+    if not isinstance(value, list):
+        return []
+    bullets: list[ReportBullet] = []
+    for item in value:
+        if isinstance(item, ReportBullet):
+            bullets.append(
+                item.model_copy(update={"source_urls": _safe_public_urls(item.source_urls)})
+            )
+            continue
+        if not isinstance(item, dict):
+            continue
+        payload = {
+            key: item_value
+            for key, item_value in item.items()
+            if isinstance(key, str)
+        }
+        payload["source_urls"] = _safe_public_urls(payload.get("source_urls"))
+        bullets.append(ReportBullet.model_validate(payload))
+    return bullets
+
+
 class RepositoryProtocol(Protocol):
     def create_run(self, run_id: str, request: ResearchRunRequest) -> None: ...
 
@@ -800,15 +849,27 @@ class InMemoryRepository:
 
     def record_claims(self, run_id: str, claims: list[ClaimDraft]) -> None:
         for claim in claims:
+            safe_claim = claim.model_copy(
+                update={"source_urls": _safe_public_urls(claim.source_urls)}
+            )
             key = (
                 run_id,
-                claim.claim,
-                tuple(sorted(normalize_url(url) for url in claim.source_urls)),
+                safe_claim.claim,
+                tuple(sorted(safe_claim.source_urls)),
             )
-            self.claims.setdefault(key, claim)
+            self.claims.setdefault(key, safe_claim)
 
     def record_brief(self, brief: WeeklyBrief) -> None:
-        self.briefs[brief.run_id] = brief
+        self.briefs[brief.run_id] = brief.model_copy(
+            update={
+                "source_urls": _safe_public_urls(brief.source_urls),
+                "executive_bullets": _safe_public_bullets(brief.executive_bullets),
+                "developments": _safe_public_bullets(brief.developments),
+                "risks": _safe_public_bullets(brief.risks),
+                "opportunities": _safe_public_bullets(brief.opportunities),
+                "uncertainties": _safe_public_bullets(brief.uncertainties),
+            }
+        )
 
     def record_validation(self, report: ValidationReport) -> None:
         self.validations.setdefault(report.run_id, report)
@@ -1528,6 +1589,16 @@ class PostgresRepository:
             )
 
     def record_brief(self, brief: WeeklyBrief) -> None:
+        safe_brief = brief.model_copy(
+            update={
+                "source_urls": _safe_public_urls(brief.source_urls),
+                "executive_bullets": _safe_public_bullets(brief.executive_bullets),
+                "developments": _safe_public_bullets(brief.developments),
+                "risks": _safe_public_bullets(brief.risks),
+                "opportunities": _safe_public_bullets(brief.opportunities),
+                "uncertainties": _safe_public_bullets(brief.uncertainties),
+            }
+        )
         self._execute(
             """
             INSERT INTO weekly_briefs (
@@ -1557,26 +1628,26 @@ class PostgresRepository:
                 follow_up_questions = EXCLUDED.follow_up_questions
             """,
             (
-                brief.run_id,
-                brief.run_id,
-                brief.title,
-                brief.covered_from,
-                brief.covered_until,
-                brief.summary,
-                json.dumps(brief.signal_event_ids),
-                json.dumps([normalize_url(url) for url in brief.source_urls]),
-                json.dumps(brief.limitations),
-                brief.review_state,
-                brief.evidence_status,
-                brief.model_id,
-                brief.prompt_version,
-                brief.content_hash,
-                json.dumps([item.model_dump(mode="json") for item in brief.executive_bullets]),
-                json.dumps([item.model_dump(mode="json") for item in brief.developments]),
-                json.dumps([item.model_dump(mode="json") for item in brief.risks]),
-                json.dumps([item.model_dump(mode="json") for item in brief.opportunities]),
-                json.dumps([item.model_dump(mode="json") for item in brief.uncertainties]),
-                json.dumps(brief.follow_up_questions),
+                safe_brief.run_id,
+                safe_brief.run_id,
+                safe_brief.title,
+                safe_brief.covered_from,
+                safe_brief.covered_until,
+                safe_brief.summary,
+                json.dumps(safe_brief.signal_event_ids),
+                json.dumps(safe_brief.source_urls),
+                json.dumps(safe_brief.limitations),
+                safe_brief.review_state,
+                safe_brief.evidence_status,
+                safe_brief.model_id,
+                safe_brief.prompt_version,
+                safe_brief.content_hash,
+                json.dumps([item.model_dump(mode="json") for item in safe_brief.executive_bullets]),
+                json.dumps([item.model_dump(mode="json") for item in safe_brief.developments]),
+                json.dumps([item.model_dump(mode="json") for item in safe_brief.risks]),
+                json.dumps([item.model_dump(mode="json") for item in safe_brief.opportunities]),
+                json.dumps([item.model_dump(mode="json") for item in safe_brief.uncertainties]),
+                json.dumps(safe_brief.follow_up_questions),
             ),
         )
 
@@ -1683,33 +1754,18 @@ class PostgresRepository:
             covered_until=cast(datetime, row[3]),
             summary=cast(str, row[4]),
             signal_event_ids=cast(list[str], row[5]),
-            source_urls=cast(list[str], row[6]),
+            source_urls=_safe_public_urls(row[6]),
             limitations=cast(list[str], row[7]),
             review_state=ReviewState(cast(str, row[8])),
             evidence_status=EvidenceStatus(cast(str, row[9])),
             model_id=cast(str, row[10]),
             prompt_version=cast(str, row[11]),
             content_hash=cast(str | None, row[12]),
-            executive_bullets=[
-                ReportBullet.model_validate(item)
-                for item in cast(list[dict[str, object]], row[13] or [])
-            ],
-            developments=[
-                ReportBullet.model_validate(item)
-                for item in cast(list[dict[str, object]], row[14] or [])
-            ],
-            risks=[
-                ReportBullet.model_validate(item)
-                for item in cast(list[dict[str, object]], row[15] or [])
-            ],
-            opportunities=[
-                ReportBullet.model_validate(item)
-                for item in cast(list[dict[str, object]], row[16] or [])
-            ],
-            uncertainties=[
-                ReportBullet.model_validate(item)
-                for item in cast(list[dict[str, object]], row[17] or [])
-            ],
+            executive_bullets=_safe_public_bullets(row[13] or []),
+            developments=_safe_public_bullets(row[14] or []),
+            risks=_safe_public_bullets(row[15] or []),
+            opportunities=_safe_public_bullets(row[16] or []),
+            uncertainties=_safe_public_bullets(row[17] or []),
             follow_up_questions=cast(list[str], row[18] or []),
         )
 
@@ -1754,23 +1810,28 @@ class PostgresRepository:
             """,
             (run_id,),
         )
-        return [
-            SourceCandidate(
-                url=cast(str, row[0]),
-                title=cast(str, row[1]),
-                publisher=cast(str, row[2]),
-                published_at=cast(datetime | None, row[3]),
-                retrieved_at=cast(datetime, row[4]),
-                source_kind=cast(str, row[5]),
-                snippet=cast(str, row[6]),
-                topics=cast(list[str], row[7] or []),
-                geographies=cast(list[str], row[8] or []),
-                lane=cast(str, row[9]),
-                is_seed=cast(bool, row[10]),
-                evidence_status=EvidenceStatus(cast(str, row[11])),
+        sources: list[SourceCandidate] = []
+        for row in rows:
+            url = _safe_public_url(row[0])
+            if url is None:
+                continue
+            sources.append(
+                SourceCandidate(
+                    url=url,
+                    title=cast(str, row[1]),
+                    publisher=cast(str, row[2]),
+                    published_at=cast(datetime | None, row[3]),
+                    retrieved_at=cast(datetime, row[4]),
+                    source_kind=cast(str, row[5]),
+                    snippet=cast(str, row[6]),
+                    topics=cast(list[str], row[7] or []),
+                    geographies=cast(list[str], row[8] or []),
+                    lane=cast(str, row[9]),
+                    is_seed=cast(bool, row[10]),
+                    evidence_status=EvidenceStatus(cast(str, row[11])),
+                )
             )
-            for row in rows
-        ]
+        return sources
 
     def get_run_claims(self, run_id: str) -> list[ClaimDraft]:
         rows = self._execute(
@@ -1786,7 +1847,7 @@ class PostgresRepository:
                 claim=cast(str, row[0]),
                 evidence_status=EvidenceStatus(cast(str, row[1])),
                 confidence=cast(str, row[2]),
-                source_urls=cast(list[str], row[3] or []),
+                source_urls=_safe_public_urls(row[3] or []),
                 support_locator=cast(str | None, row[4]),
                 conflicts=cast(list[str], row[5] or []),
             )
@@ -1867,7 +1928,7 @@ class PostgresRepository:
                 claims_by_url[normalize_url(url)].append(claim)
         return [
             ArticleDistillation(
-                source_url=cast(str, row[0]),
+                source_url=_require_public_url(row[0]),
                 summary=cast(str, row[1]),
                 key_points=cast(list[str], row[2] or []),
                 entities=cast(list[str], row[3] or []),
@@ -1902,7 +1963,7 @@ class PostgresRepository:
                 ports=cast(list[str], row[4] or []),
                 carriers=cast(list[str], row[5] or []),
                 event_at=cast(datetime | None, row[6]),
-                source_urls=cast(list[str], row[7] or []),
+                source_urls=_safe_public_urls(row[7] or []),
                 evidence_status=EvidenceStatus(cast(str, row[8])),
             )
             for row in rows
@@ -2029,7 +2090,7 @@ class PostgresRepository:
         )
         return [
             ArticleDistillation(
-                source_url=cast(str, row[0]),
+                source_url=_require_public_url(row[0]),
                 summary=cast(str, row[1]),
                 key_points=cast(list[str], row[2] or []),
                 entities=cast(list[str], row[3] or []),
@@ -2078,7 +2139,7 @@ class PostgresRepository:
                 claim=cast(str, row[0]),
                 evidence_status=EvidenceStatus(cast(str, row[1])),
                 confidence=cast(str, row[2]),
-                source_urls=cast(list[str], row[3] or []),
+                source_urls=_safe_public_urls(row[3] or []),
                 support_locator=cast(str | None, row[4]),
                 conflicts=cast(list[str], row[5] or []),
             )
@@ -2128,7 +2189,7 @@ class PostgresRepository:
                 ports=cast(list[str], row[5] or []),
                 carriers=cast(list[str], row[6] or []),
                 event_at=cast(datetime | None, row[7]),
-                source_urls=cast(list[str], row[8] or []),
+                source_urls=_safe_public_urls(row[8] or []),
                 evidence_status=EvidenceStatus(cast(str, row[9])),
             )
             for row in rows
@@ -2221,23 +2282,28 @@ class PostgresRepository:
             f"WHERE {' AND '.join(clauses)} ORDER BY retrieved_at DESC LIMIT %s OFFSET %s",
             tuple(params),
         )
-        return [
-            SourceCandidate(
-                url=cast(str, row[0]),
-                title=cast(str, row[1]),
-                publisher=cast(str, row[2]),
-                published_at=cast(datetime | None, row[3]),
-                retrieved_at=cast(datetime, row[4]),
-                source_kind=cast(str, row[5]),
-                snippet=cast(str, row[6]),
-                topics=cast(list[str], row[7] or []),
-                geographies=cast(list[str], row[8] or []),
-                lane=cast(str, row[9]),
-                is_seed=cast(bool, row[10]),
-                evidence_status=EvidenceStatus(cast(str, row[11])),
+        sources: list[SourceCandidate] = []
+        for row in rows:
+            url = _safe_public_url(row[0])
+            if url is None:
+                continue
+            sources.append(
+                SourceCandidate(
+                    url=url,
+                    title=cast(str, row[1]),
+                    publisher=cast(str, row[2]),
+                    published_at=cast(datetime | None, row[3]),
+                    retrieved_at=cast(datetime, row[4]),
+                    source_kind=cast(str, row[5]),
+                    snippet=cast(str, row[6]),
+                    topics=cast(list[str], row[7] or []),
+                    geographies=cast(list[str], row[8] or []),
+                    lane=cast(str, row[9]),
+                    is_seed=cast(bool, row[10]),
+                    evidence_status=EvidenceStatus(cast(str, row[11])),
+                )
             )
-            for row in rows
-        ]
+        return sources
 
     def list_briefs(
         self,
