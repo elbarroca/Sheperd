@@ -73,3 +73,43 @@ The workflow no longer performs a direct Tavily extraction fallback.
 - No live Tavily or OpenRouter request was made. Strict scope metadata validation
   requires Tavily adapters to provide a verifiable publisher, publication date,
   and geography for every returned source; otherwise the lane correctly fails.
+
+## Fix Round 2
+
+### Status
+
+Completed. Live Tavily results now receive lane geography only from returned
+metadata or explicit domain/query geography catalogs before strict scope gates.
+Failed, unknown, malformed, and unpaired tool receipts are terminal.
+
+### Commit
+
+- `85fda9b fix: validate Tavily research receipts`
+
+### Files
+
+- `research-agents/src/sheperd_research/providers/openrouter.py`
+- `research-agents/src/sheperd_research/cli.py`
+- `research-agents/tests/test_openrouter_agents.py`
+- `research-agents/tests/test_settings_and_policy.py`
+
+### Fixes
+
+- Adds explicit domain and query geography catalogs, restricted to the current
+  lane's allowed geographies, before source validation.
+- Records validation failures from every Search and Extract boundary path; rejects
+  failed, unknown, unpaired, malformed, and unsucceeded receipts, then checks
+  combined discovery budgets after agent execution.
+- Makes CLI validation count only succeeded receipts and require succeeded Search
+  and Extract calls in every lane.
+
+### Verification
+
+- `uv run pytest -q` — 68 passed.
+- `uv run ruff check src tests` — passed.
+- `uv run mypy src` — passed (19 source files).
+
+### Concerns
+
+- No live Tavily or OpenRouter request was made. New domains or query families
+  without a catalog or returned geography deliberately fail scope validation.
