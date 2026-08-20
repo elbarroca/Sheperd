@@ -7,6 +7,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from time import monotonic
 from typing import NamedTuple, Protocol, TypedDict, runtime_checkable
+from urllib.parse import urlsplit
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
@@ -35,7 +36,6 @@ from .providers.errors import ProviderError
 from .topics import default_topic_configs
 from .validation import build_validation_report
 from .validators import (
-    can_extract_url,
     content_hash,
     deduplicate_sources,
     normalize_url,
@@ -419,6 +419,40 @@ class ResearchWorkflow:
         builder.add_edge("validate", END)
         return builder.compile(checkpointer=checkpointer)
 
+    @staticmethod
+    def _domain_matches(host: str, domains: list[str]) -> bool:
+        return any(
+            host == domain.removeprefix("www.").lower()
+            or host.endswith(f".{domain.removeprefix('www.').lower()}")
+            for domain in domains
+        )
+
+    @classmethod
+    def _validate_lane_source(
+        cls,
+        source: SourceCandidate,
+        lane: LaneSpec,
+        since: datetime,
+        until: datetime,
+        include_domains: list[str],
+        exclude_domains: list[str],
+    ) -> SourceCandidate:
+        normalized_url = normalize_url(source.url)
+        host = (urlsplit(normalized_url).hostname or "").lower()
+        if not host:
+            raise ProviderError("discovery returned a source without a host")
+        if cls._domain_matches(host, exclude_domains):
+            raise ProviderError("discovery returned an excluded source host")
+        if include_domains and not cls._domain_matches(host, include_domains):
+            raise ProviderError("discovery returned a source outside allowed hosts")
+        if source.published_at is None or not since <= source.published_at <= until:
+            raise ProviderError("discovery returned a source outside the date window")
+        allowed_geographies = {geography.casefold() for geography in lane.geographies}
+        observed_geographies = {geography.casefold() for geography in source.geographies}
+        if not observed_geographies.intersection(allowed_geographies):
+            raise ProviderError("discovery returned a source outside lane geography")
+        return source.model_copy(update={"url": normalized_url})
+
     async def _discover_lane(
         self,
         lane: LaneSpec,
@@ -445,6 +479,8 @@ class ResearchWorkflow:
                 for index in lane.query_indexes
                 if index < len(topic.queries)
             ]
+            if not self._reserve_llm_call(sum(len(query) for query in configured_queries)):
+                raise ProviderError("discovery: llm budget exceeded")
             result = await self.llm.discover_lane(
                 lane.name,
                 configured_queries,
@@ -456,15 +492,26 @@ class ResearchWorkflow:
                 max_results=max(1, request.max_sources // 5),
                 tavily=self.tavily,
             )
+            validated_sources = [
+                self._validate_lane_source(
+                    source,
+                    lane,
+                    since,
+                    request.as_of,
+                    topic.include_domains,
+                    topic.exclude_domains,
+                )
+                for source in result.sources
+            ]
             sources = [
                 source.model_copy(
                     update={
                         "topics": sorted(set(source.topics + [request.topic_set, lane.name])),
-                        "geographies": sorted(set(source.geographies).union(lane.geographies)),
+                        "geographies": sorted(set(source.geographies)),
                         "lane": lane.name,
                     }
                 )
-                for source in result.sources
+                for source in validated_sources
             ]
             content = dict(result.content)
             metadata = {
@@ -612,11 +659,8 @@ class ResearchWorkflow:
         started_at = monotonic()
         sources = state.get("sources", [])
         content = dict(state.get("content", {}))
-        extractable = [source for source in sources if can_extract_url(source.url)]
-        missing = [source for source in extractable if normalize_url(source.url) not in content]
+        missing = [source for source in sources if normalize_url(source.url) not in content]
         try:
-            if missing:
-                content.update(await self.tavily.extract(missing))
             missing_content = [
                 normalize_url(source.url)
                 for source in sources
@@ -639,8 +683,7 @@ class ResearchWorkflow:
                 "succeeded",
                 {
                     "extracted_count": len(content),
-                    "skipped_count": len(sources) - len(extractable),
-                    "already_extracted_count": len(extractable) - len(missing),
+                    "missing_agent_extractions": len(missing),
                 },
                 started_at=started_at,
                 input_payload=[source.url for source in sources],
@@ -658,8 +701,7 @@ class ResearchWorkflow:
                 "failed",
                 {
                     "extracted_count": len(content),
-                    "skipped_count": len(sources) - len(extractable),
-                    "already_extracted_count": len(extractable) - len(missing),
+                    "missing_agent_extractions": len(missing),
                     "error": str(provider_error),
                 },
                 started_at=started_at,
@@ -673,7 +715,6 @@ class ResearchWorkflow:
         self,
         source: SourceCandidate,
         body: str,
-        source_urls: set[str],
         as_of: datetime,
         semaphore: asyncio.Semaphore,
     ) -> tuple[ArticleDistillation | None, str | None, dict[str, object]]:
@@ -706,7 +747,7 @@ class ResearchWorkflow:
                     body,
                     prompt_version="distill-v4",
                 )
-                validate_claim_citations(distillation.claims, source_urls, as_of)
+                validate_claim_citations(distillation.claims, {source.url}, as_of)
                 return distillation, None, annotate(self._llm_metadata())
             except (ProviderError, ValueError) as error:
                 return (
@@ -733,13 +774,11 @@ class ResearchWorkflow:
             normalized_url = normalize_url(source.url)
             body = content.get(normalized_url, "")
             bodies[normalized_url] = body
-        source_urls = {source.url for source in sources}
         semaphore = asyncio.Semaphore(MAX_PARALLEL_DISTILLATIONS)
         tasks = [
             self._distill_one(
                 source,
                 bodies[normalize_url(source.url)],
-                source_urls,
                 state["request"].as_of,
                 semaphore,
             )
@@ -818,7 +857,7 @@ class ResearchWorkflow:
     async def _critic(self, state: GraphState) -> dict[str, object]:
         started_at = monotonic()
         claims = list(state.get("claims", []))
-        source_urls = {source.url for source in state.get("sources", [])}
+        source_urls = {url for claim in claims for url in claim.source_urls}
         revised = claims
         mode = "deterministic"
         critic_call: dict[str, object] = {}
@@ -920,8 +959,9 @@ class ResearchWorkflow:
         request = state["request"]
         distillations = state.get("distillations", [])
         claims = state.get("claims", [])
-        known_urls = {source.url for source in state.get("sources", [])}
-        validate_claim_citations(claims, known_urls, request.as_of)
+        source_urls = {source.url for source in state.get("sources", [])}
+        validate_claim_citations(claims, source_urls, request.as_of)
+        known_urls = {url for claim in claims for url in claim.source_urls}
         source_by_url = {normalize_url(source.url): source for source in state.get("sources", [])}
         events = [
             SignalEvent(
@@ -972,7 +1012,7 @@ class ResearchWorkflow:
                     update={
                         "summary": with_draft_prefix(brief.summary),
                         "review_state": ReviewState.DRAFT,
-                        "source_urls": [source.url for source in state.get("sources", [])],
+                        "source_urls": sorted(known_urls),
                         "signal_event_ids": [event.event_id for event in events],
                     }
                 )
@@ -1036,7 +1076,11 @@ class ResearchWorkflow:
             minimum_sources=1 if request.validation_profile == "canary" else 10,
             minimum_claims=1 if request.validation_profile == "canary" else 5,
             tool_call_count=(
-                len(self.repository.get_run_tool_calls(state["run_id"]))
+                sum(
+                    1
+                    for call in self.repository.get_run_tool_calls(state["run_id"])
+                    if call.get("status") == "succeeded"
+                )
                 if isinstance(self.llm, LaneResearchLike)
                 else None
             ),
@@ -1049,7 +1093,7 @@ class ResearchWorkflow:
                         {
                             str(call.get("tool_name"))
                             for call in self.repository.get_run_tool_calls(state["run_id"])
-                            if call.get("lane") == lane
+                            if call.get("lane") == lane and call.get("status") == "succeeded"
                         }
                     )
                     for lane in ("regulatory", "us-ports", "mexico")

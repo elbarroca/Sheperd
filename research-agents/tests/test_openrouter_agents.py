@@ -309,6 +309,7 @@ def test_discovery_requires_model_issued_tavily_tool_calls(
                     publisher="fmc.gov",
                     published_at=datetime(2026, 8, 19, tzinfo=UTC),
                     snippet=query,
+                    geographies=["Regulatory"],
                 )
             ]
 
@@ -481,7 +482,14 @@ def test_discovery_rejects_a_model_invented_url(monkeypatch: pytest.MonkeyPatch)
 
     class TavilyStub:
         async def search(self, _: str, **__: object) -> list[SourceCandidate]:
-            return [SourceCandidate(url="https://known.example/article")]
+            return [
+                SourceCandidate(
+                    url="https://known.example/article",
+                    publisher="known.example",
+                    published_at=datetime(2026, 8, 10, tzinfo=UTC),
+                    geographies=["Regulatory"],
+                )
+            ]
 
         async def extract(self, sources: list[SourceCandidate]) -> dict[str, str]:
             return {source.url: "fixture" for source in sources}
@@ -503,6 +511,103 @@ def test_discovery_rejects_a_model_invented_url(monkeypatch: pytest.MonkeyPatch)
                 since=datetime(2026, 8, 1, tzinfo=UTC),
                 until=datetime(2026, 8, 20, tzinfo=UTC),
                 include_domains=[],
+                exclude_domains=[],
+                max_results=1,
+                tavily=TavilyStub(),
+            )
+        )
+
+
+def test_discovery_rejects_unverifiable_tavily_scope_metadata() -> None:
+    source = SourceCandidate(
+        url="https://www.fmc.gov/article",
+        publisher="fmc.gov",
+        published_at=datetime(2026, 8, 10, tzinfo=UTC),
+    )
+
+    with pytest.raises(ValueError, match="geography"):
+        OpenRouterProvider._validate_discovery_source(
+            source,
+            geographies=("Regulatory",),
+            since=datetime(2026, 8, 1, tzinfo=UTC),
+            until=datetime(2026, 8, 20, tzinfo=UTC),
+            include_domains=["fmc.gov"],
+            exclude_domains=[],
+        )
+
+
+def test_discovery_fails_when_an_agent_extraction_returns_no_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TavilyStub:
+        async def search(self, _: str, **__: object) -> list[SourceCandidate]:
+            return [
+                SourceCandidate(
+                    url="https://www.fmc.gov/example-agent-source",
+                    publisher="fmc.gov",
+                    published_at=datetime(2026, 8, 10, tzinfo=UTC),
+                    geographies=["Regulatory"],
+                )
+            ]
+
+        async def extract(self, _: list[SourceCandidate]) -> dict[str, str]:
+            return {}
+
+    class ExtractionFailureAgent:
+        def __init__(self, tools: list[BaseTool]) -> None:
+            self.tools = {tool.name: tool for tool in tools}
+
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            query = "configured"
+            search = await self.tools["tavily_search"].ainvoke({"query": query})
+            url = json.loads(search)["sources"][0]["url"]
+            with pytest.raises(ValueError, match="incomplete content"):
+                await self.tools["tavily_extract"].ainvoke({"urls": [url]})
+            return {
+                "structured_response": {
+                    "source_urls": [url],
+                    "selected_queries": [query],
+                    "evidence_notes": ["fixture"],
+                },
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {"id": "search-1", "name": "tavily_search", "args": {"query": query}},
+                            {"id": "extract-1", "name": "tavily_extract", "args": {"urls": [url]}},
+                        ],
+                    ),
+                    ToolMessage(content=search, tool_call_id="search-1"),
+                    ToolMessage(
+                        content='{"error":"incomplete"}',
+                        tool_call_id="extract-1",
+                        status="error",
+                    ),
+                    SimpleNamespace(
+                        response_metadata={"model_name": STRICT_OPENROUTER_MODEL},
+                        usage_metadata={},
+                        tool_calls=[],
+                    ),
+                ],
+            }
+
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+    monkeypatch.setattr(
+        openrouter_module,
+        "create_agent",
+        lambda *, tools, **_: ExtractionFailureAgent(tools),
+    )
+
+    with pytest.raises(ProviderError, match="OpenRouter discovery:regulatory failed"):
+        asyncio.run(
+            provider.discover_lane(
+                "regulatory",
+                ["configured"],
+                ("Regulatory",),
+                since=datetime(2026, 8, 1, tzinfo=UTC),
+                until=datetime(2026, 8, 20, tzinfo=UTC),
+                include_domains=["fmc.gov"],
                 exclude_domains=[],
                 max_results=1,
                 tavily=TavilyStub(),
@@ -559,6 +664,7 @@ def test_create_agent_names_all_six_workers(monkeypatch: pytest.MonkeyPatch) -> 
                     publisher="fmc.gov",
                     published_at=datetime(2026, 8, 19, tzinfo=UTC),
                     snippet=query,
+                    geographies=["Regulatory", "us-ports", "mexico"],
                 )
             ]
 

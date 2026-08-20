@@ -26,7 +26,7 @@ class FakeTavily:
             SourceCandidate(
                 url=f"https://example.com/{query.replace(' ', '-')}",
                 title=f"{query} update",
-                publisher="Example",
+                publisher="example.com",
                 published_at=datetime(2026, 8, 18, tzinfo=UTC),
                 topics=["dnd"],
                 geographies=["West Coast"],
@@ -51,11 +51,15 @@ class FakeLLM:
         max_results: int,
         tavily: FakeTavily,
     ) -> LaneDiscoveryResult:
-        del geographies, since, until, include_domains, exclude_domains
+        del since, until, include_domains, exclude_domains
         sources: list[SourceCandidate] = []
         content: dict[str, str] = {}
         for query in queries:
             found = await tavily.search(query, max_results=max_results)
+            found = [
+                source.model_copy(update={"geographies": list(geographies)})
+                for source in found
+            ]
             extractable = [source for source in found if can_extract_url(source.url)]
             sources.extend(extractable)
             content.update(await tavily.extract(extractable))
@@ -133,7 +137,10 @@ class LargeBodyTavily(FakeTavily):
 
 
 class EmptyExtractTavily(FakeTavily):
+    calls = 0
+
     async def extract(self, sources: list[SourceCandidate]) -> dict[str, str]:
+        self.calls += 1
         return {}
 
 
@@ -160,6 +167,41 @@ class WrongModelLLM(FakeLLM):
     ) -> WeeklyBrief:
         brief = await super().synthesize(run_id, distillations, **_)
         return brief.model_copy(update={"model_id": "offline-fixture"})
+
+
+class OutOfScopeDiscoveryLLM(FakeLLM):
+    async def discover_lane(
+        self,
+        lane: str,
+        queries: list[str],
+        geographies: tuple[str, ...],
+        *,
+        since: datetime,
+        until: datetime,
+        include_domains: list[str],
+        exclude_domains: list[str],
+        max_results: int,
+        tavily: FakeTavily,
+    ) -> LaneDiscoveryResult:
+        result = await super().discover_lane(
+            lane,
+            queries,
+            geographies,
+            since=since,
+            until=until,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains,
+            max_results=max_results,
+            tavily=tavily,
+        )
+        return result.model_copy(
+            update={
+                "sources": [
+                    source.model_copy(update={"geographies": ["Unverifiable"]})
+                    for source in result.sources
+                ]
+            }
+        )
 
 
 def test_workflow_records_a_cited_draft_and_is_idempotent() -> None:
@@ -283,6 +325,52 @@ def test_workflow_fails_closed_when_extraction_is_incomplete() -> None:
 
     assert result.status == "failed"
     assert result.error and "did not extract any source content" in result.error
+
+
+def test_workflow_rejects_out_of_scope_discovery_results() -> None:
+    workflow = ResearchWorkflow(
+        InMemoryRepository(),
+        FakeTavily(),
+        OutOfScopeDiscoveryLLM(),
+    )
+
+    result = asyncio.run(
+        workflow.run(
+            ResearchRunRequest(
+                topic_set="dnd-port",
+                max_sources=1,
+                include_topic_seeds=False,
+                validation_profile="canary",
+            )
+        )
+    )
+
+    assert result.status == "failed"
+    assert result.error and "outside lane geography" in result.error
+
+
+def test_workflow_does_not_fallback_to_direct_tavily_extraction() -> None:
+    tavily = EmptyExtractTavily()
+    workflow = ResearchWorkflow(InMemoryRepository(), tavily, FakeLLM())
+    source = SourceCandidate(url="https://example.com/agent-only")
+
+    try:
+        asyncio.run(
+            workflow._extract(
+                {
+                    "run_id": "run-1",
+                    "sources": [source],
+                    "content": {},
+                    "partial_reasons": [],
+                }
+            )
+        )
+    except ProviderError as error:
+        assert "extraction missing content" in str(error)
+    else:
+        raise AssertionError("workflow unexpectedly accepted missing agent extraction")
+
+    assert tavily.calls == 0
 
 
 def test_workflow_fails_when_non_extractable_source_has_no_body() -> None:

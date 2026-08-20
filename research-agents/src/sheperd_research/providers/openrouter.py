@@ -8,6 +8,7 @@ from contextvars import ContextVar
 from datetime import datetime
 from time import monotonic
 from typing import Protocol, TypeVar, cast
+from urllib.parse import urlsplit
 
 import httpx
 from langchain.agents import create_agent
@@ -41,6 +42,7 @@ MAX_CLAIMS_PER_SOURCE = 4
 MAX_KEY_POINTS_PER_SOURCE = 8
 MAX_DISCOVERY_SOURCES = 8
 MAX_DISCOVERY_TOOL_CALLS = 6
+MAX_DISCOVERY_INPUT_CHARS = 20_000
 MAX_DISCOVERY_RECURSION = 12
 AGENT_NAMES = {
     "discovery:regulatory": "regulatory_research_agent",
@@ -326,6 +328,44 @@ class OpenRouterProvider:
             ).encode()
         ).hexdigest()
 
+    @staticmethod
+    def _matches_domain(host: str, domains: Sequence[str]) -> bool:
+        return any(
+            host == domain.lower().removeprefix("www.")
+            or host.endswith(f".{domain.lower().removeprefix('www.')}")
+            for domain in domains
+        )
+
+    @classmethod
+    def _validate_discovery_source(
+        cls,
+        source: SourceCandidate,
+        *,
+        geographies: tuple[str, ...],
+        since: datetime,
+        until: datetime,
+        include_domains: Sequence[str],
+        exclude_domains: Sequence[str],
+    ) -> SourceCandidate:
+        normalized_url = normalize_url(source.url)
+        host = (urlsplit(normalized_url).hostname or "").lower().removeprefix("www.")
+        if not host:
+            raise ValueError("Tavily returned a source without a host")
+        if cls._matches_domain(host, exclude_domains):
+            raise ValueError("Tavily returned an excluded source domain")
+        if include_domains and not cls._matches_domain(host, include_domains):
+            raise ValueError("Tavily returned a source outside allowed domains")
+        publisher = source.publisher.lower().removeprefix("www.")
+        if publisher != host:
+            raise ValueError("Tavily returned unverifiable publisher metadata")
+        if source.published_at is None or not since <= source.published_at <= until:
+            raise ValueError("Tavily returned a source outside the configured date window")
+        allowed_geographies = {value.lower() for value in geographies}
+        observed_geographies = {value.lower() for value in source.geographies}
+        if not observed_geographies.intersection(allowed_geographies):
+            raise ValueError("Tavily returned unverifiable source geography")
+        return source.model_copy(update={"url": normalized_url})
+
     def _reset_task_call_state(self) -> None:
         self._task_last_call_metadata.set(None)
         self._task_attempts.set(())
@@ -544,7 +584,7 @@ class OpenRouterProvider:
                 called_tools = {
                     str(receipt["tool_name"])
                     for receipt in tool_receipts
-                    if receipt.get("status") != "failed"
+                    if receipt.get("status") == "succeeded"
                 }
                 missing_tools = sorted(set(required_tools) - called_tools)
                 if missing_tools:
@@ -557,6 +597,9 @@ class OpenRouterProvider:
                 raw = self._last_message(result)
                 metadata = self._metadata_from_raw(raw)
                 resolved_model = self._require_strict_resolved_model(metadata)
+                output_tokens = metadata.get("output_tokens")
+                if isinstance(output_tokens, int) and output_tokens > self.max_output_tokens:
+                    raise ProviderError("OpenRouter output-token budget exceeded")
                 metadata.update(
                     {
                         "requested_model": model_name,
@@ -645,15 +688,28 @@ class OpenRouterProvider:
         known_sources: dict[str, SourceCandidate] = {}
         captured_content: dict[str, str] = {}
         search_calls: set[str] = set()
+        requested_extraction_urls: set[str] = set()
         tool_errors: list[str] = []
         tool_latency_by_input: dict[str, int] = {}
         attempt_sink: list[dict[str, object]] = []
+        tool_calls = 0
+        tool_input_chars = 0
         self._reset_task_call_state()
 
         def discovery_error(message: str) -> ProviderError:
             return ProviderError(message, attempts=list(attempt_sink))
 
+        def reserve_tool_call(input_chars: int) -> None:
+            nonlocal tool_calls, tool_input_chars
+            tool_calls += 1
+            tool_input_chars += input_chars
+            if tool_calls > MAX_DISCOVERY_TOOL_CALLS:
+                raise ValueError("discovery tool-call budget exceeded")
+            if tool_input_chars > MAX_DISCOVERY_INPUT_CHARS:
+                raise ValueError("discovery tool-input budget exceeded")
+
         async def run_search(query: str) -> str:
+            reserve_tool_call(len(query))
             if query not in queries:
                 raise ValueError("discovery query is outside the configured lane scope")
             if query in search_calls:
@@ -673,6 +729,17 @@ class OpenRouterProvider:
                     exclude_domains=exclude_domains,
                     max_results=min(max(1, max_results), MAX_DISCOVERY_SOURCES),
                 )
+                valid_sources = [
+                    self._validate_discovery_source(
+                        source,
+                        geographies=geographies,
+                        since=since,
+                        until=until,
+                        include_domains=include_domains,
+                        exclude_domains=exclude_domains,
+                    )
+                    for source in found
+                ]
             except Exception as error:
                 tool_errors.append(error.__class__.__name__)
                 raise
@@ -680,7 +747,7 @@ class OpenRouterProvider:
                 tool_latency_by_input[input_hash] = max(
                     0, int((monotonic() - started) * 1000)
                 )
-            for source in found:
+            for source in valid_sources:
                 if can_extract_url(source.url):
                     known_sources.setdefault(normalize_url(source.url), source)
             return json.dumps(
@@ -696,7 +763,7 @@ class OpenRouterProvider:
                             else None,
                             "snippet": source.snippet[:500],
                         }
-                        for source in found[:MAX_DISCOVERY_SOURCES]
+                        for source in valid_sources[:MAX_DISCOVERY_SOURCES]
                         if can_extract_url(source.url)
                     ],
                 }
@@ -704,14 +771,24 @@ class OpenRouterProvider:
 
         async def run_extract(urls: list[str]) -> str:
             normalized = [normalize_url(url) for url in urls]
+            reserve_tool_call(sum(len(url) for url in normalized))
             if any(url not in known_sources for url in normalized):
                 raise ValueError("extraction URL was not returned by Tavily Search")
+            requested_extraction_urls.update(normalized)
             input_hash = self._tool_input_hash(None, normalized)
             started = monotonic()
             try:
                 extracted = await tavily.extract(
                     [known_sources[url] for url in normalized[:MAX_DISCOVERY_SOURCES]]
                 )
+                normalized_extracted = {
+                    normalize_url(url): content.strip()
+                    for url, content in extracted.items()
+                    if isinstance(url, str) and isinstance(content, str) and content.strip()
+                }
+                missing_content = [url for url in normalized if url not in normalized_extracted]
+                if missing_content:
+                    raise ValueError("Tavily extraction returned incomplete content")
             except Exception as error:
                 tool_errors.append(error.__class__.__name__)
                 raise
@@ -719,9 +796,7 @@ class OpenRouterProvider:
                 tool_latency_by_input[input_hash] = max(
                     0, int((monotonic() - started) * 1000)
                 )
-            for url, content in extracted.items():
-                if content.strip():
-                    captured_content[normalize_url(url)] = content.strip()
+            captured_content.update(normalized_extracted)
             return json.dumps(
                 {
                     "extracted_urls": sorted(captured_content),
@@ -775,6 +850,8 @@ class OpenRouterProvider:
         except ProviderError as error:
             error.attempts = list(attempt_sink)
             raise
+        if tool_errors:
+            raise discovery_error("discovery tool execution failed")
         known_urls = set(known_sources)
         missing_queries = sorted(set(queries) - search_calls)
         if missing_queries:
@@ -784,6 +861,8 @@ class OpenRouterProvider:
             )
         if not captured_content:
             raise discovery_error("discovery agent did not extract any source content")
+        if any(url not in captured_content for url in requested_extraction_urls):
+            raise discovery_error("discovery extraction returned incomplete content")
         selected_urls = [normalize_url(url) for url in packet.source_urls]
         if any(url not in known_urls for url in selected_urls):
             raise discovery_error("OpenRouter discovery introduced an unknown source URL")
@@ -804,6 +883,8 @@ class OpenRouterProvider:
         metadata = {
             "lane": lane,
             "search_calls": len(search_calls),
+            "tool_calls": tool_calls,
+            "tool_input_chars": tool_input_chars,
             "extracted_count": len(content),
             "tool_errors": tool_errors,
             "agent_call": dict(attempt_sink[-1]) if attempt_sink else {},
