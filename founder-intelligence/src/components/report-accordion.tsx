@@ -169,11 +169,9 @@ function AgentStepList({ steps }: { steps: AgentStep[] }) {
 export function ReportAccordion({ report }: { report: ReportPayload }) {
   const brief: WeeklyBrief = report.brief;
   const checks = report.validation?.checks ?? [];
-  const validationStatus = report.validation?.status ?? "blocked";
-  const blocked =
-    report.run?.status === "failed" ||
-    validationStatus === "blocked" ||
-    validationStatus === "failed";
+  const runStatus = report.run?.status ?? "missing";
+  const validationStatus = report.validation?.status ?? "missing";
+  const blocked = !(runStatus === "succeeded" && validationStatus === "pass");
   const workflowStates = ["critic", "synthesis", "validation"].map((agentName) => ({
     agentName,
     step: report.steps.find((item) => item.agent_name === agentName),
@@ -194,8 +192,8 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
 
       {blocked && (
         <div className="unavailable" role="alert">
-          <strong>Run is blocked or failed.</strong>
-          <p>{report.run?.error ?? "Validation did not pass; this report is not decision-ready."}</p>
+          <strong>Report is blocked, failed, or partial.</strong>
+          <p>Run status: {runStatus} · Validation status: {validationStatus}. {report.run?.error ?? "This report is not decision-ready."}</p>
         </div>
       )}
 

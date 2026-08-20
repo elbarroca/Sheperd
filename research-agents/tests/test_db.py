@@ -223,6 +223,63 @@ def test_postgres_repository_persists_sanitized_tool_arguments() -> None:
     assert execute.call_args_list[1].args[1][9] == '{"query": "fmc enforcement", "url_count": 0}'
 
 
+def test_tool_call_persistence_redacts_sensitive_queries_and_urls() -> None:
+    receipt = {
+        "call_index": 0,
+        "tool_name": "tavily_search",
+        "query": "article_body: BODY_SECRET",
+        "urls": [
+            "https://safe.example/article?ref=raw-content",
+            "https://user:PASSWORD_SECRET@private.example/article",
+            "javascript:prompt('PROMPT_SECRET')",
+        ],
+        "sanitized_args": {
+            "query": "prompt: PROMPT_SECRET",
+            "urls": [
+                "https://safe.example/article?ref=raw-content",
+                "https://user:PASSWORD_SECRET@private.example/article",
+                "javascript:prompt('PROMPT_SECRET')",
+            ],
+        },
+        "input_hash": "input-hash",
+        "result_hash": "result-hash",
+        "result_count": 2,
+        "latency_ms": 31,
+        "status": "succeeded",
+    }
+
+    in_memory = InMemoryRepository()
+    in_memory.record_tool_calls("audit-run", "discovery:regulatory", 1, "regulatory", [receipt])
+    stored = in_memory.get_run_tool_calls("audit-run")[0]
+    stored_json = json.dumps(stored)
+
+    assert stored["sanitized_args"] == {"query": "[redacted]", "url_count": 1}
+    assert "https://safe.example/article" not in stored_json
+    for secret in ("BODY_SECRET", "PASSWORD_SECRET", "PROMPT_SECRET"):
+        assert secret not in stored_json
+    assert stored["input_hash"] == "input-hash"
+    assert stored["result_count"] == 2
+    assert stored["latency_ms"] == 31
+    assert stored["status"] == "succeeded"
+
+    postgres = PostgresRepository(Mock())
+    with patch.object(postgres, "_execute", side_effect=[[(7,)], []]) as execute:
+        postgres.record_tool_calls(
+            "audit-run", "discovery:regulatory", 1, "regulatory", [receipt]
+        )
+
+    params = execute.call_args_list[1].args[1]
+    assert json.loads(params[8]) == ["https://safe.example/article"]
+    assert json.loads(params[9]) == {"query": "[redacted]", "url_count": 1}
+    persisted_json = json.dumps(params)
+    for secret in ("BODY_SECRET", "PASSWORD_SECRET", "PROMPT_SECRET"):
+        assert secret not in persisted_json
+    assert params[10] == "input-hash"
+    assert params[12] == 2
+    assert params[13] == 31
+    assert params[14] == "succeeded"
+
+
 def test_repository_keeps_report_sections_and_monthly_rollups() -> None:
     repository = InMemoryRepository()
     repository.create_run("run-2", ResearchRunRequest(topic_set="dnd-port"))

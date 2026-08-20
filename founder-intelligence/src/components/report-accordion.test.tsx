@@ -146,7 +146,7 @@ describe("ReportAccordion", () => {
 
     const markup = renderToStaticMarkup(<ReportAccordion report={failedValidationReport} />);
 
-    expect(markup).toContain("Run is blocked or failed.");
+    expect(markup).toContain("Report is blocked, failed, or partial.");
     expect(markup).toContain("not decision-ready");
   });
 
@@ -160,6 +160,31 @@ describe("ReportAccordion", () => {
     const markup = renderToStaticMarkup(<ReportAccordion report={missingValidationReport} />);
 
     expect(markup).toContain("status-blocked");
-    expect(markup).toContain("Run is blocked or failed.");
+    expect(markup).toContain("Report is blocked, failed, or partial.");
+  });
+
+  it("blocks every state except succeeded with pass validation", () => {
+    const readyReport: ReportPayload = {
+      ...report,
+      run: report.run ? { ...report.run, status: "succeeded", error: null } : null,
+      validation: report.validation ? { ...report.validation, status: "pass" } : null,
+    };
+    const blockedReports: ReportPayload[] = [
+      { ...readyReport, run: readyReport.run ? { ...readyReport.run, status: "partial" } : null },
+      { ...readyReport, run: readyReport.run ? { ...readyReport.run, status: "unknown" } : null },
+      { ...readyReport, run: null },
+      { ...readyReport, validation: readyReport.validation ? { ...readyReport.validation, status: "partial" } : null },
+      { ...readyReport, validation: readyReport.validation ? { ...readyReport.validation, status: "unknown" } : null },
+      { ...readyReport, validation: null },
+    ];
+
+    for (const blockedReport of blockedReports) {
+      const markup = renderToStaticMarkup(<ReportAccordion report={blockedReport} />);
+      expect(markup).toContain('role="alert"');
+      expect(markup).toContain("not decision-ready");
+    }
+
+    const readyMarkup = renderToStaticMarkup(<ReportAccordion report={readyReport} />);
+    expect(readyMarkup).not.toContain('role="alert"');
   });
 });

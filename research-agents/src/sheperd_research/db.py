@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol, cast
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from psycopg import Connection, OperationalError
 
@@ -182,7 +182,17 @@ def _safe_audit_url(value: object) -> str | None:
         return None
     if parsed.username or parsed.password or query_keys.intersection(_AUDIT_SENSITIVE_QUERY_KEYS):
         return None
-    return text
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+
+
+def _safe_audit_urls(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [
+        safe
+        for item in value[:_AUDIT_LIST_LIMIT]
+        if (safe := _safe_audit_url(item)) is not None
+    ]
 
 
 def _safe_audit_int(value: object) -> int | None:
@@ -247,6 +257,11 @@ def _redact_audit_receipts(value: object) -> list[dict[str, object]]:
                     receipt[key] = safe_int
         receipts.append(receipt)
     return receipts
+
+
+def _redact_audit_receipt(value: dict[str, object]) -> dict[str, object]:
+    receipts = _redact_audit_receipts([value])
+    return receipts[0] if receipts else {}
 
 
 def _redact_audit_call(value: object) -> dict[str, object]:
@@ -346,13 +361,17 @@ def _sanitized_tool_args(receipt: dict[str, object]) -> dict[str, object]:
     sanitized: dict[str, object] = {}
     query = args.get("query")
     if isinstance(query, str):
-        sanitized["query"] = query[:400]
+        safe_query = _safe_audit_text(query)
+        if safe_query is not None:
+            sanitized["query"] = safe_query
     url_count = args.get("url_count")
     if isinstance(url_count, int) and not isinstance(url_count, bool):
         sanitized["url_count"] = max(0, url_count)
     urls = args.get("urls")
-    if isinstance(urls, list) and "url_count" not in sanitized:
-        sanitized["url_count"] = len(urls)
+    if not isinstance(urls, list):
+        urls = receipt.get("urls")
+    if "url_count" not in sanitized:
+        sanitized["url_count"] = len(_safe_audit_urls(urls))
     return sanitized
 
 
@@ -640,21 +659,22 @@ class InMemoryRepository:
         receipts: list[dict[str, object]],
     ) -> None:
         for receipt in receipts:
-            call_index = receipt.get("call_index", 0)
+            safe_receipt = _redact_audit_receipt(receipt)
+            call_index = safe_receipt.get("call_index", 0)
             record = {
                 "run_id": run_id,
                 "agent_name": agent_name,
                 "attempt": attempt,
                 "lane": lane,
                 "call_index": call_index,
-                "tool_name": receipt.get("tool_name", "unknown"),
+                "tool_name": safe_receipt.get("tool_name", "unknown"),
                 "sanitized_args": _sanitized_tool_args(receipt),
-                "input_hash": receipt.get("input_hash"),
-                "result_hash": receipt.get("result_hash"),
-                "result_count": receipt.get("result_count"),
-                "latency_ms": receipt.get("latency_ms"),
-                "status": receipt.get("status", "unknown"),
-                "error_code": receipt.get("error_code"),
+                "input_hash": safe_receipt.get("input_hash"),
+                "result_hash": safe_receipt.get("result_hash"),
+                "result_count": safe_receipt.get("result_count"),
+                "latency_ms": safe_receipt.get("latency_ms"),
+                "status": safe_receipt.get("status", "unknown"),
+                "error_code": safe_receipt.get("error_code"),
             }
             key = (run_id, agent_name, attempt, call_index)
             if not any(
@@ -1092,8 +1112,19 @@ class PostgresRepository:
         )
         step_id = step_rows[0][0] if step_rows else None
         for receipt in receipts:
+            safe_receipt = _redact_audit_receipt(receipt)
             sanitized_args = _sanitized_tool_args(receipt)
-            urls = receipt.get("urls")
+            raw_args = receipt.get("sanitized_args")
+            urls = raw_args.get("urls") if isinstance(raw_args, dict) else None
+            if not isinstance(urls, list):
+                urls = receipt.get("urls")
+            safe_urls = _safe_audit_urls(urls)
+            call_index = safe_receipt.get("call_index", 0)
+            if not isinstance(call_index, int) or isinstance(call_index, bool):
+                call_index = 0
+            input_hash = safe_receipt.get("input_hash")
+            if not isinstance(input_hash, str):
+                input_hash = content_hash(json.dumps(receipt, sort_keys=True, default=str))
             self._execute(
                 """
                 INSERT INTO agent_tool_calls (
@@ -1113,17 +1144,17 @@ class PostgresRepository:
                     agent_name,
                     lane,
                     attempt,
-                    receipt.get("call_index", 0),
-                    receipt.get("tool_name", "unknown"),
+                    call_index,
+                    safe_receipt.get("tool_name", "unknown"),
                     sanitized_args.get("query"),
-                    json.dumps(urls if isinstance(urls, list) else []),
+                    json.dumps(safe_urls),
                     json.dumps(sanitized_args, sort_keys=True),
-                    receipt.get("input_hash", content_hash(json.dumps(receipt, sort_keys=True))),
-                    receipt.get("result_hash"),
-                    receipt.get("result_count"),
-                    receipt.get("latency_ms"),
-                    receipt.get("status", "unknown"),
-                    receipt.get("error_code"),
+                    input_hash,
+                    safe_receipt.get("result_hash"),
+                    safe_receipt.get("result_count"),
+                    safe_receipt.get("latency_ms"),
+                    safe_receipt.get("status", "unknown"),
+                    safe_receipt.get("error_code"),
                 ),
             )
 
