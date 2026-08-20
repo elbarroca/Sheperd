@@ -103,3 +103,37 @@
 
 - Live `source-map --check --strict --json` verification remains outside this fix round; no Tavily production credential check was run.
 - Existing unrelated staged and untracked work remains in the checkout and was not touched.
+
+## Fix Round 3
+
+### Status
+
+- Preserved user-supplied LinkedIn and paywalled URLs as auditable `seed-only` / `is_seed` records with `UNVERIFIED` evidence state and existing quarantine reason metadata.
+- Kept the centralized access policy strict: quarantined seed leads are excluded from extraction and distillation, and all seed-only records are excluded from source-quality counts and thresholds.
+
+### Files
+
+- `research-agents/src/sheperd_research/workflow.py`
+- `research-agents/src/sheperd_research/validation.py`
+- `research-agents/tests/test_workflow.py`
+- `research-agents/tests/test_validation.py`
+
+### Commits
+
+- `b4be19d` `fix: retain quarantined seed leads`
+
+### Exact Tests
+
+- `uv run pytest tests/test_openrouter_agents.py tests/test_source_catalog.py tests/test_validators.py tests/test_validation.py tests/test_workflow.py`
+  - `71 passed in 0.64s`
+- `uv run ruff check src/sheperd_research/workflow.py src/sheperd_research/validation.py tests/test_workflow.py tests/test_validation.py`
+  - `All checks passed!`
+- `uv run mypy src/sheperd_research/workflow.py src/sheperd_research/validation.py tests/test_workflow.py tests/test_validation.py`
+  - `Success: no issues found in 4 source files`
+- `git diff --check`
+  - passed
+
+### Concerns
+
+- Live `source-map --check --strict --json` verification remains outside this fix round; no Tavily production credential check was run.
+- Existing unrelated staged and untracked work remains in the checkout and was not touched.
