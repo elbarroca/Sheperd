@@ -66,6 +66,29 @@ def test_capability_report_keeps_only_free_tool_and_structured_models() -> None:
     }
 
 
+def test_capability_report_requires_exact_model_identifier() -> None:
+    report = _build_report(
+        (STRICT_OPENROUTER_MODEL,),
+        [
+            {
+                "id": "google/gemma-4-26b-a4b-it",
+                "pricing": {"prompt": "0", "completion": "0"},
+                "supported_parameters": ["tools", "structured_outputs"],
+            }
+        ],
+        require_tools=True,
+        source="test",
+    )
+
+    assert report.eligible_models == ()
+    evidence = report.evidence_for(STRICT_OPENROUTER_MODEL)
+    assert evidence is not None
+    assert evidence.reason == "not_present_in_manifest"
+    assert report.skipped_models == (
+        {"model": STRICT_OPENROUTER_MODEL, "reason": "not_present_in_manifest"},
+    )
+
+
 def test_live_capability_requirement_does_not_authorize_from_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: pytest.TempPathFactory,

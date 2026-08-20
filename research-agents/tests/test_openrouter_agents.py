@@ -95,6 +95,11 @@ class MessageTimeoutAgent:
         raise RuntimeError("timeout")
 
 
+class TimeoutRateLimitAgent:
+    async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+        raise TimeoutError("429 rate limit")
+
+
 def test_rate_limit_fails_without_retry_or_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -160,6 +165,24 @@ def test_timeout_message_does_not_trigger_retry(
 
     assert len(provider.call_history) == 1
     assert provider.call_history[0]["error_code"] == "provider_error"
+
+
+def test_timeout_typed_rate_limit_does_not_trigger_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+    monkeypatch.setattr(
+        openrouter_module,
+        "create_agent",
+        lambda *, model, **__: TimeoutRateLimitAgent(),
+    )
+
+    with pytest.raises(ProviderError, match="OpenRouter health failed"):
+        asyncio.run(provider.health_check())
+
+    assert len(provider.call_history) == 1
+    assert provider.call_history[0]["error_code"] == "rate_limit"
 
 
 def test_paid_fallback_is_rejected() -> None:

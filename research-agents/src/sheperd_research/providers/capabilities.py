@@ -75,7 +75,7 @@ def _capability_from_record(record: object, model: str) -> ModelCapability | Non
     record_id = record.get("id")
     if not isinstance(record_id, str):
         return None
-    if record_id != model and record_id.removesuffix(":free") != model.removesuffix(":free"):
+    if record_id != model:
         return None
     supported = record.get("supported_parameters")
     supported_parameters = (

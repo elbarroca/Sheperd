@@ -194,6 +194,7 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
     policy_error = strict_openrouter_policy_error(
         requested_model,
         settings.openrouter_fallback_model_list,
+        raw_fallback_config=settings.openrouter_fallback_models,
     )
     if policy_error is not None:
         print(f"BLOCKED: {policy_error}")

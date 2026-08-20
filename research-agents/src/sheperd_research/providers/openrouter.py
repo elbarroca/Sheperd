@@ -270,10 +270,11 @@ class OpenRouterProvider:
 
     @classmethod
     def _should_retry(cls, error: BaseException, *, model_name: str, attempt: int) -> bool:
+        error_code = cls._error_code(error)
         return (
             model_name == STRICT_OPENROUTER_MODEL
             and attempt < 2
-            and cls._is_transport_timeout(error)
+            and error_code == "timeout"
         )
 
     @staticmethod

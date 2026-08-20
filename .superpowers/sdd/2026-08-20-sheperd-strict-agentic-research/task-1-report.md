@@ -114,3 +114,37 @@ Covering tests
 
 Concerns
 - The repository still contains unrelated staged and untracked work outside this fix. This round was committed by explicit pathspec so the strict Task 1 surface and the report update land without pulling in the broader dirty checkout.
+
+---
+
+Fix round 3
+
+Status
+- DONE_WITH_CONCERNS
+
+Addressed reviewer findings
+- Passed raw `OPENROUTER_FALLBACK_MODELS` through the CLI policy gate so delimiter-only values like `","` now fail before any capability lookup or execution.
+- Tightened OpenRouter retry gating to final classified error codes: only `timeout` retries on strict Gemma, and timeout-typed rate-limit errors now fail without retry.
+- Tightened live capability evidence matching to exact model IDs, so non-exact records such as the paid/non-suffixed Gemma ID cannot satisfy strict free-model authorization.
+
+Changed files
+- research-agents/src/sheperd_research/cli.py
+- research-agents/src/sheperd_research/providers/capabilities.py
+- research-agents/src/sheperd_research/providers/openrouter.py
+- research-agents/tests/test_capabilities.py
+- research-agents/tests/test_openrouter_agents.py
+- research-agents/tests/test_settings_and_policy.py
+
+Commit hashes
+- prior fix round 2 commit: 1584a4b22d826486abab9419c69f809b0d03745e
+
+Covering tests
+- `cd research-agents && uv run pytest tests/test_contracts.py tests/test_settings_and_policy.py tests/test_capabilities.py tests/test_validation.py tests/test_openrouter_agents.py tests/test_provider_failures.py tests/test_workflow.py`
+  - `43 passed in 0.40s`
+- `cd research-agents && uv run ruff check src/sheperd_research tests/test_contracts.py tests/test_settings_and_policy.py tests/test_capabilities.py tests/test_validation.py tests/test_openrouter_agents.py tests/test_provider_failures.py tests/test_workflow.py`
+  - `All checks passed!`
+- `cd research-agents && uv run mypy src/sheperd_research`
+  - `Success: no issues found in 19 source files`
+
+Concerns
+- The repository still contains unrelated staged and untracked work outside this fix. This round is being committed by explicit pathspec so only the strict Task 1 policy surface, its regressions, and this report update land.

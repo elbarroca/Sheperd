@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
 from pathlib import Path
 
 import pytest
 
+import sheperd_research.cli as cli_module
 import sheperd_research.diagnostics as diagnostics_module
-from sheperd_research.cli import _database
+from sheperd_research.cli import _database, _run_command
 from sheperd_research.contracts import ResearchRunRequest
 from sheperd_research.diagnostics import run_model_check, validate_database_url, validate_dev_branch
 from sheperd_research.providers.errors import ProviderError
@@ -55,6 +57,43 @@ def test_strict_openrouter_policy_rejects_router_model_and_fallbacks() -> None:
         )
         == "OPENROUTER_FALLBACK_MODELS must be empty"
     )
+
+
+def test_run_command_rejects_raw_fallback_config_before_capability_check(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = Path(__file__).resolve().parents[3]
+    monkeypatch.setenv("SHEPERD_ROOT", str(root))
+    calls: list[object] = []
+
+    def fail_capability_report(*_: object, **__: object) -> object:
+        calls.append(object())
+        raise AssertionError("capability resolution should not run")
+
+    monkeypatch.setattr(cli_module, "_capability_report", fail_capability_report)
+    settings = Settings(
+        database_url="postgresql://ep-example-pooler.eu-central-1.aws.neon.tech/neondb",
+        tavily_api_key="secret",
+        openrouter_api_key="secret",
+        openrouter_fallback_models=",",
+    )
+
+    result = _run_command(
+        argparse.Namespace(
+            topic_set="dnd-port",
+            as_of=None,
+            since=None,
+            max_sources=1,
+            model=None,
+            seed_url=[],
+        ),
+        settings,
+    )
+
+    assert result == 2
+    assert "OPENROUTER_FALLBACK_MODELS must be empty" in capsys.readouterr().out
+    assert calls == []
 
 
 def test_database_url_policy_distinguishes_pooled_and_direct_connections() -> None:
