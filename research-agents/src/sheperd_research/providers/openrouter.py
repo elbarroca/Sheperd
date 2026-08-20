@@ -247,13 +247,22 @@ class OpenRouterProvider:
 
     @staticmethod
     def _error_code(error: BaseException) -> str:
+        chain = OpenRouterProvider._error_chain(error)
         message = f"{type(error).__name__} {error}".lower()
-        if (
-            "429" in message
-            or "rate limit" in message
-            or "rate_limit" in message
-            or "too many requests" in message
-            or "toomanyrequests" in message
+        if any(
+            any(
+                marker in f"{type(item).__name__} {item}".lower()
+                for marker in (
+                    "429",
+                    "rate limit",
+                    "rate_limit",
+                    "too many requests",
+                    "toomanyrequests",
+                )
+            )
+            or getattr(item, "status_code", None) == 429
+            or getattr(getattr(item, "response", None), "status_code", None) == 429
+            for item in chain
         ):
             return "rate_limit"
         if OpenRouterProvider._is_transport_timeout(error):

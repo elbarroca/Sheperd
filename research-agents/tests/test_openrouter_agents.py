@@ -100,6 +100,11 @@ class TimeoutRateLimitAgent:
         raise TimeoutError("429 rate limit")
 
 
+class WrappedTimeoutRateLimitAgent:
+    async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+        raise RuntimeError("wrapped provider error") from TimeoutError("429 rate limit")
+
+
 def test_rate_limit_fails_without_retry_or_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -176,6 +181,24 @@ def test_timeout_typed_rate_limit_does_not_trigger_retry(
         openrouter_module,
         "create_agent",
         lambda *, model, **__: TimeoutRateLimitAgent(),
+    )
+
+    with pytest.raises(ProviderError, match="OpenRouter health failed"):
+        asyncio.run(provider.health_check())
+
+    assert len(provider.call_history) == 1
+    assert provider.call_history[0]["error_code"] == "rate_limit"
+
+
+def test_chained_rate_limit_fails_without_timeout_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+    monkeypatch.setattr(
+        openrouter_module,
+        "create_agent",
+        lambda *, model, **__: WrappedTimeoutRateLimitAgent(),
     )
 
     with pytest.raises(ProviderError, match="OpenRouter health failed"):

@@ -148,3 +148,33 @@ Covering tests
 
 Concerns
 - The repository still contains unrelated staged and untracked work outside this fix. This round is being committed by explicit pathspec so only the strict Task 1 policy surface, its regressions, and this report update land.
+
+---
+
+Fix round 4
+
+Status
+- DONE_WITH_CONCERNS
+
+Changed files
+- research-agents/src/sheperd_research/providers/openrouter.py
+- research-agents/tests/test_openrouter_agents.py
+- .superpowers/sdd/2026-08-20-sheperd-strict-agentic-research/task-1-report.md
+
+Commit hashes
+- prior fix round 3 commit: 8aab2598e02e8e1ab3518ad9e94c5d69a17209cb
+
+Exact tests and outputs
+- `cd research-agents && uv run pytest tests/test_openrouter_agents.py::test_chained_rate_limit_fails_without_timeout_retry` before the fix
+  - `1 failed in 0.43s` (`len(provider.call_history)` was `2`, expected `1`; attempts were classified as `timeout`)
+- `cd research-agents && uv run pytest tests/test_openrouter_agents.py::test_chained_rate_limit_fails_without_timeout_retry` after the fix
+  - `1 passed in 0.19s`
+- `cd research-agents && uv run pytest tests/test_openrouter_agents.py tests/test_provider_failures.py`
+  - `20 passed in 0.25s`
+- `cd research-agents && uv run ruff check src/sheperd_research tests/test_openrouter_agents.py tests/test_provider_failures.py`
+  - `All checks passed!`
+- `cd research-agents && uv run mypy src/sheperd_research`
+  - `Success: no issues found in 19 source files`
+
+Concerns
+- The repository still contains unrelated staged and untracked work outside this fix. This round is committed by explicit pathspec so only the remaining OpenRouter classification fix, its regression, and this report update land.
