@@ -108,3 +108,46 @@ The frontend commands emitted the existing Node 24.x package-engine warning unde
 
 - Implementation: `2845ad2f1cb9a1c84d13677ba8ac4f81559063ca` (`fix: harden audit receipts and API readiness`)
 - Fix-round 2 report: follow-up documentation commit containing this section.
+
+## Task 4 fix round 3
+
+### Status
+
+PASS. The three requested reviewer findings are implemented with focused regression coverage.
+
+### Changed behavior
+
+- Mounted the read-only report experience in production at `/`, `/reports/[run_id]`, and `/monthly`. The weekly list uses `ReportLink`, the detail route mounts `ReportAccordion`, and all three routes render the explicit unavailable state without fallback data.
+- Added a public run projection used by report payloads, `/api/runs/{run_id}`, and `/api/runs/{run_id}/audit`. It preserves `run_id`, `topic_set`, `status`, `as_of`, `error`, Neon branch, and migration fields while excluding the internal request and seed URLs.
+- Required report detail payloads to have matching `brief.run_id`, `run.run_id`, and `validation.run_id` for the requested run. Weekly list payloads also reject inconsistent report identities; malformed or cross-run payloads return `unavailable`.
+
+### Changed files
+
+- `research-agents/src/sheperd_research/web.py`
+- `research-agents/tests/test_web.py`
+- `founder-intelligence/src/lib/research-api.ts`
+- `founder-intelligence/src/lib/research-api.test.ts`
+- `founder-intelligence/src/components/report-accordion.test.tsx`
+- `founder-intelligence/src/app/page.tsx`
+- `founder-intelligence/src/app/reports/[run_id]/page.tsx`
+- `founder-intelligence/src/app/monthly/page.tsx`
+- `founder-intelligence/src/app/routes.test.tsx`
+
+### Exact verification commands and results
+
+- `uv run pytest tests/test_web.py` — **2 passed**.
+- `uv run ruff check src/sheperd_research/web.py tests/test_web.py` — **All checks passed**.
+- `uv run mypy src/sheperd_research/web.py` — **Success: no issues found in 1 source file**.
+- `pnpm exec vitest run src/lib/research-api.test.ts src/app/routes.test.tsx src/components/report-accordion.test.tsx` — **3 test files, 12 tests passed**.
+- `pnpm test` — **19 test files, 59 tests passed**.
+- `pnpm lint` — **passed**.
+- `pnpm typecheck` — **passed**.
+- `pnpm exec next build` — **passed**; Next.js 16.2.10 compiled and exposed `/`, `/monthly`, `/reports/[run_id]`, `/sources`, and `/robots.txt`.
+- `git diff --check -- research-agents/src/sheperd_research/web.py research-agents/tests/test_web.py founder-intelligence/src/lib/research-api.ts founder-intelligence/src/lib/research-api.test.ts founder-intelligence/src/components/report-accordion.test.tsx` — **passed with no output**.
+
+The frontend commands emitted the existing Node 24.x package-engine warning under Node 26.0.0; it did not affect results.
+
+### Concerns
+
+- The migration was not applied to a live Neon branch in this run; no Neon credential or connection was available or used.
+- Existing dirty migration/rename, website, recovery, generated, and stylesheet work remains outside the scoped changes.
