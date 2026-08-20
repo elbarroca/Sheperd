@@ -150,3 +150,53 @@ unsucceeded, or operation-invalid tool result.
 
 - No live Tavily or OpenRouter request was made. Results without configured
   domain/query evidence or returned geography remain fail-closed by design.
+
+## Fix Round 4
+
+### Status
+
+Completed. Malformed, unknown, and unpaired tool activity is retained as failed,
+redacted audit evidence; Search and Extract success payloads now require exact
+schemas. Geography configuration contains only scoped domains and query families.
+
+### Commits
+
+- `27d6d16 fix: close Task 2 receipt review`
+- `572c739 chore: track research provider dependencies`
+
+### Files
+
+- `research-agents/src/sheperd_research/providers/openrouter.py`
+- `research-agents/tests/test_openrouter_agents.py`
+- `research-agents/config/topics.yml`
+- `research-agents/src/sheperd_research/topics.py`
+- `research-agents/src/sheperd_research/__init__.py`
+- `research-agents/src/sheperd_research/providers/__init__.py`
+- `research-agents/src/sheperd_research/providers/errors.py`
+- `research-agents/src/sheperd_research/validators.py`
+
+### Fixes
+
+- Preserves every parsed receipt in failed-attempt metadata, marks unknown tools
+  failed, and emits one redacted failed receipt for malformed top-level results.
+- Requires exact Search and Extract payload keys, typed source fields and URLs,
+  a non-boolean integer extraction count, and count equality.
+- Removes `apmterminals.com`, `maersk.com`, `hapag-lloyd.com`, and `gcaptain.com`
+  from geography-scoped discovery domains; removes the unscoped fifth query and
+  recognizes Houston as Gulf evidence. Tests cover every remaining domain and query.
+- Tracks the minimal topic/package/provider files required for the Task 2 tests to
+  import from a clean checkout without relying on unrelated untracked files.
+
+### Verification
+
+- `uv run pytest tests/test_openrouter_agents.py -q` — passed.
+- Clean detached worktree focused run — 34 passed; package import resolved inside
+  the detached worktree.
+- `uv run pytest` — 82 passed.
+- `uv run ruff check src tests` — passed.
+- `uv run mypy src` — passed (19 source files).
+
+### Concerns
+
+- No live Tavily or OpenRouter request was made. Exact Gemma, no fallback, Search +
+  Extract, redaction, budgets, and citation gates remain unchanged.
