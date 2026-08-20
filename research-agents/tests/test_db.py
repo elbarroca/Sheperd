@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 from psycopg import OperationalError
@@ -16,6 +17,21 @@ from sheperd_research.contracts import (
     SourceCandidate,
 )
 from sheperd_research.db import InMemoryRepository, PostgresRepository
+
+
+def test_task4_migration_adds_structured_audit_indexes_without_raw_storage() -> None:
+    migration = (
+        Path(__file__).parents[1] / "migrations" / "0008_audit_surfaces.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS sanitized_args JSONB" in migration
+    assert "agent_tool_calls_run_lane_idx" in migration
+    assert "source_snapshots_run_hash_idx" in migration
+    assert "article_distillations_run_evidence_idx" in migration
+    assert "claims_run_evidence_idx" in migration
+    assert "signal_events_run_evidence_idx" in migration
+    assert "vector" not in migration.lower()
+    assert "CREATE TABLE" not in migration.upper()
 
 
 def test_repository_filters_and_exposes_run_artifacts() -> None:
@@ -80,6 +96,74 @@ def test_repository_filters_and_exposes_run_artifacts() -> None:
     assert repository.get_run_steps("run-1")[0]["duration_ms"] == 12
     assert repository.get_run_distillations("run-1")[0].claims[0].claim == claim.claim
     assert repository.get_run_signal_events("run-1")[0].event_id == "event-1"
+
+
+def test_in_memory_repository_exposes_structured_step_audit_and_source_hashes() -> None:
+    repository = InMemoryRepository()
+    request = ResearchRunRequest(topic_set="dnd-port")
+    repository.create_run("audit-run", request)
+    source = SourceCandidate(url="https://example.com/audit")
+    repository.record_source(source)
+    repository.record_snapshot("audit-run", source, "hashed evidence")
+    repository.record_step(
+        "audit-run",
+        "critic",
+        "succeeded",
+        {
+            "call": {
+                "requested_model": "google/gemma-4-26b-a4b-it:free",
+                "resolved_model": "google/gemma-4-26b-a4b-it:free",
+                "prompt_version": "critic-v4",
+                "request_id": "request-1",
+                "input_tokens": 11,
+                "output_tokens": 7,
+                "total_tokens": 18,
+                "tool_calls": 0,
+            }
+        },
+        lane="system",
+        attempt=1,
+        duration_ms=25,
+        input_hash="input-hash",
+        output_hash="output-hash",
+    )
+
+    step = repository.get_run_steps("audit-run")[0]
+
+    assert step["requested_model"] == "google/gemma-4-26b-a4b-it:free"
+    assert step["resolved_model"] == "google/gemma-4-26b-a4b-it:free"
+    assert step["prompt_version"] == "critic-v4"
+    assert step["total_tokens"] == 18
+    assert repository.get_run_snapshot_hashes("audit-run")
+
+
+def test_postgres_repository_persists_sanitized_tool_arguments() -> None:
+    repository = PostgresRepository(Mock())
+
+    with patch.object(repository, "_execute", side_effect=[[(7,)], []]) as execute:
+        repository.record_tool_calls(
+            "audit-run",
+            "discovery:regulatory",
+            1,
+            "regulatory",
+            [
+                {
+                    "call_index": 0,
+                    "tool_name": "tavily_search",
+                    "sanitized_args": {"query": "fmc enforcement", "url_count": 0},
+                    "input_hash": "input-hash",
+                    "result_hash": "result-hash",
+                    "result_count": 2,
+                    "latency_ms": 31,
+                    "status": "succeeded",
+                }
+            ],
+        )
+
+    query = execute.call_args_list[1].args[0]
+
+    assert "sanitized_args" in query
+    assert execute.call_args_list[1].args[1][9] == '{"query": "fmc enforcement", "url_count": 0}'
 
 
 def test_repository_keeps_report_sections_and_monthly_rollups() -> None:

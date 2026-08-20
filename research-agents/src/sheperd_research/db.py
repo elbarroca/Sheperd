@@ -23,7 +23,24 @@ from .contracts import (
 )
 from .validators import content_hash, normalize_url
 
-MIGRATION_VERSION = "0007_redact_checkpoint_transients"
+MIGRATION_VERSION = "0008_audit_surfaces"
+
+
+def _sanitized_tool_args(receipt: dict[str, object]) -> dict[str, object]:
+    """Keep the small allow-list of tool arguments needed for audit display."""
+    raw_args = receipt.get("sanitized_args")
+    args = raw_args if isinstance(raw_args, dict) else receipt
+    sanitized: dict[str, object] = {}
+    query = args.get("query")
+    if isinstance(query, str):
+        sanitized["query"] = query[:400]
+    url_count = args.get("url_count")
+    if isinstance(url_count, int) and not isinstance(url_count, bool):
+        sanitized["url_count"] = max(0, url_count)
+    urls = args.get("urls")
+    if isinstance(urls, list) and "url_count" not in sanitized:
+        sanitized["url_count"] = len(urls)
+    return sanitized
 
 
 def _seed_safe_source(source: SourceCandidate) -> SourceCandidate:
@@ -75,6 +92,9 @@ class RepositoryProtocol(Protocol):
         *,
         run_id: str | None = None,
         query: str = "",
+        evidence_status: EvidenceStatus | str | None = None,
+        lane: str | None = None,
+        geography: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[ArticleDistillation]: ...
@@ -83,6 +103,7 @@ class RepositoryProtocol(Protocol):
         self,
         *,
         run_id: str | None = None,
+        query: str = "",
         evidence_status: EvidenceStatus | str | None = None,
         limit: int = 100,
         offset: int = 0,
@@ -93,6 +114,8 @@ class RepositoryProtocol(Protocol):
         *,
         run_id: str | None = None,
         geography: str | None = None,
+        event_type: str | None = None,
+        evidence_status: EvidenceStatus | str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[SignalEvent]: ...
@@ -175,6 +198,8 @@ class RepositoryProtocol(Protocol):
         *,
         since: datetime | None = None,
         until: datetime | None = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[dict[str, object]]: ...
 
     def health(self) -> dict[str, object]: ...
@@ -204,6 +229,9 @@ class InMemoryRepository:
                 "request": request,
                 "status": RunStatus.RUNNING,
                 "started_at": datetime.now().astimezone(),
+                "as_of": request.as_of,
+                "model_id": request.model,
+                "prompt_version": None,
                 "neon_branch_id": None,
                 "migration_version": MIGRATION_VERSION,
                 "error": None,
@@ -240,6 +268,9 @@ class InMemoryRepository:
             ),
             None,
         )
+        call_metadata = metadata.get("call")
+        if not isinstance(call_metadata, dict):
+            call_metadata = metadata
         record: dict[str, object] = {
             "run_id": run_id,
             "agent_name": agent_name,
@@ -251,6 +282,19 @@ class InMemoryRepository:
             "input_hash": input_hash,
             "output_hash": output_hash,
             "error_code": error_code,
+            "requested_model": call_metadata.get("requested_model"),
+            "resolved_model": call_metadata.get("resolved_model"),
+            "prompt_version": call_metadata.get("prompt_version"),
+            "request_id": call_metadata.get("request_id"),
+            "input_tokens": call_metadata.get("input_tokens"),
+            "output_tokens": call_metadata.get("output_tokens"),
+            "total_tokens": call_metadata.get("total_tokens"),
+            "wall_clock_ms": duration_ms,
+            "model_index": call_metadata.get("model_index"),
+            "fallback_reason": call_metadata.get("fallback_reason"),
+            "tool_calls": call_metadata.get("tool_calls", 0),
+            "capability_manifest_hash": call_metadata.get("capability_manifest_hash"),
+            "required_tools": call_metadata.get("required_tools", []),
         }
         if existing is None:
             self.steps.append(record)
@@ -282,14 +326,23 @@ class InMemoryRepository:
         receipts: list[dict[str, object]],
     ) -> None:
         for receipt in receipts:
+            call_index = receipt.get("call_index", 0)
             record = {
                 "run_id": run_id,
                 "agent_name": agent_name,
                 "attempt": attempt,
                 "lane": lane,
-                **receipt,
+                "call_index": call_index,
+                "tool_name": receipt.get("tool_name", "unknown"),
+                "sanitized_args": _sanitized_tool_args(receipt),
+                "input_hash": receipt.get("input_hash"),
+                "result_hash": receipt.get("result_hash"),
+                "result_count": receipt.get("result_count"),
+                "latency_ms": receipt.get("latency_ms"),
+                "status": receipt.get("status", "unknown"),
+                "error_code": receipt.get("error_code"),
             }
-            key = (run_id, agent_name, attempt, receipt.get("call_index"))
+            key = (run_id, agent_name, attempt, call_index)
             if not any(
                 (
                     item.get("run_id"),
@@ -310,17 +363,40 @@ class InMemoryRepository:
         *,
         run_id: str | None = None,
         query: str = "",
+        evidence_status: EvidenceStatus | str | None = None,
+        lane: str | None = None,
+        geography: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[ArticleDistillation]:
         needle = query.lower().strip()
+        expected_evidence = getattr(evidence_status, "value", evidence_status)
         values = [
             item
             for (current_run, _), item in self.distillations.items()
             if (run_id is None or current_run == run_id)
             and (
                 not needle
-                or needle in f"{item.summary} {' '.join(item.key_points)}".lower()
+                or needle
+                in f"{item.source_url} {item.summary} {' '.join(item.key_points)}".lower()
+            )
+            and (
+                expected_evidence is None
+                or item.evidence_status.value == expected_evidence
+            )
+            and (
+                lane is None
+                or (
+                    source := self.sources.get(normalize_url(item.source_url))
+                ) is not None
+                and source.lane == lane
+            )
+            and (
+                geography is None
+                or (
+                    source := self.sources.get(normalize_url(item.source_url))
+                ) is not None
+                and geography in source.geographies
             )
         ]
         bounded_limit = max(1, min(limit, 1000))
@@ -330,15 +406,18 @@ class InMemoryRepository:
         self,
         *,
         run_id: str | None = None,
+        query: str = "",
         evidence_status: EvidenceStatus | str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[ClaimDraft]:
+        needle = query.lower().strip()
         expected = getattr(evidence_status, "value", evidence_status)
         values = [
             claim
             for (current_run, _, _), claim in self.claims.items()
             if (run_id is None or current_run == run_id)
+            and (not needle or needle in claim.claim.lower())
             and (expected is None or claim.evidence_status.value == expected)
         ]
         bounded_limit = max(1, min(limit, 1000))
@@ -349,14 +428,19 @@ class InMemoryRepository:
         *,
         run_id: str | None = None,
         geography: str | None = None,
+        event_type: str | None = None,
+        evidence_status: EvidenceStatus | str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[SignalEvent]:
+        expected = getattr(evidence_status, "value", evidence_status)
         values = [
             event
             for event in self.signal_events.values()
             if (run_id is None or event.run_id == run_id)
             and (geography is None or geography in event.geographies)
+            and (event_type is None or event.event_type == event_type)
+            and (expected is None or event.evidence_status.value == expected)
         ]
         bounded_limit = max(1, min(limit, 1000))
         return values[max(0, offset) : max(0, offset) + bounded_limit]
@@ -551,6 +635,8 @@ class InMemoryRepository:
         *,
         since: datetime | None = None,
         until: datetime | None = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[dict[str, object]]:
         buckets: dict[str, dict[str, object]] = {}
         for event in self.signal_events.values():
@@ -573,7 +659,7 @@ class InMemoryRepository:
                 cast_runs.add(event.run_id)
             if isinstance(cast_geographies, set):
                 cast_geographies.update(event.geographies)
-        return [
+        values = [
             {
                 "month": month,
                 "signals": cast(int, bucket["signals"]),
@@ -584,6 +670,8 @@ class InMemoryRepository:
             }
             for month, bucket in sorted(buckets.items(), reverse=True)
         ]
+        bounded_limit = max(1, min(limit, 1000))
+        return values[max(0, offset) : max(0, offset) + bounded_limit]
 
     def health(self) -> dict[str, object]:
         return {
@@ -690,15 +778,19 @@ class PostgresRepository:
         )
         step_id = step_rows[0][0] if step_rows else None
         for receipt in receipts:
+            sanitized_args = _sanitized_tool_args(receipt)
             urls = receipt.get("urls")
             self._execute(
                 """
                 INSERT INTO agent_tool_calls (
                     run_id, agent_step_id, agent_name, lane, attempt, call_index,
-                    tool_name, query, urls, input_hash, result_hash, result_count,
-                    latency_ms, status, error_code
+                    tool_name, query, urls, sanitized_args, input_hash, result_hash,
+                    result_count, latency_ms, status, error_code
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s)
+                VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb,
+                    %s, %s, %s, %s, %s, %s
+                )
                 ON CONFLICT (run_id, agent_name, attempt, call_index) DO NOTHING
                 """,
                 (
@@ -709,8 +801,9 @@ class PostgresRepository:
                     attempt,
                     receipt.get("call_index", 0),
                     receipt.get("tool_name", "unknown"),
-                    receipt.get("query"),
+                    sanitized_args.get("query"),
                     json.dumps(urls if isinstance(urls, list) else []),
+                    json.dumps(sanitized_args, sort_keys=True),
                     receipt.get("input_hash", content_hash(json.dumps(receipt, sort_keys=True))),
                     receipt.get("result_hash"),
                     receipt.get("result_count"),
@@ -724,8 +817,8 @@ class PostgresRepository:
         rows = self._execute(
             """
             SELECT agent_step_id, agent_name, lane, attempt, call_index, tool_name,
-                   query, urls, input_hash, result_hash, result_count, latency_ms,
-                   status, error_code, created_at
+                   query, urls, sanitized_args, input_hash, result_hash, result_count,
+                   latency_ms, status, error_code, created_at
             FROM agent_tool_calls
             WHERE run_id = %s
             ORDER BY created_at, tool_call_id
@@ -734,8 +827,9 @@ class PostgresRepository:
         )
         fields = (
             "agent_step_id", "agent_name", "lane", "attempt", "call_index",
-            "tool_name", "query", "urls", "input_hash", "result_hash",
-            "result_count", "latency_ms", "status", "error_code", "created_at",
+            "tool_name", "query", "urls", "sanitized_args", "input_hash",
+            "result_hash", "result_count", "latency_ms", "status", "error_code",
+            "created_at",
         )
         return [dict(zip(fields, row, strict=True)) for row in rows]
 
@@ -1414,6 +1508,9 @@ class PostgresRepository:
         *,
         run_id: str | None = None,
         query: str = "",
+        evidence_status: EvidenceStatus | str | None = None,
+        lane: str | None = None,
+        geography: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[ArticleDistillation]:
@@ -1423,8 +1520,19 @@ class PostgresRepository:
             clauses.append("ad.run_id = %s")
             params.append(run_id)
         if query.strip():
-            clauses.append("ad.summary ILIKE %s")
+            clauses.append("(ad.summary ILIKE %s OR ad.normalized_url ILIKE %s)")
             params.append(f"%{query.strip()}%")
+            params.append(f"%{query.strip()}%")
+        evidence_value = getattr(evidence_status, "value", evidence_status)
+        if evidence_value is not None:
+            clauses.append("ad.evidence_status = %s")
+            params.append(evidence_value)
+        if lane is not None:
+            clauses.append("s.lane = %s")
+            params.append(lane)
+        if geography is not None:
+            clauses.append("%s = ANY(s.geographies)")
+            params.append(geography)
         params.extend((max(1, min(limit, 1000)), max(0, offset)))
         rows = self._execute(
             """
@@ -1459,6 +1567,7 @@ class PostgresRepository:
         self,
         *,
         run_id: str | None = None,
+        query: str = "",
         evidence_status: EvidenceStatus | str | None = None,
         limit: int = 100,
         offset: int = 0,
@@ -1468,6 +1577,9 @@ class PostgresRepository:
         if run_id is not None:
             clauses.append("run_id = %s")
             params.append(run_id)
+        if query.strip():
+            clauses.append("claim_text ILIKE %s")
+            params.append(f"%{query.strip()}%")
         expected = getattr(evidence_status, "value", evidence_status)
         if expected is not None:
             clauses.append("evidence_status = %s")
@@ -1497,6 +1609,8 @@ class PostgresRepository:
         *,
         run_id: str | None = None,
         geography: str | None = None,
+        event_type: str | None = None,
+        evidence_status: EvidenceStatus | str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[SignalEvent]:
@@ -1508,6 +1622,13 @@ class PostgresRepository:
         if geography is not None:
             clauses.append("%s = ANY(geographies)")
             params.append(geography)
+        if event_type is not None:
+            clauses.append("event_type = %s")
+            params.append(event_type)
+        evidence_value = getattr(evidence_status, "value", evidence_status)
+        if evidence_value is not None:
+            clauses.append("evidence_status = %s")
+            params.append(evidence_value)
         params.extend((max(1, min(limit, 1000)), max(0, offset)))
         rows = self._execute(
             "SELECT event_id, run_id, event_type, summary, geographies, ports, carriers, "
@@ -1680,6 +1801,8 @@ class PostgresRepository:
         *,
         since: datetime | None = None,
         until: datetime | None = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[dict[str, object]]:
         clauses = ["TRUE"]
         params: list[object] = []
@@ -1689,6 +1812,7 @@ class PostgresRepository:
         if until is not None:
             clauses.append("coalesce(se.event_at, se.created_at) <= %s")
             params.append(until)
+        params.extend((max(1, min(limit, 1000)), max(0, offset)))
         rows = self._execute(
             "SELECT date_trunc('month', coalesce(se.event_at, se.created_at))::date, "
             "count(DISTINCT se.event_id), count(DISTINCT se.run_id), "
@@ -1696,7 +1820,7 @@ class PostgresRepository:
             "FROM signal_events se "
             "LEFT JOIN LATERAL unnest(se.geographies) AS geography(value) ON TRUE "
             f"WHERE {' AND '.join(clauses)} "
-            "GROUP BY 1 ORDER BY 1 DESC",
+            "GROUP BY 1 ORDER BY 1 DESC LIMIT %s OFFSET %s",
             tuple(params),
         )
         return [
