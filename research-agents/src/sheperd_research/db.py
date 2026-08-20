@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, cast
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
@@ -1038,6 +1038,7 @@ class InMemoryRepository:
                 continue
             if until is not None and event_at > until:
                 continue
+            utc_event_at = event_at.astimezone(UTC)
             source_matches: list[SourceCandidate | None] = [
                 self.sources[normalize_url(url)]
                 for url in event.source_urls
@@ -1057,8 +1058,8 @@ class InMemoryRepository:
                 for geography in geographies:
                     groups.add(
                         (
-                            event_at.strftime("%Y-%m-01"),
-                            event_at.strftime("%Y-%m-%d"),
+                            utc_event_at.strftime("%Y-%m-01"),
+                            utc_event_at.strftime("%Y-%m-%d"),
                             lane,
                             geography,
                             authority,
@@ -2320,16 +2321,17 @@ class PostgresRepository:
         clauses = ["TRUE"]
         params: list[object] = []
         if since is not None:
-            clauses.append("event_rows.event_date >= %s")
+            clauses.append("event_rows.event_timestamp >= %s")
             params.append(since)
         if until is not None:
-            clauses.append("event_rows.event_date <= %s")
+            clauses.append("event_rows.event_timestamp <= %s")
             params.append(until)
         params.extend((max(1, min(limit, 1000)), max(0, offset)))
         rows = self._execute(
             "WITH event_rows AS ("
             "SELECT se.event_id, se.run_id, se.event_type, se.evidence_status, "
-            "coalesce(se.event_at, se.created_at) AS event_date, "
+            "coalesce(se.event_at, se.created_at) AS event_timestamp, "
+            "coalesce(se.event_at, se.created_at) AT TIME ZONE 'UTC' AS event_date, "
             "coalesce(nullif(s.lane, ''), 'unknown') AS lane, "
             "coalesce(nullif(s.publisher, ''), 'unknown') AS authority, "
             "CASE WHEN cardinality(se.geographies) > 0 THEN se.geographies "

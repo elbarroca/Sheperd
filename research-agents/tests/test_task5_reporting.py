@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
+from unittest.mock import Mock, patch
 
 import pytest
 from test_workflow import FakeLLM, FakeTavily
@@ -17,7 +18,7 @@ from sheperd_research.contracts import (
     SourceCandidate,
     WeeklyBrief,
 )
-from sheperd_research.db import InMemoryRepository
+from sheperd_research.db import InMemoryRepository, PostgresRepository
 from sheperd_research.providers.errors import ProviderError
 from sheperd_research.workflow import ResearchWorkflow
 
@@ -249,3 +250,53 @@ def test_monthly_rollup_groups_date_lane_geography_authority_signal_and_evidence
             "runs": 1,
         }
     ]
+
+
+def test_monthly_rollup_buckets_aware_events_in_utc_without_changing_range_filters() -> None:
+    repository = InMemoryRepository()
+    repository.create_run(
+        "utc-rollup-run",
+        ResearchRunRequest(topic_set="dnd-port", as_of=datetime(2026, 8, 1, tzinfo=UTC)),
+    )
+    source = SourceCandidate(url="https://example.com/utc-boundary")
+    repository.record_source(source)
+    repository.record_signal_events(
+        [
+            SignalEvent(
+                event_id="utc-rollup-event",
+                run_id="utc-rollup-run",
+                event_type="timezone",
+                summary="UTC boundary signal",
+                event_at=datetime(
+                    2026, 8, 1, 0, 30, tzinfo=timezone(timedelta(hours=14))
+                ),
+                geographies=["UTC test"],
+                source_urls=[source.url],
+            )
+        ]
+    )
+    since = datetime(2026, 7, 31, tzinfo=UTC)
+    until = datetime(2026, 8, 1, tzinfo=UTC)
+
+    assert repository.monthly_rollup(since=since, until=until) == [
+        {
+            "month": "2026-07-01",
+            "date": "2026-07-31",
+            "lane": "unassigned",
+            "geography": "UTC test",
+            "authority": "Unknown publisher",
+            "signal": "timezone",
+            "evidence": "unverified",
+            "signals": 1,
+            "runs": 1,
+        }
+    ]
+
+    postgres = PostgresRepository(Mock())
+    with patch.object(postgres, "_execute", return_value=[]) as execute:
+        assert postgres.monthly_rollup(since=since, until=until) == []
+    query, params = execute.call_args.args
+    assert "AT TIME ZONE 'UTC'" in query
+    assert "event_rows.event_timestamp >= %s" in query
+    assert "event_rows.event_timestamp <= %s" in query
+    assert params == (since, until, 100, 0)
