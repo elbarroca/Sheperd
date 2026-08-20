@@ -80,3 +80,31 @@ The frontend commands emitted the existing Node 24.x package-engine warning unde
 
 - Implementation: `0f0fca5869ce06d10578f1c396b02f4d7cc5705c` (`fix: redact audit metadata and block invalid reports`)
 - Fix-round report: follow-up documentation commit containing this section.
+
+## Task 4 fix round 2
+
+### Changed behavior
+
+- Tool-call persistence now reuses the audit redaction boundary for query text, receipt fields, and URL inputs. Queries are redacted when sensitive, URL lists are limited to validated HTTP(S) metadata with credentials/query strings removed, and hashes, counts, latency, status, and error codes remain available.
+- Reports are decision-ready only when `run.status === "succeeded"` and `validation.status === "pass"`. Missing, partial, failed, or unknown states show an explicit blocked/failed/partial alert with both observed statuses.
+- `research-api.ts` now validates health, weekly list/detail, monthly, and supporting evidence payloads before returning `ok`; malformed JSON shapes and unavailable HTTP responses return explicit `unavailable` results.
+- Added focused DB, UI state-matrix, API runtime-validation, and Vitest `server-only` test-alias coverage. No migration was added.
+
+### Exact verification commands and results
+
+- `uv run pytest tests/test_db.py::test_tool_call_persistence_redacts_sensitive_queries_and_urls tests/test_db.py::test_postgres_repository_persists_sanitized_tool_arguments` — **2 passed**.
+- `uv run pytest tests/test_db.py tests/test_web.py tests/test_workflow.py` — **28 passed**.
+- `uv run ruff check src tests` — **All checks passed**.
+- `uv run mypy src` — **Success: no issues found in 20 source files**.
+- `pnpm exec vitest run src/components/report-accordion.test.tsx src/lib/research-api.test.ts` — **2 test files, 8 tests passed**.
+- `pnpm lint` — **passed**.
+- `pnpm typecheck` — **passed**.
+- `pnpm test` — **18 test files, 55 tests passed**.
+- `git diff --cached --check` — **passed with no output** before the implementation commit.
+
+The frontend commands emitted the existing Node 24.x package-engine warning under Node 26.0.0; it did not affect results. The Vitest-only `server-only` alias is test infrastructure for the package’s existing server-only boundary; it does not alter production routing or credentials.
+
+### Fix-round 2 commits
+
+- Implementation: `2845ad2f1cb9a1c84d13677ba8ac4f81559063ca` (`fix: harden audit receipts and API readiness`)
+- Fix-round 2 report: follow-up documentation commit containing this section.
