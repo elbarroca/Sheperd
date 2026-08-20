@@ -1,0 +1,565 @@
+coverage_weights:
+  us: 0.6
+  mexico: 0.2
+  europe: 0.15
+  global: 0.05
+
+sources:
+  - source_id: us-fmc
+    region: us
+    jurisdiction: us-federal
+    authority_tier: primary
+    domain: fmc.gov
+    url: https://www.fmc.gov/
+    source_type: regulator
+    signal_types: [regulatory, enforcement, port-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: us-ecfr
+    region: us
+    jurisdiction: us-federal
+    authority_tier: primary
+    domain: ecfr.gov
+    url: https://www.ecfr.gov/current/title-46/chapter-IV/part-541
+    source_type: regulator
+    signal_types: [regulatory]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: weekly
+
+  - source_id: us-federal-register
+    region: us
+    jurisdiction: us-federal
+    authority_tier: primary
+    domain: federalregister.gov
+    url: https://www.federalregister.gov/
+    source_type: regulator
+    signal_types: [regulatory]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: us-dc-circuit
+    region: us
+    jurisdiction: us-federal-courts
+    authority_tier: primary
+    domain: cadc.uscourts.gov
+    url: https://www.cadc.uscourts.gov/
+    source_type: court
+    signal_types: [court-opinion]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: weekly
+
+  - source_id: us-courtlistener
+    region: us
+    jurisdiction: us-federal-courts
+    authority_tier: reference
+    domain: courtlistener.com
+    url: https://www.courtlistener.com/
+    source_type: public-records
+    signal_types: [court-opinion]
+    access: public-html
+    enabled: true
+    required: false
+    refresh_cadence: daily
+
+  - source_id: us-doj
+    region: us
+    jurisdiction: us-federal
+    authority_tier: primary
+    domain: justice.gov
+    url: https://www.justice.gov/
+    source_type: regulator
+    signal_types: [enforcement]
+    access: public-html
+    enabled: true
+    required: false
+    refresh_cadence: weekly
+
+  - source_id: us-ftc
+    region: us
+    jurisdiction: us-federal
+    authority_tier: primary
+    domain: ftc.gov
+    url: https://www.ftc.gov/
+    source_type: regulator
+    signal_types: [enforcement, regulatory]
+    access: public-html
+    enabled: true
+    required: false
+    refresh_cadence: weekly
+
+  - source_id: us-port-los-angeles
+    region: us
+    jurisdiction: west-coast
+    authority_tier: primary
+    domain: portoflosangeles.org
+    url: https://www.portoflosangeles.org/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: us-port-long-beach
+    region: us
+    jurisdiction: west-coast
+    authority_tier: primary
+    domain: polb.com
+    url: https://polb.com/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: us-port-oakland
+    region: us
+    jurisdiction: west-coast
+    authority_tier: primary
+    domain: oaklandca.gov
+    url: https://www.oaklandca.gov/topics/port-of-oakland
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: us-nwsa
+    region: us
+    jurisdiction: west-coast
+    authority_tier: primary
+    domain: nwseaportalliance.com
+    url: https://www.nwseaportalliance.com/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: us-port-seattle
+    region: us
+    jurisdiction: west-coast
+    authority_tier: primary
+    domain: portseattle.org
+    url: https://www.portseattle.org/
+    source_type: port-authority
+    signal_types: [port-operations]
+    access: public-html
+    enabled: true
+    required: false
+    refresh_cadence: weekly
+
+  - source_id: us-port-tacoma
+    region: us
+    jurisdiction: west-coast
+    authority_tier: primary
+    domain: portoftacoma.com
+    url: https://www.portoftacoma.com/
+    source_type: port-authority
+    signal_types: [port-operations]
+    access: public-html
+    enabled: true
+    required: false
+    refresh_cadence: weekly
+
+  - source_id: us-gaports
+    region: us
+    jurisdiction: east-coast
+    authority_tier: primary
+    domain: gaports.com
+    url: https://gaports.com/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: us-scspa
+    region: us
+    jurisdiction: east-coast
+    authority_tier: primary
+    domain: scspa.com
+    url: https://scspa.com/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: us-panynj
+    region: us
+    jurisdiction: east-coast
+    authority_tier: primary
+    domain: panynj.gov
+    url: https://www.panynj.gov/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: us-port-virginia
+    region: us
+    jurisdiction: east-coast
+    authority_tier: primary
+    domain: portofvirginia.com
+    url: https://www.portofvirginia.com/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: us-port-houston
+    region: us
+    jurisdiction: gulf
+    authority_tier: primary
+    domain: porthouston.com
+    url: https://porthouston.com/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: mx-manzanillo
+    region: mexico
+    jurisdiction: mexico-pacific
+    authority_tier: primary
+    domain: puertomanzanillo.com.mx
+    url: https://www.puertomanzanillo.com.mx/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: mx-lazaro-cardenas
+    region: mexico
+    jurisdiction: mexico-pacific
+    authority_tier: primary
+    domain: puertolazarocardenas.com.mx
+    url: https://www.puertolazarocardenas.com.mx/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: mx-veracruz
+    region: mexico
+    jurisdiction: mexico-gulf
+    authority_tier: primary
+    domain: puertodeveracruz.com.mx
+    url: https://www.puertodeveracruz.com.mx/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: mx-altamira
+    region: mexico
+    jurisdiction: mexico-gulf
+    authority_tier: primary
+    domain: puertoaltamira.com.mx
+    url: https://www.puertoaltamira.com.mx/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: mx-anam
+    region: mexico
+    jurisdiction: mexico-federal
+    authority_tier: primary
+    domain: anam.gob.mx
+    url: https://anam.gob.mx/
+    source_type: customs
+    signal_types: [regulatory, trade-flow]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: weekly
+
+  - source_id: mx-sict
+    region: mexico
+    jurisdiction: mexico-federal
+    authority_tier: primary
+    domain: gob.mx
+    url: https://www.gob.mx/sict
+    source_type: customs
+    signal_types: [regulatory, trade-flow]
+    access: public-html
+    enabled: true
+    required: false
+    refresh_cadence: weekly
+
+  - source_id: eu-dg-move
+    region: europe
+    jurisdiction: eu
+    authority_tier: primary
+    domain: transport.ec.europa.eu
+    url: https://transport.ec.europa.eu/
+    source_type: regulator
+    signal_types: [regulatory, trade-flow]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: weekly
+
+  - source_id: eu-emsa
+    region: europe
+    jurisdiction: eu
+    authority_tier: primary
+    domain: emsa.europa.eu
+    url: https://www.emsa.europa.eu/
+    source_type: intergovernmental
+    signal_types: [port-operations, trade-flow]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: weekly
+
+  - source_id: eu-eurostat
+    region: europe
+    jurisdiction: eu
+    authority_tier: primary
+    domain: ec.europa.eu
+    url: https://ec.europa.eu/eurostat
+    source_type: economic-data
+    signal_types: [trade-flow, macro]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: monthly
+
+  - source_id: eu-rotterdam
+    region: europe
+    jurisdiction: europe-port
+    authority_tier: primary
+    domain: portofrotterdam.com
+    url: https://www.portofrotterdam.com/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: eu-antwerp-bruges
+    region: europe
+    jurisdiction: europe-port
+    authority_tier: primary
+    domain: portofantwerpbruges.com
+    url: https://www.portofantwerpbruges.com/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: eu-hamburg
+    region: europe
+    jurisdiction: europe-port
+    authority_tier: primary
+    domain: hamburg-port-authority.de
+    url: https://www.hamburg-port-authority.de/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: eu-valencia
+    region: europe
+    jurisdiction: europe-port
+    authority_tier: primary
+    domain: valenciaport.com
+    url: https://www.valenciaport.com/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: eu-barcelona
+    region: europe
+    jurisdiction: europe-port
+    authority_tier: primary
+    domain: portdebarcelona.cat
+    url: https://www.portdebarcelona.cat/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: eu-felixstowe
+    region: europe
+    jurisdiction: europe-port
+    authority_tier: primary
+    domain: portoffelixstowe.co.uk
+    url: https://www.portoffelixstowe.co.uk/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: eu-peel-ports
+    region: europe
+    jurisdiction: europe-port
+    authority_tier: primary
+    domain: peelports.com
+    url: https://www.peelports.com/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: global-imo
+    region: global
+    jurisdiction: global
+    authority_tier: primary
+    domain: imo.org
+    url: https://www.imo.org/
+    source_type: intergovernmental
+    signal_types: [regulatory, trade-flow]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: weekly
+
+  - source_id: global-unctad
+    region: global
+    jurisdiction: global
+    authority_tier: primary
+    domain: unctad.org
+    url: https://unctad.org/
+    source_type: intergovernmental
+    signal_types: [trade-flow, macro]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: weekly
+
+  - source_id: global-world-bank
+    region: global
+    jurisdiction: global
+    authority_tier: primary
+    domain: worldbank.org
+    url: https://www.worldbank.org/
+    source_type: economic-data
+    signal_types: [trade-flow, macro]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: monthly
+
+  - source_id: global-imf-portwatch
+    region: global
+    jurisdiction: global
+    authority_tier: primary
+    domain: portwatch.imf.org
+    url: https://portwatch.imf.org/
+    source_type: economic-data
+    signal_types: [port-operations, trade-flow, macro]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: global-wto
+    region: global
+    jurisdiction: global
+    authority_tier: primary
+    domain: wto.org
+    url: https://www.wto.org/
+    source_type: intergovernmental
+    signal_types: [trade-flow, regulatory]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: weekly
+
+  - source_id: trade-gcaptain
+    region: global
+    jurisdiction: public-trade
+    authority_tier: trade-press
+    domain: gcaptain.com
+    url: https://gcaptain.com/
+    source_type: trade-media
+    signal_types: [market-commentary, port-operations]
+    access: public-html
+    enabled: true
+    required: false
+    refresh_cadence: daily
+
+  - source_id: trade-container-news
+    region: global
+    jurisdiction: public-trade
+    authority_tier: trade-press
+    domain: container-news.com
+    url: https://container-news.com/
+    source_type: trade-media
+    signal_types: [market-commentary, port-operations]
+    access: public-html
+    enabled: true
+    required: false
+    refresh_cadence: daily
+
+  - source_id: trade-loadstar
+    region: global
+    jurisdiction: public-trade
+    authority_tier: trade-press
+    domain: theloadstar.com
+    url: https://theloadstar.com/
+    source_type: trade-media
+    signal_types: [market-commentary, trade-flow]
+    access: public-html
+    enabled: true
+    required: false
+    refresh_cadence: daily
+
+  - source_id: trade-splash247
+    region: global
+    jurisdiction: public-trade
+    authority_tier: trade-press
+    domain: splash247.com
+    url: https://splash247.com/
+    source_type: trade-media
+    signal_types: [market-commentary, trade-flow]
+    access: public-html
+    enabled: true
+    required: false
+    refresh_cadence: daily

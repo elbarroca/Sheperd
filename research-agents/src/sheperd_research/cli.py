@@ -40,6 +40,7 @@ from .providers.errors import ProviderError
 from .providers.openrouter import OpenRouterProvider
 from .providers.tavily import TavilyProvider
 from .settings import STRICT_OPENROUTER_MODEL, Settings, strict_openrouter_policy_error
+from .source_catalog import load_source_catalog, validate_required_sources
 from .topics import load_topic_configs
 from .validation import build_validation_report
 from .web import create_app
@@ -621,6 +622,69 @@ def _validate_command(args: argparse.Namespace, settings: Settings) -> int:
         repository.close()
 
 
+def _source_map_command(args: argparse.Namespace, settings: Settings) -> int:
+    del args.json
+    try:
+        catalog = load_source_catalog(settings.resolved_source_catalog_path)
+    except (FileNotFoundError, ValueError) as error:
+        _print_json({"status": "blocked", "message": str(error)})
+        return 2
+
+    statuses: dict[str, str] = {}
+    validation_message: str | None = None
+    if args.check:
+        if settings.tavily_api_key is None:
+            _print_json(
+                {
+                    "status": "blocked",
+                    "message": "Tavily credentials are required for source-map --check",
+                }
+            )
+            return 2
+        tavily = TavilyProvider(
+            settings.tavily_api_key.get_secret_value(),
+            settings.tavily_project_id,
+            timeout_seconds=15,
+        )
+        try:
+            observations = asyncio.run(validate_required_sources(catalog, tavily))
+            statuses = {
+                observation.source_id: observation.status
+                for observation in observations
+            }
+        except ProviderError as error:
+            validation_message = str(error)
+            statuses = {
+                source.source_id: "failed"
+                for source in catalog.required_sources()
+            }
+
+    failing_required = sorted(
+        source.source_id
+        for source in catalog.required_sources()
+        if statuses.get(source.source_id) not in {None, "pass"}
+    )
+    status = "pass"
+    if validation_message is not None or (args.check and failing_required):
+        status = "failed" if args.strict else "partial"
+
+    _print_json(
+        {
+            "status": status,
+            "summary": {
+                "sources": len(catalog.sources),
+                "enabled": len(catalog.enabled_sources()),
+                "required": len(catalog.required_sources()),
+                "coverage_weights": catalog.coverage_weights.as_dict(),
+                "required_failures": failing_required,
+                "validation_message": validation_message,
+            },
+            "sources": catalog.redacted_rows(statuses),
+        }
+    )
+    return 0 if status == "pass" or (status == "partial" and not args.strict) else 2
+
+
 def _review_command(args: argparse.Namespace, settings: Settings) -> int:
     if not _require_database(settings):
         return 2
@@ -713,6 +777,10 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser("doctor").add_argument("--json", action="store_true")
     subparsers.add_parser("mcp-check").add_argument("--json", action="store_true")
     subparsers.add_parser("model-check").add_argument("--json", action="store_true")
+    source_map = subparsers.add_parser("source-map")
+    source_map.add_argument("--check", action="store_true")
+    source_map.add_argument("--strict", action="store_true")
+    source_map.add_argument("--json", action="store_true")
     subparsers.add_parser("dashboard")
     subparsers.add_parser("migrate")
 
@@ -754,6 +822,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = asyncio.run(run_model_check(settings))
         _print_json(result)
         return 0 if result["status"] == "pass" else 2
+    if args.command == "source-map":
+        return _source_map_command(args, settings)
     if args.command == "validate":
         return _validate_command(args, settings)
     if args.command == "review":

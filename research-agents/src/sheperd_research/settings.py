@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     openrouter_fallback_models: str = ""
     research_timezone: str = "Europe/Lisbon"
     topics_path: Path = Path("config/topics.yml")
+    source_catalog_path: Path = Path("config/source_catalog.yml")
     obsidian_output_dir: Path = Path("06_Research/Agent Runs")
     host: str = "127.0.0.1"
     port: int = 8787
@@ -109,6 +110,12 @@ class Settings(BaseSettings):
         if self.topics_path.is_absolute():
             return self.topics_path
         return self.research_agents_root / self.topics_path
+
+    @property
+    def resolved_source_catalog_path(self) -> Path:
+        if self.source_catalog_path.is_absolute():
+            return self.source_catalog_path
+        return self.research_agents_root / self.source_catalog_path
 
     @property
     def resolved_obsidian_output_dir(self) -> Path:

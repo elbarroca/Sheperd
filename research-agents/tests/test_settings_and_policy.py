@@ -27,6 +27,10 @@ def test_settings_resolve_root_env_and_vault_paths(monkeypatch: pytest.MonkeyPat
     assert settings.repo_root == root
     assert settings.vault_root == root / "obsidian"
     assert settings.resolved_topics_path == root / "research-agents/config/topics.yml"
+    assert (
+        settings.resolved_source_catalog_path
+        == root / "research-agents/config/source_catalog.yml"
+    )
     assert settings.resolved_obsidian_output_dir == root / "obsidian/06_Research/Agent Runs"
 
 

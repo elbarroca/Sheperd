@@ -596,10 +596,10 @@ def test_discovery_maps_every_configured_query_family_from_domain_evidence() -> 
         assert expected_geography in enriched.geographies
 
     query_cases = (
-        (queries[0], {"Regulatory", "United States"}),
-        (queries[1], {"West Coast"}),
-        (queries[2], {"East Coast", "Gulf"}),
-        (queries[3], {"Mexico"}),
+        (queries[0], set()),
+        (queries[1], set()),
+        (queries[2], set()),
+        (queries[3], set()),
     )
     assert len(queries) == len(query_cases)
     for query, expected_geographies in query_cases:
@@ -611,6 +611,17 @@ def test_discovery_maps_every_configured_query_family_from_domain_evidence() -> 
         )
 
         assert set(enriched.geographies) == expected_geographies
+
+    carrier_or_media_hosts = ("maersk.com", "gcaptain.com")
+    for host in carrier_or_media_hosts:
+        enriched = OpenRouterProvider._enrich_discovery_geographies(
+            SourceCandidate(url=f"https://www.{host}/article", topics=[queries[2]]),
+            ("Regulatory", "United States", "West Coast", "East Coast", "Gulf", "Mexico"),
+            queries,
+            [host],
+        )
+
+        assert enriched.geographies == []
 
     assert not {
         "apmterminals.com",
@@ -637,6 +648,31 @@ def test_missing_topics_config_uses_the_configured_allowlist(tmp_path: Path) -> 
 
     assert fallback["dnd-port"].include_domains == configured["dnd-port"].include_domains
     assert fallback["dnd-port"].exclude_domains == configured["dnd-port"].exclude_domains
+
+
+def test_scoped_topics_fail_closed_without_mandatory_exclusions(tmp_path: Path) -> None:
+    topic_path = tmp_path / "topics.yml"
+    topic_path.write_text(
+        "\n".join(
+            [
+                "topics:",
+                "  dnd-port:",
+                "    description: scoped topic",
+                "    queries:",
+                "      - latest los angeles port update",
+                "    geographies:",
+                "      - West Coast",
+                "    include_domains:",
+                "      - portoflosangeles.org",
+                "    exclude_domains: []",
+                "    lookback_days: 14",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="mandatory exclusions"):
+        load_topic_configs(topic_path)
 
 
 def test_tool_receipts_fail_closed_on_malformed_and_unpaired_messages() -> None:

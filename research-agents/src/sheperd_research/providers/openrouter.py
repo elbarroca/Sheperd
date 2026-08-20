@@ -30,6 +30,7 @@ from ..contracts import (
     is_free_model,
 )
 from ..settings import STRICT_OPENROUTER_MODEL, strict_openrouter_policy_error
+from ..source_catalog import authoritative_geography_domain_catalog
 from ..validators import can_extract_url, normalize_url
 from .capabilities import CapabilityReport
 from .errors import ProviderError
@@ -45,30 +46,7 @@ MAX_DISCOVERY_SOURCES = 8
 MAX_DISCOVERY_TOOL_CALLS = 6
 MAX_DISCOVERY_INPUT_CHARS = 20_000
 MAX_DISCOVERY_RECURSION = 12
-GEOGRAPHY_DOMAIN_CATALOG: dict[str, tuple[str, ...]] = {
-    "fmc.gov": ("Regulatory", "United States"),
-    "ecfr.gov": ("Regulatory", "United States"),
-    "portoflosangeles.org": ("West Coast",),
-    "polb.com": ("West Coast",),
-    "oaklandca.gov": ("West Coast",),
-    "nwseaportalliance.com": ("West Coast",),
-    "portofnewyorkandnewjersey.com": ("East Coast",),
-    "panynj.gov": ("East Coast",),
-    "gaports.com": ("East Coast",),
-    "scspa.com": ("East Coast",),
-    "portmiami.biz": ("East Coast",),
-    "porthouston.com": ("Gulf",),
-    "puertomanzanillo.com.mx": ("Mexico",),
-    "puertodeveracruz.com.mx": ("Mexico",),
-}
-GEOGRAPHY_QUERY_CATALOG: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
-    (("fmc",), ("Regulatory", "United States")),
-    (("u.s.", "united states"), ("United States",)),
-    (("west coast", "los angeles", "long beach", "oakland", "seattle", "tacoma"), ("West Coast",)),
-    (("east coast", "savannah", "charleston", "new york", "new jersey"), ("East Coast",)),
-    (("gulf", "houston"), ("Gulf",)),
-    (("mexico", "manzanillo", "veracruz", "altamira"), ("Mexico",)),
-)
+GEOGRAPHY_DOMAIN_CATALOG = authoritative_geography_domain_catalog()
 AGENT_NAMES = {
     "discovery:regulatory": "regulatory_research_agent",
     "discovery:us-ports": "us_ports_research_agent",
@@ -369,6 +347,7 @@ class OpenRouterProvider:
         configured_queries: Sequence[str],
         configured_domains: Sequence[str],
     ) -> SourceCandidate:
+        del configured_queries
         host = (urlsplit(normalize_url(source.url)).hostname or "").lower()
         allowed = {value.casefold(): value for value in allowed_geographies}
         verified = {
@@ -388,18 +367,6 @@ class OpenRouterProvider:
                 )
         if domain_verified:
             verified = domain_verified
-        else:
-            for query in source.topics:
-                if query not in configured_queries:
-                    continue
-                lowered_query = query.casefold()
-                for markers, geographies in GEOGRAPHY_QUERY_CATALOG:
-                    if any(marker in lowered_query for marker in markers):
-                        verified.update(
-                            geography.casefold()
-                            for geography in geographies
-                            if geography.casefold() in allowed
-                        )
         return source.model_copy(
             update={"geographies": sorted(allowed[geography] for geography in verified)}
         )
