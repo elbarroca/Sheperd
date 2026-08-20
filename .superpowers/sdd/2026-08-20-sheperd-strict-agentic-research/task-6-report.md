@@ -10,8 +10,10 @@ the recorded OpenRouter Gemma rate limit. No live Gemma or Neon PASS is claimed.
 
 - Base review target: `6b8c362a00a96132b942c102f1b7ae91f956f957`.
 - Branch: `feat/research-agents-neon`.
-- Code commit: `122e88b9fb2f8e05357f1562876c39ca4dd29055`
-  (`fix: close final research-agent release findings`).
+- Code commits:
+  - `122e88b9fb2f8e05357f1562876c39ca4dd29055`
+    (`fix: close final research-agent release findings`).
+  - `314cb9e` (`fix: sanitize public URL reads`).
 - Existing unrelated staged/unstaged migration, Obsidian, website, recovery,
   and founder-intelligence work was preserved. This pass did not edit website
   or recovery files, deploy, push, reset, revert, or dispatch subagents.
@@ -26,7 +28,8 @@ the recorded OpenRouter Gemma rate limit. No live Gemma or Neon PASS is claimed.
 - Kept exactly three lanes; the Mexico lane now covers Mexico and Europe with
   Europe queries, authoritative domains, and strict geography acceptance.
 - Quarantined malformed/unsupported seed URLs; centralized normalization now
-  strips query strings and credential-bearing URL material before persistence.
+  strips query strings and credential-bearing URL material before persistence
+  and public DTO reads.
 - Made audit-step and validation inserts immutable no-ops on conflicts while
   retaining the separate run projection update.
 
@@ -34,8 +37,8 @@ the recorded OpenRouter Gemma rate limit. No live Gemma or Neon PASS is claimed.
 
 | Command | Result |
 |---|---|
-| `uv run pytest` | PASS — 126 passed in 1.04s |
-| Focused touched-area pytest | PASS — 93 passed |
+| `uv run pytest` | PASS — 127 passed in 0.97s |
+| Focused touched-area pytest | PASS — 94 passed |
 | `uv run ruff check .` | PASS — `All checks passed!` |
 | `uv run mypy src` | PASS — no issues in 20 source files |
 | `uv lock --check` | PASS — 67 packages resolved |
