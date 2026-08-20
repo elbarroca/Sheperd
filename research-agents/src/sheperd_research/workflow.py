@@ -439,6 +439,8 @@ class ResearchWorkflow:
         exclude_domains: list[str],
     ) -> SourceCandidate:
         normalized_url = normalize_url(source.url)
+        if url_policy_error(normalized_url, excluded_domains=exclude_domains) is not None:
+            raise ProviderError("discovery returned a source rejected by URL policy")
         host = (urlsplit(normalized_url).hostname or "").lower()
         if not host:
             raise ProviderError("discovery returned a source without a host")

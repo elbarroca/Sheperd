@@ -33,11 +33,13 @@ ALLOWED_URL_SCHEMES = {"http", "https"}
 
 def normalize_url(url: str) -> str:
     parsed = urlsplit(url.strip())
-    query = [
-        (key, value)
-        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-        if key.lower() not in TRACKING_KEYS and not key.lower().startswith("utm_")
-    ]
+    query = sorted(
+        (
+            (key, value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            if key.lower() not in TRACKING_KEYS and not key.lower().startswith("utm_")
+        )
+    )
     hostname = parsed.hostname.lower() if parsed.hostname else ""
     port = parsed.port
     netloc = hostname
@@ -55,8 +57,9 @@ def content_hash(value: str) -> str:
 
 
 def matches_domain(host: str, domain: str) -> bool:
-    canonical = domain.lower().removeprefix("www.")
-    return host == canonical or host.endswith(f".{canonical}")
+    canonical_host = host.strip().lower().removesuffix(".")
+    canonical_domain = domain.strip().lower().removesuffix(".").removeprefix("www.")
+    return canonical_host == canonical_domain or canonical_host.endswith(f".{canonical_domain}")
 
 
 def matches_any_domain(host: str, domains: tuple[str, ...] | list[str]) -> bool:

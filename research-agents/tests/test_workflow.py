@@ -207,6 +207,42 @@ class OutOfScopeDiscoveryLLM(FakeLLM):
         )
 
 
+class UnsafeModelSourceLLM(FakeLLM):
+    async def discover_lane(
+        self,
+        lane: str,
+        queries: list[str],
+        geographies: tuple[str, ...],
+        *,
+        since: datetime,
+        until: datetime,
+        include_domains: list[str],
+        exclude_domains: list[str],
+        max_results: int,
+        tavily: FakeTavily,
+    ) -> LaneDiscoveryResult:
+        result = await super().discover_lane(
+            lane,
+            queries,
+            geographies,
+            since=since,
+            until=until,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains,
+            max_results=max_results,
+            tavily=tavily,
+        )
+        unsafe_url = "https://www.fmc.gov/model?subscriber=true"
+        unsafe_source = result.sources[0].model_copy(update={"url": unsafe_url})
+        return result.model_copy(
+            update={
+                "packet": result.packet.model_copy(update={"source_urls": [unsafe_url]}),
+                "sources": [unsafe_source],
+                "content": {unsafe_url: "paywalled model content"},
+            }
+        )
+
+
 def test_workflow_records_a_cited_draft_and_is_idempotent() -> None:
     repository = InMemoryRepository()
     workflow = ResearchWorkflow(repository, FakeTavily(), FakeLLM())
@@ -410,6 +446,26 @@ def test_workflow_rejects_out_of_scope_discovery_results() -> None:
 
     assert result.status == "failed"
     assert result.error and "outside lane geography" in result.error
+
+
+def test_workflow_rejects_policy_invalid_model_sources_before_persistence() -> None:
+    repository = InMemoryRepository()
+    workflow = ResearchWorkflow(repository, FakeTavily(), UnsafeModelSourceLLM())
+
+    result = asyncio.run(
+        workflow.run(
+            ResearchRunRequest(
+                topic_set="dnd-port",
+                max_sources=1,
+                include_topic_seeds=False,
+                validation_profile="canary",
+            )
+        )
+    )
+
+    assert result.status == "failed"
+    assert repository.sources == {}
+    assert repository.source_snapshots == {}
 
 
 def test_workflow_does_not_fallback_to_direct_tavily_extraction() -> None:
