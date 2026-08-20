@@ -260,17 +260,34 @@ class ResearchWorkflow:
             call_metadata = dict(call) if isinstance(call, dict) else {}
             record_metadata = dict(metadata)
             record_metadata["call"] = call_metadata
+            provider_attempt = call_metadata.get("attempt")
+            if isinstance(provider_attempt, int):
+                record_metadata["provider_attempt"] = provider_attempt
             call_duration = call_metadata.get("latency_ms")
+            record_attempt = call_metadata.get("record_attempt")
+            repository_attempt = (
+                record_attempt if isinstance(record_attempt, int) else attempt + index
+            )
+            call_input_hash = call_metadata.get("input_hash")
+            call_output_hash = call_metadata.get("output_hash")
             self.repository.record_step(
                 run_id,
                 agent_name,
                 status if call_metadata.get("error_code") is None else "failed",
                 record_metadata,
                 lane=lane,
-                attempt=attempt + index,
+                attempt=repository_attempt,
                 duration_ms=call_duration if isinstance(call_duration, int) else duration_ms,
-                input_hash=payload_hash(input_payload),
-                output_hash=payload_hash(output_payload),
+                input_hash=(
+                    call_input_hash
+                    if isinstance(call_input_hash, str)
+                    else payload_hash(input_payload)
+                ),
+                output_hash=(
+                    call_output_hash
+                    if isinstance(call_output_hash, str)
+                    else payload_hash(output_payload)
+                ),
                 error_code=(
                     call_metadata.get("error_code")
                     if isinstance(call_metadata.get("error_code"), str)
@@ -282,7 +299,7 @@ class ResearchWorkflow:
                 self.repository.record_tool_calls(
                     run_id,
                     agent_name,
-                    attempt + index,
+                    repository_attempt,
                     lane,
                     [item for item in receipts if isinstance(item, dict)],
                 )
@@ -636,7 +653,7 @@ class ResearchWorkflow:
                 content.update(await self.tavily.extract(missing))
             missing_content = [
                 normalize_url(source.url)
-                for source in extractable
+                for source in sources
                 if not content.get(normalize_url(source.url), "").strip()
             ]
             if missing_content:
@@ -646,11 +663,7 @@ class ResearchWorkflow:
             source_hashes: list[str] = []
             for source in sources:
                 normalized_url = normalize_url(source.url)
-                body = (
-                    content[normalized_url]
-                    if can_extract_url(source.url)
-                    else source.snippet
-                )
+                body = content[normalized_url]
                 if body.strip():
                     self.repository.record_snapshot(state["run_id"], source, body)
                     source_hashes.append(content_hash(body))
@@ -701,6 +714,26 @@ class ResearchWorkflow:
         async with semaphore:
             if not self._reserve_llm_call(min(len(body), MAX_LLM_SOURCE_CHARS)):
                 return None, "llm budget exceeded", {"error_code": "budget_exceeded"}
+            normalized_source_url = normalize_url(source.url)
+            input_hash = content_hash(body)
+
+            def annotate(metadata: dict[str, object]) -> dict[str, object]:
+                annotated = dict(metadata)
+                annotated["source_url"] = normalized_source_url
+                annotated["input_hash"] = input_hash
+                nested_attempts = annotated.get("attempts")
+                if isinstance(nested_attempts, list):
+                    annotated["attempts"] = [
+                        {
+                            **dict(item),
+                            "source_url": normalized_source_url,
+                            "input_hash": input_hash,
+                        }
+                        for item in nested_attempts
+                        if isinstance(item, dict)
+                    ]
+                return annotated
+
             try:
                 distillation = await self.llm.distill(
                     source,
@@ -708,46 +741,32 @@ class ResearchWorkflow:
                     prompt_version="distill-v4",
                 )
                 validate_claim_citations(distillation.claims, source_urls, as_of)
-                return distillation, None, self._llm_metadata()
+                return distillation, None, annotate(self._llm_metadata())
             except (ProviderError, ValueError) as error:
                 return (
                     None,
                     str(error) or error.__class__.__name__,
-                    self._llm_metadata(),
+                    annotate(self._llm_metadata()),
                 )
 
     async def _distill(self, state: GraphState) -> dict[str, object]:
         started_at = monotonic()
         sources = state.get("sources", [])
         content = dict(state.get("content", {}))
-        missing_extracts = [
-            source
+        missing_bodies = [
+            normalize_url(source.url)
             for source in sources
-            if can_extract_url(source.url)
-            and normalize_url(source.url) not in content
+            if not content.get(normalize_url(source.url), "").strip()
         ]
-        if missing_extracts:
-            raise ProviderError(
-                "distillation missing extracted content for: "
-                + ", ".join(normalize_url(source.url) for source in missing_extracts)
-            )
-        bodies: dict[str, str] = {}
-        missing_bodies: list[str] = []
-        for source in sources:
-            normalized_url = normalize_url(source.url)
-            body = (
-                content.get(normalized_url, "")
-                if can_extract_url(source.url)
-                else source.snippet
-            )
-            if not body.strip():
-                missing_bodies.append(normalized_url)
-                continue
-            bodies[normalized_url] = body
         if missing_bodies:
             raise ProviderError(
                 "distillation missing source body for: " + ", ".join(missing_bodies)
             )
+        bodies: dict[str, str] = {}
+        for source in sources:
+            normalized_url = normalize_url(source.url)
+            body = content.get(normalized_url, "")
+            bodies[normalized_url] = body
         source_urls = {source.url for source in sources}
         semaphore = asyncio.Semaphore(MAX_PARALLEL_DISTILLATIONS)
         tasks = [
@@ -773,12 +792,18 @@ class ResearchWorkflow:
                 errors.append(f"distillation: {error}")
         claims = [claim for item in distillations for claim in item.claims]
         attempts: list[dict[str, object]] = []
+        record_attempt = 1
         for call_record in call_metadata:
             nested = call_record.get("attempts")
             if isinstance(nested, list):
-                attempts.extend(call for call in nested if isinstance(call, dict))
+                for call in nested:
+                    if not isinstance(call, dict):
+                        continue
+                    attempts.append({**dict(call), "record_attempt": record_attempt})
+                    record_attempt += 1
             else:
-                attempts.append(call_record)
+                attempts.append({**call_record, "record_attempt": record_attempt})
+                record_attempt += 1
         source_by_url = {normalize_url(source.url): source for source in sources}
         protected_distillations: list[ArticleDistillation] = []
         for item in distillations:

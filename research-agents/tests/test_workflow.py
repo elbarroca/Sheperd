@@ -77,6 +77,20 @@ class EmptyExtractTavily(FakeTavily):
         return {}
 
 
+class NonExtractableTavily(FakeTavily):
+    async def search(self, query: str, **_: object) -> list[SourceCandidate]:
+        return [
+            SourceCandidate(
+                url="https://www.linkedin.com/company/example",
+                title=f"{query} update",
+                publisher="LinkedIn",
+                published_at=datetime(2026, 8, 18, tzinfo=UTC),
+                topics=["dnd"],
+                geographies=["West Coast"],
+            )
+        ]
+
+
 class WrongModelLLM(FakeLLM):
     async def synthesize(
         self,
@@ -208,6 +222,62 @@ def test_workflow_fails_closed_when_extraction_is_incomplete() -> None:
 
     assert result.status == "failed"
     assert result.error and "extraction" in result.error
+
+
+def test_workflow_fails_when_non_extractable_source_has_no_body() -> None:
+    repository = InMemoryRepository()
+    workflow = ResearchWorkflow(repository, NonExtractableTavily(), FakeLLM())
+
+    result = asyncio.run(
+        workflow.run(
+            ResearchRunRequest(
+                topic_set="dnd-port",
+                max_sources=1,
+                include_topic_seeds=False,
+                validation_profile="canary",
+            )
+        )
+    )
+
+    assert result.status == "failed"
+    assert result.error and "extraction missing content" in result.error
+
+
+def test_record_step_preserves_provider_attempt_and_input_correlation() -> None:
+    repository = InMemoryRepository()
+    workflow = ResearchWorkflow(repository, FakeTavily(), FakeLLM())
+
+    workflow._record_step(
+        "run-1",
+        "distillation",
+        "succeeded",
+        {
+            "attempts": [
+                {
+                    "attempt": 1,
+                    "record_attempt": 1,
+                    "input_hash": "input-a",
+                    "output_hash": "output-a",
+                    "source_url": "https://example.com/a",
+                },
+                {
+                    "attempt": 1,
+                    "record_attempt": 2,
+                    "input_hash": "input-b",
+                    "output_hash": "output-b",
+                    "source_url": "https://example.com/b",
+                },
+            ]
+        },
+    )
+
+    first, second = repository.steps
+    assert first["attempt"] == 1
+    assert second["attempt"] == 2
+    assert first["metadata"]["provider_attempt"] == 1
+    assert second["metadata"]["provider_attempt"] == 1
+    assert first["input_hash"] == "input-a"
+    assert second["input_hash"] == "input-b"
 
 
 def test_workflow_fails_when_validation_does_not_pass() -> None:

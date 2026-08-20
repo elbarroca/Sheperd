@@ -9,6 +9,7 @@ from datetime import datetime
 from time import monotonic
 from typing import Protocol, TypeVar, cast
 
+import httpx
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
 from langchain_core.language_models import BaseChatModel
@@ -134,19 +135,30 @@ class OpenRouterProvider:
     ) -> None:
         if not api_key.strip():
             raise ValueError("OpenRouter API key is required")
-        raw_fallback_models = tuple(
-            value.strip() for value in fallback_models if isinstance(value, str) and value.strip()
+        policy_error = strict_openrouter_policy_error(
+            model,
+            (),
+            raw_fallback_config=fallback_models,
         )
-        policy_error = strict_openrouter_policy_error(model, raw_fallback_models)
         if policy_error is not None:
             raise ProviderError(policy_error)
-        if raw_fallback_models:
-            raise ProviderError("OPENROUTER_FALLBACK_MODELS must be empty")
         if capability_report is None or capability_report.source != "live":
             raise ProviderError("OpenRouter provider requires a live capability report")
+        if not capability_report.require_tools:
+            raise ProviderError("OpenRouter capability report must prove tool support")
         if capability_report.requested_models != (STRICT_OPENROUTER_MODEL,):
             raise ProviderError("OpenRouter capability report must target the strict Gemma model")
         if capability_report.eligible_models != (STRICT_OPENROUTER_MODEL,):
+            raise ProviderError("configured strict model failed capability checks")
+        capability_evidence = capability_report.evidence_for(STRICT_OPENROUTER_MODEL)
+        if capability_evidence is None:
+            raise ProviderError("OpenRouter capability report is missing Gemma evidence")
+        if (
+            not capability_evidence.free
+            or not capability_evidence.supports_tools
+            or not capability_evidence.supports_structured_outputs
+            or capability_evidence.reason is not None
+        ):
             raise ProviderError("configured strict model failed capability checks")
         configured_chain = (model,)
         if any(not is_free_model(candidate) for candidate in configured_chain):
@@ -244,7 +256,7 @@ class OpenRouterProvider:
             or "toomanyrequests" in message
         ):
             return "rate_limit"
-        if isinstance(error, (asyncio.TimeoutError, TimeoutError)) or "timeout" in message:
+        if OpenRouterProvider._is_transport_timeout(error):
             return "timeout"
         if "unsupported" in message or "not implemented" in message:
             return "unsupported_capability"
@@ -261,7 +273,34 @@ class OpenRouterProvider:
         return (
             model_name == STRICT_OPENROUTER_MODEL
             and attempt < 2
-            and cls._error_code(error) == "timeout"
+            and cls._is_transport_timeout(error)
+        )
+
+    @staticmethod
+    def _error_chain(error: BaseException) -> tuple[BaseException, ...]:
+        seen: set[int] = set()
+        stack: list[BaseException] = [error]
+        chain: list[BaseException] = []
+        while stack:
+            current = stack.pop()
+            marker = id(current)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            chain.append(current)
+            cause = getattr(current, "__cause__", None)
+            context = getattr(current, "__context__", None)
+            if isinstance(cause, BaseException):
+                stack.append(cause)
+            if isinstance(context, BaseException):
+                stack.append(context)
+        return tuple(chain)
+
+    @classmethod
+    def _is_transport_timeout(cls, error: BaseException) -> bool:
+        return any(
+            isinstance(item, (asyncio.TimeoutError, TimeoutError, httpx.TimeoutException))
+            for item in cls._error_chain(error)
         )
 
     @staticmethod
@@ -387,8 +426,6 @@ class OpenRouterProvider:
                     "call_id": call_id,
                     "call_index": len(receipts),
                     "tool_name": name,
-                    "query": query if isinstance(query, str) else None,
-                    "urls": normalized_urls,
                     "url_count": len(normalized_urls),
                     "status": "requested",
                     "input_hash": OpenRouterProvider._tool_input_hash(

@@ -52,6 +52,12 @@ def test_capability_report_keeps_only_free_tool_and_structured_models() -> None:
     )
 
     assert report.eligible_models == ("google/gemma-4-26b-a4b-it:free",)
+    assert report.require_tools is True
+    evidence = report.evidence_for(STRICT_OPENROUTER_MODEL)
+    assert evidence is not None
+    assert evidence.free is True
+    assert evidence.supports_tools is True
+    assert evidence.supports_structured_outputs is True
     assert {
         item["model"]: item["reason"] for item in report.skipped_models
     } == {
@@ -74,9 +80,13 @@ def test_live_capability_requirement_does_not_authorize_from_cache(
                     {
                         "model": STRICT_OPENROUTER_MODEL,
                         "eligible": True,
+                        "free": True,
+                        "supports_tools": True,
+                        "supports_structured_outputs": True,
                         "reason": None,
                     }
                 ],
+                "require_tools": True,
             }
         ),
         encoding="utf-8",

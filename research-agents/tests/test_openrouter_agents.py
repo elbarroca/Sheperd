@@ -11,7 +11,7 @@ import pytest
 
 import sheperd_research.providers.openrouter as openrouter_module
 from sheperd_research.contracts import SourceCandidate
-from sheperd_research.providers.capabilities import CapabilityReport
+from sheperd_research.providers.capabilities import CapabilityReport, ModelCapability
 from sheperd_research.providers.errors import ProviderError
 from sheperd_research.providers.openrouter import OpenRouterProvider
 from sheperd_research.settings import STRICT_OPENROUTER_MODEL
@@ -21,7 +21,16 @@ def _live_capability_report() -> CapabilityReport:
     return CapabilityReport(
         requested_models=(STRICT_OPENROUTER_MODEL,),
         eligible_models=(STRICT_OPENROUTER_MODEL,),
+        capabilities=(
+            ModelCapability(
+                model=STRICT_OPENROUTER_MODEL,
+                free=True,
+                supports_tools=True,
+                supports_structured_outputs=True,
+            ),
+        ),
         skipped_models=(),
+        require_tools=True,
         manifest_hash="manifest-1",
         source="live",
         checked_at=datetime(2026, 8, 20, tzinfo=UTC),
@@ -81,6 +90,11 @@ class TimeoutThenSuccessAgent:
         }
 
 
+class MessageTimeoutAgent:
+    async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+        raise RuntimeError("timeout")
+
+
 def test_rate_limit_fails_without_retry_or_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -130,12 +144,40 @@ def test_timeout_retry_records_two_attempts_for_gemma_only(
     assert provider.call_history[-1]["total_tokens"] == 14
 
 
+def test_timeout_message_does_not_trigger_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+    monkeypatch.setattr(
+        openrouter_module,
+        "create_agent",
+        lambda *, model, **__: MessageTimeoutAgent(),
+    )
+
+    with pytest.raises(ProviderError, match="OpenRouter health failed"):
+        asyncio.run(provider.health_check())
+
+    assert len(provider.call_history) == 1
+    assert provider.call_history[0]["error_code"] == "provider_error"
+
+
 def test_paid_fallback_is_rejected() -> None:
     with pytest.raises(ProviderError, match="FALLBACK_MODELS must be empty"):
         OpenRouterProvider(
             "secret",
             STRICT_OPENROUTER_MODEL,
             fallback_models=("openai/gpt-4o",),
+            capability_report=_live_capability_report(),
+        )
+
+
+def test_whitespace_fallback_is_rejected_before_normalization() -> None:
+    with pytest.raises(ProviderError, match="FALLBACK_MODELS must be empty"):
+        OpenRouterProvider(
+            "secret",
+            STRICT_OPENROUTER_MODEL,
+            fallback_models=(" , ",),
             capability_report=_live_capability_report(),
         )
 
@@ -170,6 +212,31 @@ def test_openrouter_provider_disables_openrouter_fallbacks(
 def test_openrouter_provider_requires_live_capability_report() -> None:
     with pytest.raises(ProviderError, match="live capability report"):
         OpenRouterProvider("secret", STRICT_OPENROUTER_MODEL)
+
+
+def test_openrouter_provider_requires_explicit_tool_capability_evidence() -> None:
+    with pytest.raises(ProviderError, match="tool support"):
+        OpenRouterProvider(
+            "secret",
+            STRICT_OPENROUTER_MODEL,
+            capability_report=CapabilityReport(
+                requested_models=(STRICT_OPENROUTER_MODEL,),
+                eligible_models=(STRICT_OPENROUTER_MODEL,),
+                capabilities=(
+                    ModelCapability(
+                        model=STRICT_OPENROUTER_MODEL,
+                        free=True,
+                        supports_tools=True,
+                        supports_structured_outputs=True,
+                    ),
+                ),
+                skipped_models=(),
+                require_tools=False,
+                manifest_hash="manifest-1",
+                source="live",
+                checked_at=datetime(2026, 8, 20, tzinfo=UTC),
+            ),
+        )
 
 
 def test_too_many_requests_is_recorded_as_rate_limit() -> None:
@@ -286,6 +353,9 @@ def test_discovery_requires_model_issued_tavily_tool_calls(
     assert tavily.searches == 1
     assert tavily.extractions == 1
     assert result.metadata["agent_call"]["tool_calls"] == 2
+    receipts = result.metadata["attempts"][0]["tool_call_receipts"]
+    assert all("query" not in receipt for receipt in receipts)
+    assert all("urls" not in receipt for receipt in receipts)
 
 
 def test_discovery_rejects_a_zero_tool_response(monkeypatch: pytest.MonkeyPatch) -> None:

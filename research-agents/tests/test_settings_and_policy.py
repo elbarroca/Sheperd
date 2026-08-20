@@ -47,6 +47,14 @@ def test_strict_openrouter_policy_rejects_router_model_and_fallbacks() -> None:
         )
         == "OPENROUTER_FALLBACK_MODELS must be empty"
     )
+    assert (
+        strict_openrouter_policy_error(
+            STRICT_OPENROUTER_MODEL,
+            (),
+            raw_fallback_config=" , ",
+        )
+        == "OPENROUTER_FALLBACK_MODELS must be empty"
+    )
 
 
 def test_database_url_policy_distinguishes_pooled_and_direct_connections() -> None:

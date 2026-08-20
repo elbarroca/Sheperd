@@ -21,12 +21,24 @@ def parse_openrouter_fallback_models(value: str) -> tuple[str, ...]:
     )
 
 
+def has_raw_openrouter_fallback_config(value: str | Sequence[str]) -> bool:
+    if isinstance(value, str):
+        return value != ""
+    return any(isinstance(item, str) and item != "" for item in value)
+
+
 def strict_openrouter_policy_error(
     model: str,
     fallback_models: Sequence[str],
+    *,
+    raw_fallback_config: str | Sequence[str] | None = None,
 ) -> str | None:
     if model != STRICT_OPENROUTER_MODEL:
         return f"OPENROUTER_MODEL must be {STRICT_OPENROUTER_MODEL}"
+    if raw_fallback_config is not None and has_raw_openrouter_fallback_config(
+        raw_fallback_config
+    ):
+        return "OPENROUTER_FALLBACK_MODELS must be empty"
     if fallback_models:
         return "OPENROUTER_FALLBACK_MODELS must be empty"
     return None
@@ -138,4 +150,5 @@ class Settings(BaseSettings):
         return strict_openrouter_policy_error(
             self.openrouter_model,
             self.openrouter_fallback_model_list,
+            raw_fallback_config=self.openrouter_fallback_models,
         )

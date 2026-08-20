@@ -28,16 +28,32 @@ class ModelCapability:
 class CapabilityReport:
     requested_models: tuple[str, ...]
     eligible_models: tuple[str, ...]
+    capabilities: tuple[ModelCapability, ...]
     skipped_models: tuple[dict[str, str], ...]
+    require_tools: bool
     manifest_hash: str
     source: str
     checked_at: datetime
+
+    def evidence_for(self, model: str) -> ModelCapability | None:
+        return next((item for item in self.capabilities if item.model == model), None)
 
     def as_dict(self) -> dict[str, object]:
         return {
             "requested_models": list(self.requested_models),
             "eligible_models": list(self.eligible_models),
+            "capabilities": [
+                {
+                    "model": item.model,
+                    "free": item.free,
+                    "supports_tools": item.supports_tools,
+                    "supports_structured_outputs": item.supports_structured_outputs,
+                    "reason": item.reason,
+                }
+                for item in self.capabilities
+            ],
             "skipped_models": [dict(item) for item in self.skipped_models],
+            "require_tools": self.require_tools,
             "manifest_hash": self.manifest_hash,
             "source": self.source,
             "checked_at": self.checked_at.isoformat(),
@@ -143,7 +159,9 @@ def _build_report(
     return CapabilityReport(
         requested_models=requested_models,
         eligible_models=tuple(eligible),
+        capabilities=tuple(capabilities),
         skipped_models=tuple(skipped),
+        require_tools=require_tools,
         manifest_hash=_manifest_hash(capabilities),
         source=source,
         checked_at=datetime.now(UTC),
@@ -154,10 +172,35 @@ def _cache_payload(report: CapabilityReport) -> dict[str, object]:
     return {
         "version": 1,
         "checked_at": report.checked_at.isoformat(),
+        "require_tools": report.require_tools,
         "models": [
             {
                 "model": model,
                 "eligible": model in report.eligible_models,
+                "free": next(
+                    (
+                        item.free
+                        for item in report.capabilities
+                        if item.model == model
+                    ),
+                    False,
+                ),
+                "supports_tools": next(
+                    (
+                        item.supports_tools
+                        for item in report.capabilities
+                        if item.model == model
+                    ),
+                    False,
+                ),
+                "supports_structured_outputs": next(
+                    (
+                        item.supports_structured_outputs
+                        for item in report.capabilities
+                        if item.model == model
+                    ),
+                    False,
+                ),
                 "reason": next(
                     (item["reason"] for item in report.skipped_models if item["model"] == model),
                     None,
@@ -193,11 +236,24 @@ def _load_cache(
         records.append(
             {
                 "id": item["model"],
-                "pricing": {"prompt": "0", "completion": "0"},
+                "pricing": (
+                    {"prompt": "0", "completion": "0"}
+                    if item.get("free") is True
+                    else {"prompt": "1", "completion": "1"}
+                ),
                 "supported_parameters": (
-                    ["tools", "structured_outputs"]
-                    if item.get("eligible") is True
-                    else []
+                    [
+                        *(
+                            ["tools"]
+                            if item.get("supports_tools") is True
+                            else []
+                        ),
+                        *(
+                            ["structured_outputs"]
+                            if item.get("supports_structured_outputs") is True
+                            else []
+                        ),
+                    ]
                 ),
             }
         )
@@ -209,6 +265,8 @@ def _load_cache(
         require_tools=require_tools,
         source="cache",
     )
+    if report.require_tools != bool(payload.get("require_tools")):
+        return None
     return report
 
 
