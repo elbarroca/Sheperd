@@ -138,6 +138,42 @@
 - Live `source-map --check --strict --json` verification remains outside this fix round; no Tavily production credential check was run.
 - Existing unrelated staged and untracked work remains in the checkout and was not touched; website and recovery paths were not modified.
 
+## Fix Round 5
+
+### Status
+
+- Carried the repository's merged seed provenance back into workflow state before extraction and distillation, preventing a later discovery run from processing a URL that was seeded in an earlier run.
+- Added the same merged-source return contract to the in-memory and Postgres repositories; normal non-seed sources remain extractable.
+
+### Files
+
+- `research-agents/src/sheperd_research/db.py`
+- `research-agents/src/sheperd_research/workflow.py`
+- `research-agents/tests/test_db.py`
+- `research-agents/tests/test_workflow.py`
+
+### Commits
+
+- `873514c` `fix: carry merged seed provenance into workflow`
+
+### Exact Tests
+
+- `uv run pytest tests/test_workflow.py::test_workflow_blocks_seed_provenance_across_runs tests/test_db.py::test_postgres_source_upsert_returns_merged_seed_metadata`
+  - `2 passed in 0.27s`
+- `uv run pytest tests/test_openrouter_agents.py tests/test_source_catalog.py tests/test_validators.py tests/test_validation.py tests/test_workflow.py tests/test_db.py tests/test_contracts.py`
+  - `81 passed in 0.63s`
+- `uv run ruff check src/sheperd_research/workflow.py src/sheperd_research/db.py tests/test_workflow.py tests/test_db.py`
+  - `All checks passed!`
+- `uv run mypy src/sheperd_research/workflow.py src/sheperd_research/db.py tests/test_workflow.py tests/test_db.py`
+  - `Success: no issues found in 4 source files`
+- `git diff --cached --check`
+  - passed before the implementation commit
+
+### Concerns
+
+- Live `source-map --check --strict --json` verification remains outside this fix round; no Tavily production credential check was run.
+- Existing unrelated staged and untracked work remains in the checkout and was not touched; website and recovery paths were not modified.
+
 ## Fix Round 3
 
 ### Status
