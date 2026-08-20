@@ -31,7 +31,7 @@ from ..contracts import (
 )
 from ..settings import STRICT_OPENROUTER_MODEL, strict_openrouter_policy_error
 from ..source_catalog import authoritative_geography_domain_catalog
-from ..validators import can_extract_url, normalize_url
+from ..validators import can_extract_url, normalize_url, url_policy_error
 from .capabilities import CapabilityReport
 from .errors import ProviderError
 
@@ -382,7 +382,12 @@ class OpenRouterProvider:
         include_domains: Sequence[str],
         exclude_domains: Sequence[str],
     ) -> SourceCandidate:
-        normalized_url = normalize_url(source.url)
+        if url_policy_error(source.url, excluded_domains=exclude_domains) is not None:
+            raise ValueError("Tavily returned a source rejected by URL policy")
+        try:
+            normalized_url = normalize_url(source.url)
+        except ValueError as error:
+            raise ValueError("Tavily returned a malformed source URL") from error
         host = (urlsplit(normalized_url).hostname or "").lower().removeprefix("www.")
         if not host:
             raise ValueError("Tavily returned a source without a host")

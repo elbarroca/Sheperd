@@ -17,6 +17,9 @@ from .validators import content_hash, normalize_url
 MIN_SOURCE_COUNT = 10
 MIN_CLAIM_COUNT = 5
 REQUIRED_LANES = frozenset({"regulatory", "us-ports", "mexico"})
+REQUIRED_GEOGRAPHIES = frozenset(
+    {"Regulatory", "West Coast", "East Coast", "Gulf", "Mexico", "Europe"}
+)
 
 
 def source_quality_sources(sources: list[SourceCandidate]) -> list[SourceCandidate]:
@@ -66,6 +69,12 @@ def build_validation_report(
     lane_coverage = sorted(
         lane for lane, status in lane_statuses.items() if status in {"succeeded", "pass"}
     )
+    geography_coverage = {
+        geography
+        for source in quality_sources
+        for geography in source.geographies
+    }
+    missing_geographies = sorted(REQUIRED_GEOGRAPHIES - geography_coverage)
     future_sources = [
         source
         for source in quality_sources
@@ -117,6 +126,13 @@ def build_validation_report(
             ",".join(lane_coverage),
             ",".join(sorted(REQUIRED_LANES)),
             "all research lanes must complete",
+        ),
+        _check(
+            "geography_coverage",
+            not missing_geographies,
+            ",".join(sorted(geography_coverage)),
+            ",".join(sorted(REQUIRED_GEOGRAPHIES)),
+            "strict acceptance requires regulatory, U.S. ports, Mexico, and Europe coverage",
         ),
         _check(
             "publication_dates",

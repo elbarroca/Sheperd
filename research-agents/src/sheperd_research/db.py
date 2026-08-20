@@ -24,7 +24,7 @@ from .contracts import (
 )
 from .validators import content_hash, normalize_url
 
-MIGRATION_VERSION = "0008_audit_surfaces"
+MIGRATION_VERSION = "0009_strict_gemma_policy"
 _AUDIT_TEXT_LIMIT = 400
 _AUDIT_LIST_LIMIT = 100
 _AUDIT_SENSITIVE_MARKERS = (
@@ -640,8 +640,6 @@ class InMemoryRepository:
         }
         if existing is None:
             self.steps.append(record)
-        else:
-            existing.update(record)
 
     def record_source(self, source: SourceCandidate) -> SourceCandidate:
         normalized = normalize_url(source.url)
@@ -813,7 +811,7 @@ class InMemoryRepository:
         self.briefs[brief.run_id] = brief
 
     def record_validation(self, report: ValidationReport) -> None:
-        self.validations[report.run_id] = report
+        self.validations.setdefault(report.run_id, report)
 
     def get_validation(self, run_id: str) -> ValidationReport | None:
         return self.validations.get(run_id)
@@ -1323,27 +1321,7 @@ class PostgresRepository:
                 %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
-            ON CONFLICT (run_id, agent_name, attempt) DO UPDATE SET
-                status = EXCLUDED.status,
-                metadata = EXCLUDED.metadata,
-                lane = EXCLUDED.lane,
-                duration_ms = EXCLUDED.duration_ms,
-                input_hash = EXCLUDED.input_hash,
-                output_hash = EXCLUDED.output_hash,
-                error_code = EXCLUDED.error_code,
-                requested_model = EXCLUDED.requested_model,
-                resolved_model = EXCLUDED.resolved_model,
-                prompt_version = EXCLUDED.prompt_version,
-                request_id = EXCLUDED.request_id,
-                input_tokens = EXCLUDED.input_tokens,
-                output_tokens = EXCLUDED.output_tokens,
-                total_tokens = EXCLUDED.total_tokens,
-                wall_clock_ms = EXCLUDED.wall_clock_ms,
-                model_index = EXCLUDED.model_index,
-                fallback_reason = EXCLUDED.fallback_reason,
-                tool_calls = EXCLUDED.tool_calls,
-                capability_manifest_hash = EXCLUDED.capability_manifest_hash,
-                required_tools = EXCLUDED.required_tools
+            ON CONFLICT (run_id, agent_name, attempt) DO NOTHING
             """,
             (
                 run_id,
@@ -1375,6 +1353,7 @@ class PostgresRepository:
     def record_source(self, source: SourceCandidate) -> SourceCandidate:
         stored = _seed_safe_source(source)
         normalized = normalize_url(stored.url)
+        stored = stored.model_copy(update={"url": normalized})
         rows = self._execute(
             """
             INSERT INTO sources (
@@ -1407,7 +1386,7 @@ class PostgresRepository:
             """,
             (
                 normalized,
-                source.url,
+                stored.url,
                 source.title,
                 source.publisher,
                 source.published_at,
@@ -1610,19 +1589,7 @@ class PostgresRepository:
                 model_id, prompt_version, as_of, content_hash
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s)
-            ON CONFLICT (run_id) DO UPDATE SET
-                status = EXCLUDED.status,
-                source_count = EXCLUDED.source_count,
-                unique_source_count = EXCLUDED.unique_source_count,
-                claim_count = EXCLUDED.claim_count,
-                cited_claim_count = EXCLUDED.cited_claim_count,
-                citation_coverage = EXCLUDED.citation_coverage,
-                lane_coverage = EXCLUDED.lane_coverage,
-                checks = EXCLUDED.checks,
-                model_id = EXCLUDED.model_id,
-                prompt_version = EXCLUDED.prompt_version,
-                as_of = EXCLUDED.as_of,
-                content_hash = EXCLUDED.content_hash
+            ON CONFLICT (run_id) DO NOTHING
             """,
             (
                 report.run_id,

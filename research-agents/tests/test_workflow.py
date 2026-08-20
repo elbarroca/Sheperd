@@ -21,7 +21,7 @@ from sheperd_research.contracts import (
 from sheperd_research.db import InMemoryRepository
 from sheperd_research.providers.errors import ProviderError
 from sheperd_research.validators import can_extract_url
-from sheperd_research.workflow import ResearchWorkflow, checkpoint_serializer
+from sheperd_research.workflow import LANES, ResearchWorkflow, checkpoint_serializer
 
 
 class FakeTavily:
@@ -282,6 +282,43 @@ def test_workflow_records_a_cited_draft_and_is_idempotent() -> None:
     assert first.distillation_count == first.source_count
 
 
+def test_research_keeps_three_lanes_and_covers_mexico_and_europe() -> None:
+    assert [lane.name for lane in LANES] == ["regulatory", "us-ports", "mexico"]
+    assert set(LANES[-1].geographies) == {"Mexico", "Europe"}
+
+    topic = ResearchWorkflow(InMemoryRepository(), FakeTavily(), FakeLLM()).topic_configs[
+        "dnd-port"
+    ]
+    assert "Europe" in topic.geographies
+    assert any("Europe" in query for query in topic.queries)
+
+
+def test_malformed_and_unsupported_seed_urls_are_quarantined_without_validation_errors() -> None:
+    topic = TopicConfig(
+        name="dnd-port",
+        description="Fixture topic",
+        queries=["regulatory"],
+        geographies=["Mexico", "Europe"],
+        include_domains=["example.com"],
+        exclude_domains=["linkedin.com"],
+    )
+
+    sources, metadata = ResearchWorkflow._safe_seed_sources(
+        ["https://", "ftp://example.com/article", "https://[invalid"],
+        topic,
+        "dnd-port",
+    )
+
+    assert sources == []
+    assert metadata["accepted_seed_count"] == 0
+    assert metadata["quarantined_seed_count"] == 3
+    assert set(metadata["quarantined_seed_reasons"]) >= {
+        "unsupported_scheme",
+        "missing_host",
+        "malformed_url",
+    }
+
+
 def test_workflow_persists_quarantined_seed_leads_without_processing_them() -> None:
     topic_seed_urls = [
         "https://gcaptain.com/example?subscriber=true",
@@ -325,7 +362,7 @@ def test_workflow_persists_quarantined_seed_leads_without_processing_them() -> N
     assert safe_seed.is_seed is True
     assert safe_seed.source_kind == "seed-only"
     quarantined_urls = {
-        "https://gcaptain.com/example?subscriber=true",
+        "https://gcaptain.com/example",
         "https://www.linkedin.com/posts/example",
     }
     for url in quarantined_urls:
@@ -380,12 +417,60 @@ def test_workflow_blocks_seed_provenance_across_runs() -> None:
 
 
 def test_llm_input_budget_matches_provider_source_truncation() -> None:
+    class FullCoverageLLM(FakeLLM):
+        async def discover_lane(
+            self,
+            lane: str,
+            queries: list[str],
+            geographies: tuple[str, ...],
+            *,
+            since: datetime,
+            until: datetime,
+            include_domains: list[str],
+            exclude_domains: list[str],
+            max_results: int,
+            tavily: FakeTavily,
+        ) -> LaneDiscoveryResult:
+            result = await super().discover_lane(
+                lane,
+                queries,
+                geographies,
+                since=since,
+                until=until,
+                include_domains=include_domains,
+                exclude_domains=exclude_domains,
+                max_results=max_results,
+                tavily=tavily,
+            )
+            if lane != "regulatory":
+                return result
+            return result.model_copy(
+                update={
+                    "sources": [
+                        source.model_copy(
+                            update={
+                                "geographies": [
+                                    "Regulatory",
+                                    "United States",
+                                    "West Coast",
+                                    "East Coast",
+                                    "Gulf",
+                                    "Mexico",
+                                    "Europe",
+                                ]
+                            }
+                        )
+                        for source in result.sources
+                    ]
+                }
+            )
+
     repository = InMemoryRepository()
     workflow = ResearchWorkflow(
         repository,
         LargeBodyTavily(),
-        FakeLLM(),
-        max_llm_input_chars=9_000,
+        FullCoverageLLM(),
+        max_llm_input_chars=10_000,
     )
     result = asyncio.run(
         workflow.run(

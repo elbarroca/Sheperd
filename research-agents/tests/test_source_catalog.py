@@ -46,6 +46,8 @@ def test_authoritative_domain_catalog_excludes_trade_media() -> None:
 
     assert catalog["fmc.gov"] == ("Regulatory", "United States")
     assert catalog["gaports.com"] == ("East Coast",)
+    assert catalog["transport.ec.europa.eu"] == ("Europe",)
+    assert catalog["portofrotterdam.com"] == ("Europe",)
     assert "gcaptain.com" not in catalog
 
 

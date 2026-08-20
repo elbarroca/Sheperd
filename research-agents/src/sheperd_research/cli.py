@@ -29,7 +29,7 @@ from .contracts import (
     RunStatus,
     ValidationStatus,
 )
-from .db import PostgresRepository, run_migrations
+from .db import PostgresRepository, _redact_audit_metadata, run_migrations
 from .diagnostics import (
     mcp_check,
     run_doctor,
@@ -48,6 +48,57 @@ from .topics import load_topic_configs
 from .validation import build_validation_report
 from .web import create_app
 from .workflow import ResearchWorkflow, checkpoint_serializer
+
+_CHECKPOINT_ALLOWED_CHANNELS = frozenset(
+    {
+        "run_id",
+        "request",
+        "topic",
+        "retained_sources",
+        "retained_distillations",
+        "sources",
+        "source_hashes",
+        "distillations",
+        "claims",
+        "signals",
+        "brief",
+        "validation",
+        "lane_statuses",
+        "partial_reasons",
+    }
+)
+
+
+def _redact_checkpoint(checkpoint: Checkpoint) -> Checkpoint:
+    redacted = checkpoint.copy()
+    channel_values = redacted.get("channel_values", {})
+    redacted["channel_values"] = {
+        channel: value
+        for channel, value in channel_values.items()
+        if channel in _CHECKPOINT_ALLOWED_CHANNELS
+    }
+    return redacted
+
+
+def _redact_checkpoint_metadata(metadata: CheckpointMetadata) -> CheckpointMetadata:
+    return cast(
+        CheckpointMetadata,
+        _redact_audit_metadata(dict(metadata)),
+    )
+
+
+def _redact_checkpoint_writes(
+    writes: Sequence[tuple[str, Any]],
+) -> list[tuple[str, Any]]:
+    redacted: list[tuple[str, Any]] = []
+    for channel, value in writes:
+        if channel == "content":
+            redacted.append((channel, {}))
+        elif channel == "messages":
+            redacted.append((channel, []))
+        elif channel in _CHECKPOINT_ALLOWED_CHANNELS:
+            redacted.append((channel, value))
+    return redacted
 
 
 @asynccontextmanager
@@ -69,15 +120,6 @@ async def _checkpoint_saver(
         open=False,
     )
     class RedactingAsyncPostgresSaver(AsyncPostgresSaver):
-        @staticmethod
-        def _redact_checkpoint(checkpoint: Checkpoint) -> Checkpoint:
-            redacted = checkpoint.copy()
-            channel_values = dict(redacted["channel_values"])
-            channel_values.pop("content", None)
-            channel_values.pop("messages", None)
-            redacted["channel_values"] = channel_values
-            return redacted
-
         async def aput(
             self,
             config: RunnableConfig,
@@ -87,8 +129,8 @@ async def _checkpoint_saver(
         ) -> RunnableConfig:
             return await super().aput(
                 config,
-                self._redact_checkpoint(checkpoint),
-                metadata,
+                _redact_checkpoint(checkpoint),
+                _redact_checkpoint_metadata(metadata),
                 new_versions,
             )
 
@@ -99,16 +141,12 @@ async def _checkpoint_saver(
             task_id: str,
             task_path: str = "",
         ) -> None:
-            redacted_writes = [
-                (
-                    channel,
-                    []
-                    if channel == "messages"
-                    else {} if channel == "content" else value,
-                )
-                for channel, value in writes
-            ]
-            await super().aput_writes(config, redacted_writes, task_id, task_path)
+            await super().aput_writes(
+                config,
+                _redact_checkpoint_writes(writes),
+                task_id,
+                task_path,
+            )
 
     async with pool:
         checkpointer = RedactingAsyncPostgresSaver(

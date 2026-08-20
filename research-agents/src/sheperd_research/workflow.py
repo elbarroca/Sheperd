@@ -91,9 +91,9 @@ class LaneSpec(NamedTuple):
 
 
 LANES = (
-    LaneSpec("regulatory", (0, 4), ("Regulatory", "United States")),
-    LaneSpec("us-ports", (1, 2, 4), ("West Coast", "East Coast", "Gulf")),
-    LaneSpec("mexico", (3, 4), ("Mexico",)),
+    LaneSpec("regulatory", (0,), ("Regulatory", "United States")),
+    LaneSpec("us-ports", (1, 2), ("West Coast", "East Coast", "Gulf")),
+    LaneSpec("mexico", (3, 4), ("Mexico", "Europe")),
 )
 
 
@@ -539,9 +539,12 @@ class ResearchWorkflow:
         include_domains: list[str],
         exclude_domains: list[str],
     ) -> SourceCandidate:
-        normalized_url = normalize_url(source.url)
-        if url_policy_error(normalized_url, excluded_domains=exclude_domains) is not None:
+        if url_policy_error(source.url, excluded_domains=exclude_domains) is not None:
             raise ProviderError("discovery returned a source rejected by URL policy")
+        try:
+            normalized_url = normalize_url(source.url)
+        except ValueError as error:
+            raise ProviderError("discovery returned a malformed source URL") from error
         host = (urlsplit(normalized_url).hostname or "").lower()
         if not host:
             raise ProviderError("discovery returned a source without a host")
@@ -768,15 +771,31 @@ class ResearchWorkflow:
         quarantined_reasons: dict[str, int] = {}
         quarantined_domains: set[str] = set()
         for seed_url in seed_urls:
-            normalized = normalize_url(seed_url)
-            reason = url_policy_error(normalized, excluded_domains=topic.exclude_domains)
-            host = (urlsplit(normalized).hostname or "").lower().removeprefix("www.")
+            raw_url = seed_url.strip()
+            reason = url_policy_error(raw_url, excluded_domains=topic.exclude_domains)
+            try:
+                normalized = normalize_url(raw_url)
+            except ValueError:
+                normalized = ""
+                reason = reason or "malformed_url"
+            host = ""
+            if normalized:
+                try:
+                    host = (urlsplit(normalized).hostname or "").lower().removeprefix("www.")
+                except ValueError:
+                    reason = reason or "malformed_url"
             if reason is not None:
                 quarantined_reasons[reason] = quarantined_reasons.get(reason, 0) + 1
                 if host:
                     quarantined_domains.add(host)
             else:
                 accepted_seed_count += 1
+            if not normalized or reason in {
+                "malformed_url",
+                "missing_host",
+                "unsupported_scheme",
+            }:
+                continue
             seed_sources.append(
                 SourceCandidate(
                     url=normalized,

@@ -27,13 +27,19 @@ def test_can_extract_url_blocks_linkedin_and_paywall_markers() -> None:
 def test_normalize_url_removes_tracking_values_and_fragment() -> None:
     url = "https://example.com/article?utm_source=chat&goal=abc&id=42#comments"
 
-    assert normalize_url(url) == "https://example.com/article?id=42"
+    assert normalize_url(url) == "https://example.com/article"
 
 
 def test_normalize_url_sorts_surviving_query_pairs() -> None:
     url = "https://example.com/article?z=last&a=first&a=second"
 
-    assert normalize_url(url) == "https://example.com/article?a=first&a=second&z=last"
+    assert normalize_url(url) == "https://example.com/article"
+
+
+def test_normalize_url_removes_credential_bearing_query_values() -> None:
+    url = "https://example.com/article?api_key=KEY_SECRET&token=TOKEN_SECRET"
+
+    assert normalize_url(url) == "https://example.com/article"
 
 
 def test_deduplicate_sources_keeps_first_record() -> None:

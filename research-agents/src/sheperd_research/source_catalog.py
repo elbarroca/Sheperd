@@ -89,6 +89,8 @@ DISCOVERY_GEOGRAPHIES_BY_JURISDICTION: dict[str, tuple[str, ...]] = {
     "mexico-federal": ("Mexico",),
     "mexico-pacific": ("Mexico",),
     "mexico-gulf": ("Mexico",),
+    "eu": ("Europe",),
+    "europe-port": ("Europe",),
 }
 
 
@@ -224,10 +226,9 @@ class CatalogSource(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_url(cls, value: str) -> str:
-        normalized = normalize_url(value)
-        if url_policy_error(normalized) is not None:
+        if url_policy_error(value) is not None:
             raise ValueError("catalog URLs must exclude LinkedIn and paywall markers")
-        return normalized
+        return normalize_url(value)
 
     @field_validator("refresh_cadence")
     @classmethod

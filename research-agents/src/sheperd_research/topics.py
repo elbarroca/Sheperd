@@ -19,6 +19,16 @@ DND_PORT_INCLUDE_DOMAINS = [
     "panynj.gov",
     "porthouston.com",
     "puertomanzanillo.com.mx",
+    "transport.ec.europa.eu",
+    "emsa.europa.eu",
+    "ec.europa.eu",
+    "portofrotterdam.com",
+    "portofantwerpbruges.com",
+    "hamburg-port-authority.de",
+    "valenciaport.com",
+    "portdebarcelona.cat",
+    "portoffelixstowe.co.uk",
+    "peelports.com",
 ]
 
 
@@ -32,8 +42,10 @@ def default_topic_configs() -> dict[str, TopicConfig]:
                 "latest West Coast U.S. port congestion dwell time container update",
                 "latest East Coast Gulf U.S. port congestion terminal carrier update",
                 "latest Mexico container port Manzanillo Veracruz trade shipping update",
+                "latest Europe Rotterdam Antwerp Hamburg Valencia "
+                "Barcelona Felixstowe port shipping update",
             ],
-            geographies=["West Coast", "East Coast", "Gulf", "Mexico"],
+            geographies=["West Coast", "East Coast", "Gulf", "Mexico", "Europe"],
             include_domains=DND_PORT_INCLUDE_DOMAINS,
             exclude_domains=["linkedin.com"],
             lookback_days=14,

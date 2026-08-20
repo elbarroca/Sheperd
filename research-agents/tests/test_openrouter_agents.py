@@ -582,13 +582,31 @@ def test_discovery_maps_every_configured_query_family_from_domain_evidence() -> 
         ("panynj.gov", "East Coast"),
         ("porthouston.com", "Gulf"),
         ("puertomanzanillo.com.mx", "Mexico"),
+        ("transport.ec.europa.eu", "Europe"),
+        ("emsa.europa.eu", "Europe"),
+        ("ec.europa.eu", "Europe"),
+        ("portofrotterdam.com", "Europe"),
+        ("portofantwerpbruges.com", "Europe"),
+        ("hamburg-port-authority.de", "Europe"),
+        ("valenciaport.com", "Europe"),
+        ("portdebarcelona.cat", "Europe"),
+        ("portoffelixstowe.co.uk", "Europe"),
+        ("peelports.com", "Europe"),
     )
 
     assert topics["dnd-port"].include_domains == [case[0] for case in domain_cases]
     for host, expected_geography in domain_cases:
         enriched = OpenRouterProvider._enrich_discovery_geographies(
             SourceCandidate(url=f"https://www.{host}/example"),
-            ("Regulatory", "United States", "West Coast", "East Coast", "Gulf", "Mexico"),
+            (
+                "Regulatory",
+                "United States",
+                "West Coast",
+                "East Coast",
+                "Gulf",
+                "Mexico",
+                "Europe",
+            ),
             queries,
             topics["dnd-port"].include_domains,
         )
@@ -600,12 +618,21 @@ def test_discovery_maps_every_configured_query_family_from_domain_evidence() -> 
         (queries[1], set()),
         (queries[2], set()),
         (queries[3], set()),
+        (queries[4], set()),
     )
     assert len(queries) == len(query_cases)
     for query, expected_geographies in query_cases:
         enriched = OpenRouterProvider._enrich_discovery_geographies(
             SourceCandidate(url="https://news.example/article", topics=[query]),
-            ("Regulatory", "United States", "West Coast", "East Coast", "Gulf", "Mexico"),
+            (
+                "Regulatory",
+                "United States",
+                "West Coast",
+                "East Coast",
+                "Gulf",
+                "Mexico",
+                "Europe",
+            ),
             queries,
             ["news.example"],
         )

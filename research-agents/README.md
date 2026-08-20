@@ -33,6 +33,9 @@ Apply the reviewed migration to the configured Neon `main` branch:
 uv run sheperd-research migrate
 ```
 
+The numbered migrations enforce the exact free Gemma model in database defaults
+and existing run rows; paid or router model identifiers are not permitted.
+
 ## Commands
 
 ```bash

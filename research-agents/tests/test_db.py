@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
+import pytest
 from psycopg import OperationalError
 
 from sheperd_research.contracts import (
@@ -16,8 +17,10 @@ from sheperd_research.contracts import (
     RunStatus,
     SignalEvent,
     SourceCandidate,
+    ValidationReport,
+    ValidationStatus,
 )
-from sheperd_research.db import InMemoryRepository, PostgresRepository
+from sheperd_research.db import InMemoryRepository, PostgresRepository, run_migrations
 
 
 def test_task4_migration_adds_structured_audit_indexes_without_raw_storage() -> None:
@@ -33,6 +36,77 @@ def test_task4_migration_adds_structured_audit_indexes_without_raw_storage() -> 
     assert "signal_events_run_evidence_idx" in migration
     assert "vector" not in migration.lower()
     assert "CREATE TABLE" not in migration.upper()
+
+
+def test_fresh_migrations_apply_in_order_without_checkpoint_tables_or_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Cursor:
+        def __init__(self) -> None:
+            self.rows: list[tuple[object, ...]] = []
+            self.statements: list[str] = []
+
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def execute(self, statement: str, _: tuple[object, ...] = ()) -> None:
+            self.statements.append(statement)
+            if statement.startswith("SELECT version"):
+                self.rows = []
+
+        def fetchall(self) -> list[tuple[object, ...]]:
+            return self.rows
+
+    class Connection:
+        def __init__(self) -> None:
+            self.cursor_instance = Cursor()
+
+        def __enter__(self) -> Connection:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return self.cursor_instance
+
+        def commit(self) -> None:
+            return None
+
+    connection = Connection()
+    monkeypatch.setattr("psycopg.connect", lambda *_args, **_kwargs: connection)
+    migrations_dir = Path(__file__).parents[1] / "migrations"
+
+    applied = run_migrations("postgresql://no-credential-needed", migrations_dir)
+
+    expected = [path.name for path in sorted(migrations_dir.glob("*.sql"))]
+    assert applied == expected
+    redaction = (migrations_dir / "0007_redact_checkpoint_transients.sql").read_text(
+        encoding="utf-8"
+    )
+    assert "to_regclass('public.checkpoint_blobs')" in redaction
+    assert "to_regclass('public.checkpoints')" in redaction
+    assert "to_regclass('public.checkpoint_writes')" in redaction
+
+
+def test_migrations_enforce_the_exact_gemma_database_policy() -> None:
+    migrations_dir = Path(__file__).parents[1] / "migrations"
+    migration_text = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(migrations_dir.glob("*.sql"))
+    )
+
+    assert "DEFAULT 'openrouter/free'" not in migration_text
+    strict_migration = (migrations_dir / "0009_strict_gemma_policy.sql").read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "ALTER COLUMN model_id SET DEFAULT 'google/gemma-4-26b-a4b-it:free'"
+        in strict_migration
+    )
+    assert "IS DISTINCT FROM 'google/gemma-4-26b-a4b-it:free'" in strict_migration
 
 
 def test_repository_filters_and_exposes_run_artifacts() -> None:
@@ -192,6 +266,47 @@ def test_repositories_redact_raw_step_metadata_before_persistence() -> None:
     assert "prompt" not in persisted
     assert "reasoning" not in persisted
     assert "api_key" not in persisted
+
+
+def test_postgres_audit_and_validation_inserts_are_immutable_no_ops_on_conflict() -> None:
+    first_report = ValidationReport(
+        run_id="run-1",
+        status=ValidationStatus.BLOCKED,
+        model_id="google/gemma-4-26b-a4b-it:free",
+    )
+    memory = InMemoryRepository()
+    memory.record_step("run-1", "critic", "succeeded", {"status": "first"})
+    memory.record_step("run-1", "critic", "failed", {"status": "replacement"})
+    memory.record_validation(first_report)
+    memory.record_validation(first_report.model_copy(update={"status": ValidationStatus.PASS}))
+    assert memory.steps[0]["status"] == "succeeded"
+    assert memory.get_validation("run-1") is first_report
+
+    repository = PostgresRepository(Mock())
+    with patch.object(repository, "_execute", return_value=[]) as execute:
+        repository.record_step("run-1", "critic", "succeeded", {"status": "first"})
+        repository.record_validation(first_report)
+
+    queries = [entry.args[0] for entry in execute.call_args_list]
+    assert "ON CONFLICT (run_id, agent_name, attempt) DO NOTHING" in queries[0]
+    assert "ON CONFLICT (run_id) DO NOTHING" in queries[1]
+    assert all("DO UPDATE" not in query for query in queries[:2])
+
+
+def test_postgres_source_persistence_uses_sanitized_url() -> None:
+    source = SourceCandidate(
+        url="https://safe.example/article?api_key=KEY_SECRET&token=TOKEN_SECRET"
+    )
+    repository = PostgresRepository(Mock())
+
+    with patch.object(repository, "_execute", return_value=[]) as execute:
+        repository.record_source(source)
+
+    params = execute.call_args.args[1]
+    assert params[0] == "https://safe.example/article"
+    assert params[1] == "https://safe.example/article"
+    assert "KEY_SECRET" not in json.dumps(params, default=str)
+    assert "TOKEN_SECRET" not in json.dumps(params, default=str)
 
 
 def test_postgres_repository_persists_sanitized_tool_arguments() -> None:

@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from ..contracts import SourceCandidate
-from ..validators import normalize_url
+from ..validators import normalize_url, url_policy_error
 from .errors import ProviderError
 
 
@@ -133,6 +133,8 @@ class TavilyProvider:
         url = item.get("url")
         if not isinstance(url, str) or not url.startswith(("http://", "https://")):
             raise ProviderError("Tavily returned a result without a valid URL")
+        if url_policy_error(url) is not None:
+            raise ProviderError("Tavily returned a source rejected by URL policy")
         published_at = TavilyProvider._parse_datetime(item.get("published_date"))
         host = urlsplit(url).hostname or "unknown"
         return SourceCandidate(

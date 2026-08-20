@@ -11,11 +11,13 @@ topics:
       - latest Los Angeles Long Beach Oakland Seattle Tacoma port congestion dwell TEU closure
       - latest Savannah Charleston New York New Jersey Houston port congestion terminal carrier
       - latest Mexico Manzanillo Lazaro Cardenas Veracruz Altamira container port update
+      - latest Europe Rotterdam Antwerp Hamburg Valencia Barcelona Felixstowe port shipping update
     geographies:
       - West Coast
       - East Coast
       - Gulf
       - Mexico
+      - Europe
     include_domains:
       - fmc.gov
       - ecfr.gov
@@ -28,6 +30,16 @@ topics:
       - panynj.gov
       - porthouston.com
       - puertomanzanillo.com.mx
+      - transport.ec.europa.eu
+      - emsa.europa.eu
+      - ec.europa.eu
+      - portofrotterdam.com
+      - portofantwerpbruges.com
+      - hamburg-port-authority.de
+      - valenciaport.com
+      - portdebarcelona.cat
+      - portoffelixstowe.co.uk
+      - peelports.com
     exclude_domains:
       - linkedin.com
     lookback_days: 14

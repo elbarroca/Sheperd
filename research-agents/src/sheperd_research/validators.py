@@ -1,23 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from datetime import datetime
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from .contracts import ClaimDraft, SourceCandidate
 
-TRACKING_KEYS = {
-    "fbclid",
-    "gclid",
-    "goal",
-    "mc_cid",
-    "mc_eid",
-    "ref",
-    "utm_campaign",
-    "utm_medium",
-    "utm_source",
-    "utm_term",
-}
 REQUIRED_DRAFT_PREFIX = "DRAFT - HUMAN REVIEW REQUIRED"
 MANDATORY_EXCLUDED_DOMAINS = ("linkedin.com",)
 PAYWALL_QUERY_MARKERS = {
@@ -33,13 +22,6 @@ ALLOWED_URL_SCHEMES = {"http", "https"}
 
 def normalize_url(url: str) -> str:
     parsed = urlsplit(url.strip())
-    query = sorted(
-        (
-            (key, value)
-            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-            if key.lower() not in TRACKING_KEYS and not key.lower().startswith("utm_")
-        )
-    )
     hostname = parsed.hostname.lower() if parsed.hostname else ""
     port = parsed.port
     netloc = hostname
@@ -49,7 +31,9 @@ def normalize_url(url: str) -> str:
     if port is not None and not is_default_port:
         netloc = f"{hostname}:{port}"
     path = parsed.path.rstrip("/") or "/"
-    return urlunsplit((parsed.scheme.lower(), netloc, path, urlencode(query), ""))
+    # ponytail: strip every query from persisted URLs; add an explicit safe
+    # allowlist only if a source identity requires it.
+    return urlunsplit((parsed.scheme.lower(), netloc, path, "", ""))
 
 
 def content_hash(value: str) -> str:
@@ -69,15 +53,20 @@ def matches_any_domain(host: str, domains: tuple[str, ...] | list[str]) -> bool:
 def url_policy_error(
     url: str,
     *,
-    excluded_domains: tuple[str, ...] | list[str] = (),
+    excluded_domains: Sequence[str] = (),
 ) -> str | None:
-    parsed = urlsplit(url.strip())
+    try:
+        parsed = urlsplit(url.strip())
+    except ValueError:
+        return "malformed_url"
     scheme = parsed.scheme.lower()
     if scheme not in ALLOWED_URL_SCHEMES:
         return "unsupported_scheme"
     hostname = (parsed.hostname or "").lower()
     if not hostname:
         return "missing_host"
+    if parsed.username or parsed.password:
+        return "credential_bearing_url"
     if matches_any_domain(hostname, tuple(MANDATORY_EXCLUDED_DOMAINS) + tuple(excluded_domains)):
         return "excluded_domain"
     query_markers = {
