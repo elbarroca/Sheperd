@@ -97,7 +97,7 @@ class RepositoryProtocol(Protocol):
         offset: int = 0,
     ) -> list[SignalEvent]: ...
 
-    def record_source(self, source: SourceCandidate) -> None: ...
+    def record_source(self, source: SourceCandidate) -> SourceCandidate: ...
 
     def record_snapshot(self, run_id: str, source: SourceCandidate, content: str) -> None: ...
 
@@ -257,14 +257,13 @@ class InMemoryRepository:
         else:
             existing.update(record)
 
-    def record_source(self, source: SourceCandidate) -> None:
+    def record_source(self, source: SourceCandidate) -> SourceCandidate:
         normalized = normalize_url(source.url)
         stored = _seed_safe_source(source).model_copy(update={"url": normalized})
         existing = self.sources.get(normalized)
         if existing is None:
             self.sources[normalized] = stored
-            return
-        if existing.is_seed or stored.is_seed:
+        elif existing.is_seed or stored.is_seed:
             self.sources[normalized] = existing.model_copy(
                 update={
                     "is_seed": True,
@@ -272,6 +271,7 @@ class InMemoryRepository:
                     "evidence_status": EvidenceStatus.UNVERIFIED,
                 }
             )
+        return self.sources[normalized]
 
     def record_tool_calls(
         self,
@@ -840,10 +840,10 @@ class PostgresRepository:
             ),
         )
 
-    def record_source(self, source: SourceCandidate) -> None:
+    def record_source(self, source: SourceCandidate) -> SourceCandidate:
         stored = _seed_safe_source(source)
         normalized = normalize_url(stored.url)
-        self._execute(
+        rows = self._execute(
             """
             INSERT INTO sources (
                 normalized_url, url, title, publisher, published_at, retrieved_at,
@@ -871,6 +871,7 @@ class PostgresRepository:
                     WHEN sources.is_seed OR EXCLUDED.is_seed THEN 'unverified'
                     ELSE sources.evidence_status
                 END
+            RETURNING source_kind, is_seed, evidence_status
             """,
             (
                 normalized,
@@ -887,6 +888,16 @@ class PostgresRepository:
                 stored.is_seed,
                 stored.evidence_status,
             ),
+        )
+        if not rows:
+            return stored
+        row = rows[0]
+        return stored.model_copy(
+            update={
+                "source_kind": cast(str, row[0]),
+                "is_seed": cast(bool, row[1]),
+                "evidence_status": EvidenceStatus(cast(str, row[2])),
+            }
         )
 
     def record_snapshot(self, run_id: str, source: SourceCandidate, content: str) -> None:

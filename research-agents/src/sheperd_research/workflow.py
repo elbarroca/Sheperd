@@ -610,8 +610,9 @@ class ResearchWorkflow:
                     ordered.append(lane_sources[lane.name][index])
         unique = deduplicate_sources(ordered)[: request.max_sources]
         validate_source_dates(unique, request.as_of)
-        for source in unique:
-            self.repository.record_source(source)
+        unique = deduplicate_sources(
+            [self.repository.record_source(source) for source in unique]
+        )[: request.max_sources]
         self._record_step(
             state["run_id"],
             "discovery",

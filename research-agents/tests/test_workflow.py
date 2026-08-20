@@ -162,6 +162,20 @@ class NonExtractableTavily(FakeTavily):
         ]
 
 
+class CrossRunCollisionTavily(FakeTavily):
+    async def search(self, query: str, **_: object) -> list[SourceCandidate]:
+        return [
+            SourceCandidate(
+                url="https://www.fmc.gov/cross-run-source",
+                title=f"{query} update",
+                publisher="fmc.gov",
+                published_at=datetime(2026, 8, 18, tzinfo=UTC),
+                topics=["dnd"],
+                geographies=["West Coast"],
+            )
+        ]
+
+
 class WrongModelLLM(FakeLLM):
     async def synthesize(
         self,
@@ -338,6 +352,31 @@ def test_workflow_persists_quarantined_seed_leads_without_processing_them() -> N
     metadata = cast(dict[str, object], discovery_step["metadata"])
     assert metadata["accepted_seed_count"] == 1
     assert metadata["quarantined_seed_count"] == 2
+
+
+def test_workflow_blocks_seed_provenance_across_runs() -> None:
+    repository = InMemoryRepository()
+    workflow = ResearchWorkflow(repository, CrossRunCollisionTavily(), FakeLLM())
+    seed_request = ResearchRunRequest(
+        topic_set="dnd-port",
+        max_sources=1,
+        include_topic_seeds=False,
+        seed_urls=["https://www.fmc.gov/cross-run-source"],
+        validation_profile="canary",
+    )
+
+    asyncio.run(workflow.run(seed_request, run_id="seed-run"))
+    discovery_result = asyncio.run(
+        workflow.run(seed_request.model_copy(update={"seed_urls": []}), run_id="discovery-run")
+    )
+
+    source_url = "https://www.fmc.gov/cross-run-source"
+    assert repository.sources[source_url].is_seed is True
+    assert discovery_result.distillation_count == 0
+    assert ("seed-run", source_url) not in repository.source_snapshots
+    assert ("discovery-run", source_url) not in repository.source_snapshots
+    assert ("seed-run", source_url) not in repository.distillations
+    assert ("discovery-run", source_url) not in repository.distillations
 
 
 def test_llm_input_budget_matches_provider_source_truncation() -> None:

@@ -199,6 +199,28 @@ def test_postgres_source_upsert_promotes_seed_metadata() -> None:
     assert params[12] is EvidenceStatus.UNVERIFIED
 
 
+def test_postgres_source_upsert_returns_merged_seed_metadata() -> None:
+    repository = PostgresRepository(Mock())
+    normal = SourceCandidate(
+        url="https://example.com/article",
+        source_kind="discovery",
+        evidence_status=EvidenceStatus.VERIFIED,
+    )
+    seed = normal.model_copy(update={"is_seed": True, "source_kind": "trade-media"})
+
+    with patch.object(
+        repository,
+        "_execute",
+        side_effect=[[], [("seed-only", True, "unverified")]],
+    ):
+        repository.record_source(normal)
+        merged = repository.record_source(seed)
+
+    assert merged.is_seed is True
+    assert merged.source_kind == "seed-only"
+    assert merged.evidence_status is EvidenceStatus.UNVERIFIED
+
+
 def test_postgres_repository_reconnects_once_after_connection_loss() -> None:
     disconnected = Mock()
     disconnected.cursor.side_effect = OperationalError("SSL connection is closed")
