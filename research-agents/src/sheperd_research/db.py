@@ -160,7 +160,14 @@ _AUDIT_RECEIPT_TEXT_FIELDS = frozenset(
     {"call_id", "error_code", "input_hash", "result_hash", "status", "tool_name"}
 )
 _AUDIT_RECEIPT_INT_FIELDS = frozenset(
-    {"call_index", "latency_ms", "result_count", "url_count"}
+    {
+        "call_index",
+        "latency_ms",
+        "provider_key_count",
+        "provider_key_slot",
+        "result_count",
+        "url_count",
+    }
 )
 _AUDIT_RECEIPT_FIELDS = _AUDIT_RECEIPT_TEXT_FIELDS | _AUDIT_RECEIPT_INT_FIELDS
 
@@ -402,6 +409,10 @@ def _sanitized_tool_args(receipt: dict[str, object]) -> dict[str, object]:
         urls = receipt.get("urls")
     if "url_count" not in sanitized:
         sanitized["url_count"] = len(_safe_audit_urls(urls))
+    for key in ("provider_key_slot", "provider_key_count"):
+        value = args.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            sanitized[key] = max(0, value)
     return sanitized
 
 

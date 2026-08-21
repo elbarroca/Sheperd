@@ -430,6 +430,7 @@ def test_discovery_requires_model_issued_tavily_tool_calls(
     class TavilyStub:
         searches = 0
         extractions = 0
+        last_call_metadata = {"key_slot": 2, "key_count": 2}
 
         async def search(self, query: str, **_: object) -> list[SourceCandidate]:
             self.searches += 1
@@ -535,6 +536,7 @@ def test_discovery_requires_model_issued_tavily_tool_calls(
     receipts = result.metadata["attempts"][0]["tool_call_receipts"]
     assert all("query" not in receipt for receipt in receipts)
     assert all("urls" not in receipt for receipt in receipts)
+    assert [receipt["provider_key_slot"] for receipt in receipts] == [2, 2]
 
 
 def test_discovery_persists_failed_tavily_tool_receipt(

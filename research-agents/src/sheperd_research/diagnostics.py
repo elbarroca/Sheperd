@@ -52,6 +52,8 @@ def validate_dev_branch(branch_id: str) -> str | None:
 def _env_check(settings: Settings) -> dict[str, object]:
     fields = {
         "TAVILY_API_KEY": bool(settings.tavily_api_key),
+        "TAVILY_API_KEY_2": bool(settings.tavily_api_key_2),
+        "TAVILY_API_KEY_COUNT": settings.tavily_api_key_count,
         "TAVILY_PROJECT_ID": bool(settings.tavily_project_id),
         "OPENROUTER_API_KEY": bool(settings.openrouter_api_key),
         "NEON_PG_API_KEY": bool(settings.neon_api_key),
@@ -139,11 +141,34 @@ async def _provider_check(
     settings: Settings, *, allow_free_fallbacks: bool = False
 ) -> dict[str, object]:
     checks: dict[str, object] = {}
-    if settings.tavily_api_key:
+    tavily: TavilyProvider | None = None
+
+    def key_slots() -> list[int]:
+        if tavily is None:
+            return []
+        slots: list[int] = []
+        for attempt in tavily.call_history:
+            slot = attempt.get("key_slot")
+            if isinstance(slot, int) and not isinstance(slot, bool):
+                slots.append(slot)
+        return sorted(set(slots))
+
+    def successful_key_slot() -> int | None:
+        if tavily is None:
+            return None
+        for attempt in reversed(tavily.call_history):
+            slot = attempt.get("key_slot")
+            if (
+                attempt.get("status") == "succeeded"
+                and isinstance(slot, int)
+                and not isinstance(slot, bool)
+            ):
+                return slot
+        return None
+
+    if settings.tavily_api_keys:
         try:
-            tavily = TavilyProvider(
-                settings.tavily_api_key.get_secret_value(), settings.tavily_project_id
-            )
+            tavily = TavilyProvider(settings.tavily_api_keys, settings.tavily_project_id)
             search_results = await tavily.search(
                 "latest FMC demurrage detention enforcement",
                 include_domains=["fmc.gov"],
@@ -158,9 +183,15 @@ async def _provider_check(
                 "Tavily Search and Extract completed",
                 search_results=len(search_results),
                 extracted_sources=len(extracted),
+                key_slots_attempted=key_slots(),
+                successful_key_slot=successful_key_slot(),
             )
         except (ProviderError, ValueError) as error:
-            checks["tavily"] = _status(False, f"Tavily check failed: {error}")
+            checks["tavily"] = _status(
+                False,
+                f"Tavily check failed: {error}",
+                key_slots_attempted=key_slots(),
+            )
     else:
         checks["tavily"] = _status(False, "TAVILY_API_KEY is not configured")
 

@@ -790,6 +790,7 @@ class OpenRouterProvider:
         required_tools: Sequence[str] = (),
         attempt_sink: list[dict[str, object]] | None = None,
         tool_latency_by_input: dict[str, int] | None = None,
+        tool_provider_metadata_by_input: dict[str, dict[str, object]] | None = None,
         tool_failure_sink: list[dict[str, object]] | None = None,
     ) -> OutputT:
         last_error: BaseException | None = None
@@ -850,6 +851,16 @@ class OpenRouterProvider:
                             input_hash = receipt.get("input_hash")
                             if isinstance(input_hash, str) and input_hash in tool_latency_by_input:
                                 receipt["latency_ms"] = tool_latency_by_input[input_hash]
+                    if tool_provider_metadata_by_input is not None:
+                        for receipt in tool_receipts:
+                            input_hash = receipt.get("input_hash")
+                            metadata = (
+                                tool_provider_metadata_by_input.get(input_hash)
+                                if isinstance(input_hash, str)
+                                else None
+                            )
+                            if isinstance(metadata, dict):
+                                receipt.update(metadata)
                     called_tools = {
                         str(receipt["tool_name"])
                         for receipt in tool_receipts
@@ -966,6 +977,7 @@ class OpenRouterProvider:
         required_tools: Sequence[str] = (),
         attempt_sink: list[dict[str, object]] | None = None,
         tool_latency_by_input: dict[str, int] | None = None,
+        tool_provider_metadata_by_input: dict[str, dict[str, object]] | None = None,
         tool_failure_sink: list[dict[str, object]] | None = None,
     ) -> OutputT:
         return await self._invoke_agent(
@@ -977,6 +989,7 @@ class OpenRouterProvider:
             required_tools=required_tools,
             attempt_sink=attempt_sink,
             tool_latency_by_input=tool_latency_by_input,
+            tool_provider_metadata_by_input=tool_provider_metadata_by_input,
             tool_failure_sink=tool_failure_sink,
         )
 
@@ -1000,6 +1013,7 @@ class OpenRouterProvider:
         tool_errors: list[str] = []
         filtered_source_rejections: list[str] = []
         tool_latency_by_input: dict[str, int] = {}
+        tool_provider_metadata_by_input: dict[str, dict[str, object]] = {}
         tool_failure_receipts: list[dict[str, object]] = []
         attempt_sink: list[dict[str, object]] = []
         tool_calls = 0
@@ -1024,12 +1038,12 @@ class OpenRouterProvider:
             url_count: int,
             latency_ms: int,
             error: BaseException,
+            provider_metadata: dict[str, object] | None = None,
         ) -> None:
             error_code = getattr(error, "error_code", None)
             if not isinstance(error_code, str):
                 error_code = self._error_code(error)
-            tool_failure_receipts.append(
-                {
+            receipt: dict[str, object] = {
                     "call_id": f"provider-failure-{len(tool_failure_receipts) + 1}",
                     "call_index": len(tool_failure_receipts),
                     "tool_name": tool_name,
@@ -1041,7 +1055,20 @@ class OpenRouterProvider:
                     "latency_ms": latency_ms,
                     "error_code": error_code,
                 }
-            )
+            if provider_metadata:
+                receipt.update(provider_metadata)
+            tool_failure_receipts.append(receipt)
+
+        def provider_key_metadata() -> dict[str, object]:
+            raw = getattr(tavily, "last_call_metadata", {})
+            if not isinstance(raw, dict):
+                return {}
+            metadata: dict[str, object] = {}
+            for key in ("key_slot", "key_count"):
+                value = raw.get(key)
+                if isinstance(value, int) and not isinstance(value, bool):
+                    metadata[f"provider_key_{key.removeprefix('key_')}"] = value
+            return metadata
 
         async def run_search(query: str) -> str:
             input_hash = self._tool_input_hash(query, ())
@@ -1095,8 +1122,18 @@ class OpenRouterProvider:
             finally:
                 latency_ms = max(0, int((monotonic() - started) * 1000))
                 tool_latency_by_input[input_hash] = latency_ms
+                provider_metadata = provider_key_metadata()
+                if provider_metadata:
+                    tool_provider_metadata_by_input[input_hash] = provider_metadata
                 if failure is not None:
-                    record_tool_failure("tavily_search", input_hash, 0, latency_ms, failure)
+                    record_tool_failure(
+                        "tavily_search",
+                        input_hash,
+                        0,
+                        latency_ms,
+                        failure,
+                        provider_metadata,
+                    )
             for source in valid_sources:
                 if can_extract_url(source.url):
                     known_sources.setdefault(normalize_url(source.url), source)
@@ -1154,6 +1191,9 @@ class OpenRouterProvider:
             finally:
                 latency_ms = max(0, int((monotonic() - started) * 1000))
                 tool_latency_by_input[input_hash] = latency_ms
+                provider_metadata = provider_key_metadata()
+                if provider_metadata:
+                    tool_provider_metadata_by_input[input_hash] = provider_metadata
                 if failure is not None:
                     record_tool_failure(
                         "tavily_extract",
@@ -1161,6 +1201,7 @@ class OpenRouterProvider:
                         len(urls),
                         latency_ms,
                         failure,
+                        provider_metadata,
                     )
             captured_content.update(normalized_extracted)
             return json.dumps(
@@ -1212,6 +1253,7 @@ class OpenRouterProvider:
                 required_tools=("tavily_search", "tavily_extract"),
                 attempt_sink=attempt_sink,
                 tool_latency_by_input=tool_latency_by_input,
+                tool_provider_metadata_by_input=tool_provider_metadata_by_input,
                 tool_failure_sink=tool_failure_receipts,
             )
         except ProviderError as error:

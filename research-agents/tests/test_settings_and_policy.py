@@ -35,6 +35,16 @@ def test_settings_resolve_root_env_and_vault_paths(monkeypatch: pytest.MonkeyPat
     assert settings.resolved_obsidian_output_dir == root / "obsidian/06_Research/Agent Runs"
 
 
+def test_settings_exposes_ordered_tavily_key_slots() -> None:
+    settings = Settings(
+        tavily_api_key="primary-secret",
+        tavily_api_key_2="secondary-secret",
+    )
+
+    assert settings.tavily_api_keys == ("primary-secret", "secondary-secret")
+    assert settings.tavily_api_key_count == 2
+
+
 def test_research_request_rejects_paid_models() -> None:
     with pytest.raises(ValueError, match=STRICT_OPENROUTER_MODEL):
         ResearchRunRequest(topic_set="dnd-port", model="openrouter/some-paid-model")

@@ -74,6 +74,11 @@ primary model. The default production-safe mode is strict Gemma-only; use
 required. That mode still requires live capability metadata, disables OpenRouter
 provider fallback, records every attempt, and never permits a paid model.
 
+Set `TAVILY_API_KEY` as the primary search key and optionally set
+`TAVILY_API_KEY_2` as a secondary. Search and Extract try slot 1 first, then
+slot 2 only for rate-limit, quota, authentication, or provider-status failures.
+Malformed responses remain failures; key values are never logged or persisted.
+
 ## Research state
 
 User-supplied links are seed references, not verified claims. Primary government, court, port-authority, carrier, and terminal sources outrank trade media and social posts. Unsupported assertions remain `unverified` or `mixed`.

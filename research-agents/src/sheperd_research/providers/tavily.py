@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from urllib.parse import urlsplit
 
@@ -12,35 +13,76 @@ from .errors import ProviderError
 
 class TavilyProvider:
     MAX_EXTRACT_URLS = 20
+    ROTATABLE_ERROR_CODES = frozenset(
+        {"rate_limit", "plan_usage_limit", "payg_limit", "authentication", "provider_error"}
+    )
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str | Sequence[str],
         project_id: str | None = None,
         timeout_seconds: float = 45.0,
         max_retries: int = 0,
+        *,
+        secondary_api_key: str | None = None,
     ) -> None:
-        if not api_key.strip():
+        configured_keys = [api_key] if isinstance(api_key, str) else list(api_key)
+        if secondary_api_key is not None:
+            configured_keys.append(secondary_api_key)
+        keys = tuple(
+            dict.fromkeys(
+                key.strip()
+                for key in configured_keys
+                if isinstance(key, str) and key.strip()
+            )
+        )
+        if not keys:
             raise ValueError("Tavily API key is required")
-        self._api_key = api_key
+        self._api_keys = keys
         self._project_id = project_id
         self._timeout = timeout_seconds
         self._max_retries = max(0, max_retries)
+        self.call_history: list[dict[str, object]] = []
+        self.last_call_metadata: dict[str, object] = {}
 
-    def _headers(self) -> dict[str, str]:
-        headers = {"Authorization": f"Bearer {self._api_key}"}
+    def _headers(self, api_key: str) -> dict[str, str]:
+        headers = {"Authorization": f"Bearer {api_key}"}
         if self._project_id:
             headers["X-Project-ID"] = self._project_id
         return headers
 
-    async def _post(self, endpoint: str, payload: dict[str, object]) -> dict[str, object]:
+    def _record_attempt(
+        self,
+        *,
+        endpoint: str,
+        key_slot: int,
+        status: str,
+        error_code: str | None,
+    ) -> dict[str, object]:
+        record = {
+            "operation": endpoint,
+            "key_slot": key_slot,
+            "key_count": len(self._api_keys),
+            "status": status,
+            "error_code": error_code,
+        }
+        self.last_call_metadata = record
+        self.call_history.append(record)
+        return record
+
+    async def _post_once(
+        self,
+        endpoint: str,
+        payload: dict[str, object],
+        api_key: str,
+    ) -> dict[str, object]:
         if self._max_retries:
             raise ProviderError("Tavily retries are disabled by strict policy")
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 response = await client.post(
                     f"https://api.tavily.com/{endpoint}",
-                    headers=self._headers(),
+                    headers=self._headers(api_key),
                     json=payload,
                 )
                 response.raise_for_status()
@@ -62,6 +104,11 @@ class TavilyProvider:
                     "Tavily pay-as-you-go limit reached",
                     error_code="payg_limit",
                 ) from error
+            if status in {401, 403}:
+                raise ProviderError(
+                    "Tavily authentication failed",
+                    error_code="authentication",
+                ) from error
             raise ProviderError(
                 f"Tavily request failed with status {status}",
                 error_code="provider_error",
@@ -79,6 +126,52 @@ class TavilyProvider:
         ):
             raise ProviderError("Tavily returned an invalid response")
         return {key: value for key, value in data.items() if isinstance(key, str)}
+
+    async def _post(self, endpoint: str, payload: dict[str, object]) -> dict[str, object]:
+        errors: list[ProviderError] = []
+        for index, api_key in enumerate(self._api_keys):
+            key_slot = index + 1
+            try:
+                data = await self._post_once(endpoint, payload, api_key)
+            except ProviderError as error:
+                errors.append(error)
+                error_code = error.error_code or "provider_error"
+                self._record_attempt(
+                    endpoint=endpoint,
+                    key_slot=key_slot,
+                    status="failed",
+                    error_code=error_code,
+                )
+                if (
+                    key_slot < len(self._api_keys)
+                    and error.error_code in self.ROTATABLE_ERROR_CODES
+                ):
+                    continue
+                if len(errors) > 1:
+                    message = "Tavily request failed across configured key slots: " + "; ".join(
+                        str(item) for item in errors
+                    )
+                    raise ProviderError(
+                        message,
+                        attempts=[dict(item) for item in self.call_history[-len(errors) :]],
+                        error_code=error.error_code,
+                    ) from error
+                raise ProviderError(
+                    str(error),
+                    attempts=[dict(item) for item in self.call_history[-1:]],
+                    error_code=error.error_code,
+                ) from error
+            self._record_attempt(
+                endpoint=endpoint,
+                key_slot=key_slot,
+                status="succeeded",
+                error_code=None,
+            )
+            return data
+        raise ProviderError(
+            "Tavily request failed across configured key slots",
+            attempts=[dict(item) for item in self.call_history[-len(self._api_keys) :]],
+        )
 
     async def search(
         self,

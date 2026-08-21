@@ -84,6 +84,102 @@ def test_tavily_rate_limit_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
     assert raised.value.error_code == "rate_limit"
 
 
+def test_tavily_rotates_to_secondary_key_after_primary_quota_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_headers: list[object] = []
+
+    class CapturingClient(FakeAsyncClient):
+        async def post(self, url: object, **kwargs: object) -> httpx.Response:
+            captured_headers.append(kwargs.get("headers"))
+            return await super().post(url, **kwargs)
+
+    outcomes = [
+        response(432, {"detail": "blocked"}),
+        response(
+            200,
+            {
+                "results": [
+                    {
+                        "url": "https://example.com/article",
+                        "title": "Example",
+                        "content": "A public source",
+                    }
+                ]
+            },
+        ),
+    ]
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_: CapturingClient(outcomes))
+
+    provider = TavilyProvider(
+        "primary-secret",
+        secondary_api_key="secondary-secret",
+    )
+    results = asyncio.run(provider.search("ports"))
+
+    assert len(results) == 1
+    assert captured_headers == [
+        {"Authorization": "Bearer primary-secret"},
+        {"Authorization": "Bearer secondary-secret"},
+    ]
+    assert [attempt["key_slot"] for attempt in provider.call_history] == [1, 2]
+    assert provider.call_history[0]["status"] == "failed"
+    assert provider.call_history[0]["error_code"] == "plan_usage_limit"
+    assert provider.call_history[1]["status"] == "succeeded"
+    assert all("secret" not in str(attempt) for attempt in provider.call_history)
+
+
+def test_tavily_does_not_rotate_for_malformed_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_headers: list[object] = []
+
+    class CapturingClient(FakeAsyncClient):
+        async def post(self, url: object, **kwargs: object) -> httpx.Response:
+            captured_headers.append(kwargs.get("headers"))
+            return await super().post(url, **kwargs)
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **_: CapturingClient([response(200, {"results": "invalid"})]),
+    )
+
+    provider = TavilyProvider(
+        "primary-secret",
+        secondary_api_key="secondary-secret",
+    )
+    with pytest.raises(ProviderError, match="invalid results"):
+        asyncio.run(provider.search("ports"))
+
+    assert captured_headers == [{"Authorization": "Bearer primary-secret"}]
+    assert len(provider.call_history) == 1
+    assert provider.call_history[0]["key_slot"] == 1
+
+
+def test_tavily_records_both_failed_key_slots_without_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_client(
+        monkeypatch,
+        [response(432, {"detail": "blocked"}), response(429, {"detail": "limited"})],
+    )
+    provider = TavilyProvider(
+        "primary-secret",
+        secondary_api_key="secondary-secret",
+    )
+
+    with pytest.raises(ProviderError, match="plan usage limit") as raised:
+        asyncio.run(provider.search("ports"))
+
+    assert len(raised.value.attempts) == 2
+    assert [attempt["key_slot"] for attempt in raised.value.attempts] == [1, 2]
+    assert all(
+        secret not in str(raised.value.attempts)
+        for secret in ("primary-secret", "secondary-secret")
+    )
+
+
 @pytest.mark.parametrize(
     ("status_code", "message", "error_code"),
     [

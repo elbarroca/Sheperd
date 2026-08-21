@@ -295,9 +295,8 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
     except RuntimeError as error:
         return _blocked(args, str(error))
     try:
-        tavily_key = settings.tavily_api_key
         openrouter_key = settings.openrouter_api_key
-        if tavily_key is None or openrouter_key is None:
+        if not settings.tavily_api_keys or openrouter_key is None:
             return _blocked(args, "provider credentials are incomplete")
 
         async def execute() -> RunResult:
@@ -305,7 +304,7 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
                 workflow = ResearchWorkflow(
                     repository,
                     TavilyProvider(
-                        tavily_key.get_secret_value(),
+                        settings.tavily_api_keys,
                         settings.tavily_project_id,
                         timeout_seconds=15 if getattr(args, "profile", "full") == "canary" else 45,
                     ),
@@ -513,15 +512,14 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
         return 2
 
     try:
-        tavily_key = settings.tavily_api_key
         openrouter_key = settings.openrouter_api_key
-        assert tavily_key is not None and openrouter_key is not None
+        assert settings.tavily_api_keys and openrouter_key is not None
 
         async def execute() -> RunResult:
             async with _checkpoint_saver(settings.database_url or "") as checkpointer:
                 workflow = ResearchWorkflow(
                     repository,
-                    TavilyProvider(tavily_key.get_secret_value(), settings.tavily_project_id),
+                    TavilyProvider(settings.tavily_api_keys, settings.tavily_project_id),
                     OpenRouterProvider(
                         openrouter_key.get_secret_value(),
                         request.model,
@@ -710,7 +708,7 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
             timeout_seconds=15,
         )
         tavily = TavilyProvider(
-            settings.tavily_api_key.get_secret_value(),
+            settings.tavily_api_keys,
             settings.tavily_project_id,
             timeout_seconds=20,
         )
@@ -915,7 +913,7 @@ def _source_map_command(args: argparse.Namespace, settings: Settings) -> int:
             )
             return 2
         tavily = TavilyProvider(
-            settings.tavily_api_key.get_secret_value(),
+            settings.tavily_api_keys,
             settings.tavily_project_id,
             timeout_seconds=15,
         )

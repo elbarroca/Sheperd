@@ -113,6 +113,7 @@ class Settings(BaseSettings):
     neon_project_name: str = "sheperd-research"
     neon_branch_id: str = "main"
     tavily_api_key: SecretStr | None = None
+    tavily_api_key_2: SecretStr | None = None
     tavily_project_id: str | None = None
     openrouter_api_key: SecretStr | None = None
     openrouter_model: str = STRICT_OPENROUTER_MODEL
@@ -166,6 +167,18 @@ class Settings(BaseSettings):
     @property
     def has_live_provider_credentials(self) -> bool:
         return bool(self.tavily_api_key and self.openrouter_api_key)
+
+    @property
+    def tavily_api_keys(self) -> tuple[str, ...]:
+        return tuple(
+            secret.get_secret_value()
+            for secret in (self.tavily_api_key, self.tavily_api_key_2)
+            if secret is not None and secret.get_secret_value().strip()
+        )
+
+    @property
+    def tavily_api_key_count(self) -> int:
+        return len(self.tavily_api_keys)
 
     @property
     def has_database_credentials(self) -> bool:
