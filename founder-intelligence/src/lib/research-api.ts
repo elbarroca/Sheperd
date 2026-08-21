@@ -171,6 +171,9 @@ export interface ReportPayload {
     error: string | null;
     neon_branch_id: string | null;
     migration_version: string | null;
+    archived?: boolean;
+    archived_at?: string | null;
+    archive_reason?: string | null;
   } | null;
   validation: ValidationReport | null;
   lane_coverage: string[];
@@ -219,6 +222,9 @@ export interface WeeklyReportSummary {
   lane_coverage: string[];
   models: string[];
   as_of: string;
+  archived?: boolean;
+  archived_at?: string | null;
+  archive_reason?: string | null;
 }
 
 export interface SourceExplorerItem {
@@ -382,7 +388,10 @@ function isReportRun(value: unknown): boolean {
     && hasStrings(value, ["run_id", "status", "as_of"])
     && isNullableString(value.error)
     && isNullableString(value.neon_branch_id)
-    && isNullableString(value.migration_version);
+    && isNullableString(value.migration_version)
+    && isOptional(value, "archived", (candidate) => typeof candidate === "boolean")
+    && isOptional(value, "archived_at", isNullableString)
+    && isOptional(value, "archive_reason", isNullableString);
 }
 
 function isValidationCheck(value: unknown): boolean {
@@ -563,7 +572,10 @@ function isWeeklyReportSummary(value: unknown): value is WeeklyReportSummary {
     && isStringArray(value.regions)
     && isStringArray(value.languages)
     && isStringArray(value.lane_coverage)
-    && isStringArray(value.models);
+    && isStringArray(value.models)
+    && isOptional(value, "archived", (candidate) => typeof candidate === "boolean")
+    && isOptional(value, "archived_at", isNullableString)
+    && isOptional(value, "archive_reason", isNullableString);
 }
 
 function isReportForRun(value: unknown, runId: string): value is ReportPayload {
@@ -677,6 +689,7 @@ async function getJson<T>(path: string, parse: JsonParser<T>): Promise<ResearchR
 
 export interface ReportListFilters {
   status?: "all" | "ready" | "draft" | "partial" | "failed";
+  archive_scope?: "active" | "archived" | "all";
   limit?: number;
   offset?: number;
 }
@@ -688,6 +701,7 @@ function reportListPath(path: string, filters: ReportListFilters = {}): string {
   if (filters.status === "partial" || filters.status === "failed") {
     params.set("run_status", filters.status);
   }
+  if (filters.archive_scope) params.set("archive_scope", filters.archive_scope);
   if (filters.limit !== undefined) params.set("limit", String(filters.limit));
   if (filters.offset !== undefined) params.set("offset", String(filters.offset));
   const suffix = params.toString() ? `?${params.toString()}` : "";
@@ -706,9 +720,13 @@ export function getDailyReports(
   return getJson(reportListPath("/api/reports/daily", filters), (value) => isWeeklyResponse(value) ? value : null);
 }
 
-export function getWeeklyReport(runId: string): Promise<ResearchResponse<ReportPayload>> {
+export function getWeeklyReport(
+  runId: string,
+  archiveScope: "active" | "archived" | "all" = "active",
+): Promise<ResearchResponse<ReportPayload>> {
+  const query = archiveScope === "active" ? "" : `?archive_scope=${archiveScope}`;
   return getJson(
-    `/api/reports/weekly/${encodeURIComponent(runId)}`,
+    `/api/reports/weekly/${encodeURIComponent(runId)}${query}`,
     (value) => isReportForRun(value, runId) ? value : null,
   );
 }

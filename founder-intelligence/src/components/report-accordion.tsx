@@ -191,13 +191,20 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
           <p className="report-period">{periodLabel(brief.covered_from, brief.covered_until)}</p>
         </div>
         <div className="status-cluster">
+          {report.run?.archived ? <span className="status-badge status-archived">Archived</span> : null}
           <span className={`status-badge status-${report.run?.status ?? "unknown"}`}>{report.run?.status ?? "unknown"}</span>
           <span className={`status-badge status-${report.validation?.status ?? "blocked"}`}>{report.validation?.status ?? "blocked"}</span>
-          <a className="secondary-action" href={`/reports/${encodeURIComponent(brief.run_id)}/markdown`}>
+          <a className="secondary-action" href={`/reports/${encodeURIComponent(brief.run_id)}/markdown${report.run?.archived ? "?archive_scope=archived" : ""}`}>
             Download Markdown
           </a>
         </div>
       </div>
+
+      {report.run?.archived ? (
+        <div className="archive-notice" role="status">
+          Archived from the default dashboard. Reason: {report.run.archive_reason ?? "terminal failure"}.
+        </div>
+      ) : null}
 
       {blocked && (
         <div className="unavailable" role="alert">
@@ -253,18 +260,22 @@ export function UnavailableState({ error }: { error: string }) {
 
 export function ReportLink({ runId, summary }: { runId: string; summary: WeeklyReportSummary }) {
   const ready = summary.run_status === "succeeded" && summary.validation_status === "pass";
+  const archived = summary.archived === true || summary.archived_at != null;
+  const href = `/reports/${encodeURIComponent(runId)}${archived ? "?archive_scope=archived" : ""}`;
   return (
-    <Link className="report-card" href={`/reports/${encodeURIComponent(runId)}`}>
-      <span className="eyebrow">{ready ? "Decision-ready" : `${summary.run_status} · ${summary.validation_status}`}</span>
-      <h2>{summary.title}</h2>
-      <p>{periodLabel(summary.covered_from, summary.covered_until)}</p>
-      <p className="card-meta">
-        <span>{summary.source_count} sources</span>
-        <span>{summary.distillation_count} distillations</span>
-        <span>{summary.claim_count} claims</span>
-        <span>{summary.regions.join(", ") || "No regions"}</span>
-      </p>
-      <span className="card-arrow">Open report</span>
+    <Link className="report-row" href={href}>
+      <span className="report-row-title">
+        <span className="eyebrow">{archived ? "Archived" : ready ? "Decision-ready" : `${summary.run_status} · ${summary.validation_status}`}</span>
+        <strong>{summary.title}</strong>
+      </span>
+      <span className="report-row-period">{periodLabel(summary.covered_from, summary.covered_until)}</span>
+      <span className="report-row-metrics">
+        {summary.source_count} sources · {summary.distillation_count} distillations · {summary.claim_count} claims
+      </span>
+      <span className="report-row-state">
+        {archived ? summary.archive_reason ?? "archived" : `${summary.validation_status} · ${summary.review_state}`}
+      </span>
+      <span className="card-arrow">Open report →</span>
     </Link>
   );
 }

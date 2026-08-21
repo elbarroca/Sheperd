@@ -374,6 +374,60 @@ def _rollup_command(args: argparse.Namespace, settings: Settings) -> int:
         repository.close()
 
 
+def _audit_command(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        repository = _database(settings)
+    except RuntimeError as error:
+        return _blocked(args, str(error))
+    try:
+        summary = repository.audit_summary()
+        diagnostics = asyncio.run(run_doctor(settings))
+        blockers: list[dict[str, object]] = []
+        checks = diagnostics.get("checks", {})
+        if isinstance(checks, dict):
+            for name, value in checks.items():
+                if (
+                    name != "providers"
+                    and
+                    isinstance(value, dict)
+                    and value.get("status") not in {"pass", "not_configured"}
+                ):
+                    blockers.append(
+                        {
+                            "check": name,
+                            "status": value.get("status"),
+                            "message": value.get("message"),
+                        }
+                    )
+                if name == "providers" and isinstance(value, dict):
+                    for provider, provider_check in value.items():
+                        if (
+                            isinstance(provider_check, dict)
+                            and provider_check.get("status") not in {"pass", "not_configured"}
+                        ):
+                            blockers.append(
+                                {
+                                    "check": f"provider:{provider}",
+                                    "status": provider_check.get("status"),
+                                    "message": provider_check.get("message"),
+                                }
+                            )
+        status = "pass" if diagnostics.get("status") == "pass" else "blocked"
+        _print_json(
+            {
+                "status": status,
+                "database": summary,
+                "diagnostics": diagnostics,
+                "blockers": blockers,
+            }
+        )
+        return 0 if status == "pass" else 2
+    except Exception as error:
+        return _blocked(args, f"audit failed: {error.__class__.__name__}")
+    finally:
+        repository.close()
+
+
 def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
     stages: dict[str, dict[str, object]] = {}
     allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
@@ -1070,6 +1124,9 @@ def _parser() -> argparse.ArgumentParser:
     rollup.add_argument("--month", required=True)
     rollup.add_argument("--json", action="store_true")
 
+    audit = subparsers.add_parser("audit")
+    audit.add_argument("--json", action="store_true")
+
     validate = subparsers.add_parser("validate")
     validate.add_argument("--run-id", required=True)
 
@@ -1094,6 +1151,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_command(args, settings)
     if args.command == "rollup":
         return _rollup_command(args, settings)
+    if args.command == "audit":
+        return _audit_command(args, settings)
     if args.command == "e2e":
         return _e2e_command(args, settings)
     if args.command == "agent-check":

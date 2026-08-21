@@ -60,7 +60,7 @@ function SourceCard({ item }: { item: SourceExplorerItem }) {
   const { source, distillation, claims } = item;
   const mergedClaims = distillation?.claims.length ? distillation.claims : claims;
   return (
-    <article className="source-card">
+    <article className="source-row">
       <div className="source-card-heading">
         <div>
           <p className="eyebrow">{source.region ?? "global"} · {source.language_code ?? "und"} · {source.lane}</p>
@@ -181,7 +181,7 @@ export default async function SourcesPage({
           {pageData.has_more ? <a href={pageHref(filters, pageData.page + 1)}>Next</a> : <span className="muted">Next</span>}
         </div>
       </div>
-      <section className="source-grid" aria-label="Persisted research sources">
+      <section className="source-listing" aria-label="Persisted research sources">
         {pageData.items.length > 0 ? pageData.items.map((item) => <SourceCard key={item.source.url} item={item} />) : <div className="empty-state"><h2>No sources matched</h2><p>Run an agent check or research run, then reload.</p></div>}
       </section>
     </div>

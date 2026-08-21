@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ReportPayload } from "@/lib/research-api";
-import { ReportAccordion } from "./report-accordion";
+import { ReportAccordion, ReportLink } from "./report-accordion";
 
 const report: ReportPayload = {
   brief: {
@@ -137,6 +137,39 @@ describe("ReportAccordion", () => {
     expect(markup).toContain("fmc enforcement");
     expect(markup).toContain("critic-v4");
     expect(markup).toContain("Download Markdown");
+  });
+
+  it("renders report summaries as compact rows and labels archived reports", () => {
+    const markup = renderToStaticMarkup(
+      <ReportLink
+        runId="failed-run"
+        summary={{
+          run_id: "failed-run",
+          title: "Archived report",
+          covered_from: "2026-08-12T00:00:00Z",
+          covered_until: "2026-08-19T00:00:00Z",
+          review_state: "draft",
+          run_status: "partial",
+          validation_status: "failed",
+          source_count: 2,
+          distillation_count: 2,
+          claim_count: 3,
+          signal_count: 1,
+          regions: ["global"],
+          languages: ["en"],
+          lane_coverage: ["regulatory"],
+          models: ["google/gemma-4-26b-a4b-it:free"],
+          as_of: "2026-08-19T00:00:00Z",
+          archived: true,
+          archived_at: "2026-08-20T00:00:00Z",
+          archive_reason: "validation_failed",
+        }}
+      />,
+    );
+
+    expect(markup).toContain("report-row");
+    expect(markup).toContain("Archived");
+    expect(markup).toContain("validation_failed");
   });
 
   it("marks failed validation as non-decision-ready", () => {

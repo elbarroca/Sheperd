@@ -40,6 +40,7 @@ and existing run rows; paid or router model identifiers are not permitted.
 
 ```bash
 uv run sheperd-research doctor --json
+uv run sheperd-research audit --json
 uv run sheperd-research model-check --json
 uv run sheperd-research mcp-check --json
 uv run sheperd-research source-map --check --strict --json
@@ -54,7 +55,7 @@ uv run sheperd-research review --run-id <run-id> --decision approve --reviewer M
 uv run sheperd-research export --run-id <run-id>
 ```
 
-The dashboard listens on `http://127.0.0.1:8787`. It is read-only; use the CLI for review and export decisions. HTML and JSON routes expose runs, step latency and hashes, sources, claims, distillations, signals, validations, and weekly briefs. Search supports full-text queries plus geography, region, language, freshness, authority, lane, evidence, status, and date filters. Regional Markdown indexes under `../obsidian/06_Research/Research Index/` are generated from Neon and contain structured summaries, claims, citations, evidence locators, and hashes only.
+The dashboard listens on `http://127.0.0.1:8787`. It is read-only; use the CLI for review and export decisions. HTML and JSON routes expose runs, step latency and hashes, sources, claims, distillations, signals, validations, and weekly briefs. Weekly report queries default to active runs; use `archive_scope=archived` or `archive_scope=all` for audit views. Failed runs are archived, never deleted, and their evidence remains recoverable. Search supports full-text queries plus geography, region, language, freshness, authority, lane, evidence, status, and date filters. Regional Markdown indexes under `../obsidian/06_Research/Research Index/` are generated from Neon and contain structured summaries, claims, citations, evidence locators, and hashes only.
 
 ### Public read-only API
 
