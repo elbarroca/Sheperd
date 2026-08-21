@@ -190,6 +190,39 @@ def test_free_fallback_advances_after_primary_rate_limit(
     )
 
 
+def test_rate_limit_attempt_records_request_and_retry_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+
+    class Response:
+        status_code = 429
+        headers = {"x-request-id": "request-rate-limited", "retry-after": "4"}
+
+    class RateLimitedResponseError(RuntimeError):
+        status_code = 429
+        response = Response()
+
+    class RateLimitedAgent:
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            raise RateLimitedResponseError("too many requests")
+
+    monkeypatch.setattr(
+        openrouter_module,
+        "create_agent",
+        lambda *, model, **__: RateLimitedAgent(),
+    )
+
+    with pytest.raises(ProviderError, match="OpenRouter health failed"):
+        asyncio.run(provider.health_check())
+
+    attempt = provider.call_history[0]
+    assert attempt["request_id"] == "request-rate-limited"
+    assert attempt["retry_after_seconds"] == 4
+    assert attempt["status_code"] == 429
+
+
 def test_free_fallback_advances_after_tool_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

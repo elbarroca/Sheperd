@@ -55,6 +55,7 @@ const report: ReportPayload = {
     input_tokens: 10,
     output_tokens: 0,
     total_tokens: 10,
+    created_at: "2026-08-19T12:34:56Z",
   }],
   tool_calls: [{
     agent_name: "discovery:regulatory",
@@ -137,6 +138,8 @@ describe("ReportAccordion", () => {
     expect(markup).toContain("fmc enforcement");
     expect(markup).toContain("critic-v4");
     expect(markup).toContain("Download Markdown");
+    expect(markup).toContain("Run activity");
+    expect(markup).toContain("Aug 19, 2026, 12:34:56 PM");
   });
 
   it("renders report summaries as compact rows and labels archived reports", () => {

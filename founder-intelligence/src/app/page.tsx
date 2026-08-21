@@ -20,6 +20,15 @@ function dateLabel(value: string | undefined): string {
     : "Not recorded";
 }
 
+function timestampLabel(value: string | undefined): string {
+  if (!value) return "Not recorded";
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(new Date(value));
+}
+
 function asSummary(report: WeeklyReportSummary | ReportPayload): WeeklyReportSummary {
   if (!("brief" in report)) return report;
   return {
@@ -130,6 +139,7 @@ export default async function HomePage({
             <p className="eyebrow">{isReady(featured) ? "Latest decision-ready report" : "Latest archived report"}</p>
             <h2 id="featured-heading">{featured.title}</h2>
             <p className="muted">{dateLabel(featured.covered_from)} to {dateLabel(featured.covered_until)}</p>
+            <p className="report-as-of">As of {timestampLabel(featured.as_of)} UTC</p>
           </div>
           <div className="document-metrics">
             <span>{featured.source_count} sources</span>

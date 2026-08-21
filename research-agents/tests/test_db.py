@@ -367,6 +367,21 @@ def test_postgres_repository_persists_sanitized_tool_arguments() -> None:
     assert execute.call_args_list[1].args[1][9] == '{"query": "fmc enforcement", "url_count": 0}'
 
 
+def test_postgres_source_insert_binds_every_source_field() -> None:
+    repository = PostgresRepository(Mock())
+    source = SourceCandidate(url="https://example.com/source")
+
+    with patch.object(
+        repository,
+        "_execute",
+        return_value=[("discovery", False, "unverified")],
+    ) as execute:
+        repository.record_source(source)
+
+    query, params = execute.call_args.args
+    assert query.count("%s") == len(params) == 25
+
+
 def test_tool_call_persistence_redacts_sensitive_queries_and_urls() -> None:
     receipt = {
         "call_index": 0,

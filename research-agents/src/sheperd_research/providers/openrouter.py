@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from collections.abc import Sequence
+import math
+from collections.abc import Mapping, Sequence
 from contextvars import ContextVar
 from datetime import datetime
 from time import monotonic
@@ -29,6 +30,7 @@ from ..contracts import (
     TranslationStatus,
     WeeklyBrief,
 )
+from ..progress import ProgressSink
 from ..settings import (
     STRICT_OPENROUTER_MODEL,
     free_openrouter_policy_error,
@@ -163,6 +165,7 @@ class OpenRouterProvider:
         timeout_seconds: int = OPENROUTER_TIMEOUT_SECONDS,
         max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS,
         allow_free_fallbacks: bool = False,
+        progress: ProgressSink | None = None,
     ) -> None:
         if not api_key.strip():
             raise ValueError("OpenRouter API key is required")
@@ -221,6 +224,7 @@ class OpenRouterProvider:
         self.capability_report = capability_report
         self.timeout_seconds = timeout_seconds
         self.max_concurrent_requests = max_concurrent_requests
+        self._progress = progress
         self._rate_limit_seen = False
         self._agent_semaphore: asyncio.Semaphore | None = None
         self._serial_request_lock: asyncio.Lock | None = None
@@ -351,6 +355,66 @@ class OpenRouterProvider:
         if any(code in message for code in ("408", "409", "500", "502", "503", "504")):
             return "provider_unavailable"
         return "provider_error"
+
+    @staticmethod
+    def _error_observability(error: BaseException) -> dict[str, object]:
+        request_id: str | None = None
+        retry_after_seconds: int | float | None = None
+        status_code: int | None = None
+
+        def header(headers: object, *names: str) -> str | None:
+            if not isinstance(headers, Mapping):
+                return None
+            lowered = {
+                str(key).lower(): value
+                for key, value in headers.items()
+            }
+            for name in names:
+                value = lowered.get(name.lower())
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            return None
+
+        for item in OpenRouterProvider._error_chain(error):
+            if request_id is None:
+                for attribute in ("request_id", "requestId"):
+                    value = getattr(item, attribute, None)
+                    if isinstance(value, str) and value.strip():
+                        request_id = value.strip()
+                        break
+            response = getattr(item, "response", None)
+            observed_status = getattr(item, "status_code", None)
+            if not isinstance(observed_status, int) and response is not None:
+                observed_status = getattr(response, "status_code", None)
+            if status_code is None and isinstance(observed_status, int):
+                status_code = observed_status
+            headers = getattr(response, "headers", None)
+            if headers is None:
+                headers = getattr(item, "headers", None)
+            if request_id is None:
+                request_id = header(
+                    headers,
+                    "x-request-id",
+                    "request-id",
+                    "openrouter-request-id",
+                )
+            if retry_after_seconds is None:
+                raw_retry_after = header(headers, "retry-after")
+                if raw_retry_after is not None:
+                    try:
+                        parsed = float(raw_retry_after)
+                    except ValueError:
+                        parsed = None
+                    if parsed is not None and math.isfinite(parsed) and parsed >= 0:
+                        retry_after_seconds = (
+                            int(parsed) if parsed.is_integer() else parsed
+                        )
+
+        return {
+            "request_id": request_id,
+            "retry_after_seconds": retry_after_seconds,
+            "status_code": status_code,
+        }
 
     @classmethod
     def _should_retry(cls, error: BaseException, *, model_name: str, attempt: int) -> bool:
@@ -522,6 +586,32 @@ class OpenRouterProvider:
             history.append(recorded)
         if attempt_sink is not None:
             attempt_sink.append(recorded)
+        progress = getattr(self, "_progress", None)
+        if progress is not None:
+            fallback_reason = recorded.get("fallback_reason")
+            event = (
+                "route"
+                if fallback_reason
+                else "error"
+                if recorded.get("error_code")
+                else "agent"
+            )
+            progress.emit(
+                event,
+                "OpenRouter model reroute"
+                if fallback_reason
+                else "OpenRouter agent attempt",
+                operation=recorded.get("operation", "unknown"),
+                model=recorded.get("requested_model", "unknown"),
+                resolved_model=recorded.get("resolved_model", "unknown"),
+                attempt=recorded.get("attempt", "unknown"),
+                status="failed" if recorded.get("error_code") else "succeeded",
+                tool_calls=recorded.get("tool_calls", 0),
+                latency_ms=recorded.get("latency_ms", "unknown"),
+                error=recorded.get("error_code") or "none",
+                request_id=recorded.get("request_id"),
+                retry_after_seconds=recorded.get("retry_after_seconds"),
+            )
 
     async def _invoke_agent_request(
         self,
@@ -803,6 +893,16 @@ class OpenRouterProvider:
                 started_at = monotonic()
                 tool_receipts: list[dict[str, object]] = []
                 try:
+                    progress = getattr(self, "_progress", None)
+                    if progress is not None:
+                        progress.emit(
+                            "agent",
+                            "LangChain agent started",
+                            agent=AGENT_NAMES.get(operation, operation),
+                            model=model_name,
+                            attempt=attempt,
+                            tool_count=len(tools),
+                        )
                     strategy = ToolStrategy(schema, handle_errors=False)
                     agent = create_agent(
                         model=self._model_for(model_name),
@@ -941,6 +1041,7 @@ class OpenRouterProvider:
                             self, "capability_manifest_hash", None
                         ),
                     }
+                    metadata.update(self._error_observability(error))
                     self._record_attempt(metadata, attempt_sink)
                     if error_code == "rate_limit":
                         self._rate_limit_seen = True

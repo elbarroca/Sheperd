@@ -124,6 +124,7 @@ export interface ToolCallReceipt {
   latency_ms?: number | null;
   status: string;
   error_code?: string | null;
+  created_at?: string | null;
 }
 
 export interface ValidationReport {
@@ -157,9 +158,11 @@ export interface AgentStep {
   required_tools?: string[];
   requested_model?: string | null;
   resolved_model?: string | null;
+  fallback_reason?: string | null;
   input_tokens?: number | null;
   output_tokens?: number | null;
   total_tokens?: number | null;
+  created_at?: string | null;
 }
 
 export interface ReportPayload {
@@ -426,9 +429,11 @@ function isAgentStep(value: unknown): value is AgentStep {
     && isOptional(value, "required_tools", isStringArray)
     && isOptional(value, "requested_model", isNullableString)
     && isOptional(value, "resolved_model", isNullableString)
+    && isOptional(value, "fallback_reason", isNullableString)
     && isOptional(value, "input_tokens", isNullableNumber)
     && isOptional(value, "output_tokens", isNullableNumber)
-    && isOptional(value, "total_tokens", isNullableNumber);
+    && isOptional(value, "total_tokens", isNullableNumber)
+    && isOptional(value, "created_at", isNullableString);
 }
 
 function isSafeArgs(value: unknown): boolean {
@@ -449,7 +454,8 @@ function isToolCall(value: unknown): value is ToolCallReceipt {
     && isOptional(value, "result_hash", isNullableString)
     && isOptional(value, "result_count", isNullableNumber)
     && isOptional(value, "latency_ms", isNullableNumber)
-    && isOptional(value, "error_code", isNullableString);
+    && isOptional(value, "error_code", isNullableString)
+    && isOptional(value, "created_at", isNullableString);
 }
 
 function isResearchSource(value: unknown): value is ResearchSource {

@@ -39,6 +39,7 @@ from .diagnostics import (
 )
 from .exporters.obsidian import export_reviewed_brief
 from .exporters.regional_indexes import generate_regional_indexes
+from .progress import ProgressReporter
 from .providers.capabilities import CapabilityReport, resolve_capabilities
 from .providers.errors import ProviderError
 from .providers.openrouter import OpenRouterProvider
@@ -237,11 +238,10 @@ def _capability_report(
 
 
 def _run_command(args: argparse.Namespace, settings: Settings) -> int:
+    progress = ProgressReporter(enabled=bool(getattr(args, "verbose", False)))
     allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
     if not getattr(args, "strict", True) and not allow_free_fallbacks:
         return _blocked(args, "run requires --strict or --allow-free-fallbacks")
-    if getattr(args, "strict", False) and allow_free_fallbacks:
-        return _blocked(args, "--strict and --allow-free-fallbacks are mutually exclusive")
     if not settings.has_database_credentials:
         return _blocked(args, "set pooled DATABASE_URL in the repository-root .env.local")
     if not settings.has_live_provider_credentials:
@@ -307,6 +307,7 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
                         settings.tavily_api_keys,
                         settings.tavily_project_id,
                         timeout_seconds=15 if getattr(args, "profile", "full") == "canary" else 45,
+                        progress=progress,
                     ),
                     OpenRouterProvider(
                         openrouter_key.get_secret_value(),
@@ -328,12 +329,14 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
                                 else 1
                             )
                         ),
+                        progress=progress,
                     ),
                     load_topic_configs(settings.resolved_topics_path),
                     checkpointer=checkpointer,
                     max_llm_calls=settings.llm_max_calls,
                     max_llm_input_chars=settings.llm_max_input_chars,
                     max_run_seconds=settings.max_run_seconds,
+                    progress=progress,
                 )
                 return await workflow.run(request, run_id=args.run_id)
 
@@ -380,7 +383,12 @@ def _audit_command(args: argparse.Namespace, settings: Settings) -> int:
         return _blocked(args, str(error))
     try:
         summary = repository.audit_summary()
-        diagnostics = asyncio.run(run_doctor(settings))
+        diagnostics = asyncio.run(
+            run_doctor(
+                settings,
+                allow_free_fallbacks=bool(getattr(args, "allow_free_fallbacks", False)),
+            )
+        )
         blockers: list[dict[str, object]] = []
         checks = diagnostics.get("checks", {})
         if isinstance(checks, dict):
@@ -428,6 +436,7 @@ def _audit_command(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
+    progress = ProgressReporter(enabled=bool(getattr(args, "verbose", False)))
     stages: dict[str, dict[str, object]] = {}
     allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
 
@@ -440,14 +449,6 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
         return 2
     if not settings.has_live_provider_credentials:
         stage("environment", "blocked", message="Tavily and OpenRouter credentials are required")
-        _print_json({"status": "blocked", "stages": stages})
-        return 2
-    if getattr(args, "strict", False) and allow_free_fallbacks:
-        stage(
-            "environment",
-            "blocked",
-            message="--strict and --allow-free-fallbacks are mutually exclusive",
-        )
         _print_json({"status": "blocked", "stages": stages})
         return 2
     model_chain = settings.model_chain(allow_free_fallbacks=allow_free_fallbacks)
@@ -519,7 +520,11 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
             async with _checkpoint_saver(settings.database_url or "") as checkpointer:
                 workflow = ResearchWorkflow(
                     repository,
-                    TavilyProvider(settings.tavily_api_keys, settings.tavily_project_id),
+                    TavilyProvider(
+                        settings.tavily_api_keys,
+                        settings.tavily_project_id,
+                        progress=progress,
+                    ),
                     OpenRouterProvider(
                         openrouter_key.get_secret_value(),
                         request.model,
@@ -532,6 +537,7 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
                             if allow_free_fallbacks
                             else (2 if args.profile == "canary" else 1)
                         ),
+                        progress=progress,
                     ),
                     load_topic_configs(settings.resolved_topics_path),
                     checkpointer=checkpointer,
@@ -547,6 +553,8 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
                         settings.max_run_seconds,
                         420 if args.profile == "canary" else 900,
                     ),
+                    discovery_query_limit=1 if args.profile == "canary" else None,
+                    progress=progress,
                 )
                 return await workflow.run(request, run_id=args.run_id)
 
@@ -655,6 +663,7 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
+    progress = ProgressReporter(enabled=bool(getattr(args, "verbose", False)))
     if not settings.tavily_api_key or not settings.openrouter_api_key:
         _print_json(
             {
@@ -667,10 +676,6 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
     capabilities: CapabilityReport | None = None
     try:
         allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
-        if getattr(args, "strict", False) and allow_free_fallbacks:
-            raise ProviderError(
-                "--strict and --allow-free-fallbacks are mutually exclusive"
-            )
         model_chain = settings.model_chain(allow_free_fallbacks=allow_free_fallbacks)
         fallback_models = model_chain[1:]
         policy_error = (
@@ -706,11 +711,13 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
             allow_free_fallbacks=allow_free_fallbacks,
             capability_report=capabilities,
             timeout_seconds=15,
+            progress=progress,
         )
         tavily = TavilyProvider(
             settings.tavily_api_keys,
             settings.tavily_project_id,
             timeout_seconds=20,
+            progress=progress,
         )
 
         async def execute() -> LaneDiscoveryResult:
@@ -1073,6 +1080,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--strict", action="store_true")
     run.add_argument("--allow-free-fallbacks", action="store_true")
     run.add_argument("--json", action="store_true")
+    run.add_argument("--verbose", action="store_true")
     run.add_argument("--run-id")
     run.add_argument("--since")
     run.add_argument("--as-of")
@@ -1089,12 +1097,14 @@ def _parser() -> argparse.ArgumentParser:
     e2e.add_argument("--run-id", required=True)
     e2e.add_argument("--as-of")
     e2e.add_argument("--json", action="store_true")
+    e2e.add_argument("--verbose", action="store_true")
 
     agent_check = subparsers.add_parser("agent-check")
     agent_check.add_argument("--strict", action="store_true")
     agent_check.add_argument("--allow-free-fallbacks", action="store_true")
     agent_check.add_argument("--as-of")
     agent_check.add_argument("--json", action="store_true")
+    agent_check.add_argument("--verbose", action="store_true")
 
     doctor = subparsers.add_parser("doctor")
     doctor.add_argument("--strict", action="store_true")
@@ -1123,6 +1133,7 @@ def _parser() -> argparse.ArgumentParser:
     rollup.add_argument("--json", action="store_true")
 
     audit = subparsers.add_parser("audit")
+    audit.add_argument("--allow-free-fallbacks", action="store_true")
     audit.add_argument("--json", action="store_true")
 
     validate = subparsers.add_parser("validate")
@@ -1156,14 +1167,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "agent-check":
         return _agent_check_command(args, settings)
     if args.command == "doctor":
-        if args.strict and args.allow_free_fallbacks:
-            _print_json(
-                {
-                    "status": "blocked",
-                    "message": "--strict and --allow-free-fallbacks are mutually exclusive",
-                }
-            )
-            return 2
         result = asyncio.run(
             run_doctor(settings, allow_free_fallbacks=args.allow_free_fallbacks)
         )
@@ -1174,14 +1177,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json(result)
         return 0 if result["status"] == "pass" else 2
     if args.command == "model-check":
-        if args.strict and args.allow_free_fallbacks:
-            _print_json(
-                {
-                    "status": "blocked",
-                    "message": "--strict and --allow-free-fallbacks are mutually exclusive",
-                }
-            )
-            return 2
         result = asyncio.run(
             run_model_check(
                 settings, allow_free_fallbacks=args.allow_free_fallbacks

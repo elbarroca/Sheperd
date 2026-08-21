@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from ..contracts import SourceCandidate
+from ..progress import ProgressSink
 from ..validators import normalize_url, url_policy_error
 from .errors import ProviderError
 
@@ -25,6 +26,7 @@ class TavilyProvider:
         max_retries: int = 0,
         *,
         secondary_api_key: str | None = None,
+        progress: ProgressSink | None = None,
     ) -> None:
         configured_keys = [api_key] if isinstance(api_key, str) else list(api_key)
         if secondary_api_key is not None:
@@ -42,6 +44,7 @@ class TavilyProvider:
         self._project_id = project_id
         self._timeout = timeout_seconds
         self._max_retries = max(0, max_retries)
+        self._progress = progress
         self.call_history: list[dict[str, object]] = []
         self.last_call_metadata: dict[str, object] = {}
 
@@ -68,6 +71,16 @@ class TavilyProvider:
         }
         self.last_call_metadata = record
         self.call_history.append(record)
+        if self._progress is not None:
+            self._progress.emit(
+                "route" if key_slot > 1 else "query",
+                "Tavily key reroute" if key_slot > 1 else "Tavily request",
+                endpoint=endpoint,
+                key_slot=key_slot,
+                key_count=len(self._api_keys),
+                status=status,
+                error=error_code or "none",
+            )
         return record
 
     async def _post_once(
@@ -183,6 +196,13 @@ class TavilyProvider:
         exclude_domains: list[str] | None = None,
         max_results: int = 5,
     ) -> list[SourceCandidate]:
+        if self._progress is not None:
+            self._progress.emit(
+                "query",
+                "Tavily search",
+                query=query,
+                max_results=max_results,
+            )
         payload: dict[str, object] = {
             "query": query,
             "search_depth": "basic",
@@ -203,16 +223,26 @@ class TavilyProvider:
         results = data.get("results", [])
         if not isinstance(results, list):
             raise ProviderError("Tavily search returned invalid results")
-        return [
+        parsed_sources = [
             self._source_from_result(item, query)
             for item in results
             if isinstance(item, dict)
         ]
+        if self._progress is not None:
+            self._progress.emit(
+                "query",
+                "Tavily search returned sources",
+                query=query,
+                source_count=len(parsed_sources),
+            )
+        return parsed_sources
 
     async def extract(self, sources: list[SourceCandidate]) -> dict[str, str]:
         urls = [normalize_url(source.url) for source in sources]
         if not urls:
             return {}
+        if self._progress is not None:
+            self._progress.emit("extract", "Tavily extract", url_count=len(urls))
         extracted: dict[str, str] = {}
         for start in range(0, len(urls), self.MAX_EXTRACT_URLS):
             data = await self._post(
@@ -234,6 +264,12 @@ class TavilyProvider:
             raise ProviderError(
                 "Tavily extract returned incomplete content for: "
                 + ", ".join(missing_urls)
+            )
+        if self._progress is not None:
+            self._progress.emit(
+                "extract",
+                "Tavily extract returned content",
+                url_count=len(extracted),
             )
         return extracted
 

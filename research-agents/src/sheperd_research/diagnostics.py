@@ -60,7 +60,10 @@ def _env_check(settings: Settings) -> dict[str, object]:
         "DATABASE_URL": bool(settings.database_url),
         "DIRECT_DATABASE_URL": bool(settings.direct_database_url),
         "OPENROUTER_MODEL": settings.openrouter_model,
-        "OPENROUTER_FALLBACK_MODELS": list(settings.openrouter_model_chain[1:]),
+        "OPENROUTER_FALLBACK_MODELS": list(settings.openrouter_fallback_model_list),
+        "OPENROUTER_EFFECTIVE_FREE_FALLBACKS": list(
+            settings.model_chain(allow_free_fallbacks=True)[1:]
+        ),
     }
     required = (
         "TAVILY_API_KEY",
@@ -142,6 +145,7 @@ async def _provider_check(
 ) -> dict[str, object]:
     checks: dict[str, object] = {}
     tavily: TavilyProvider | None = None
+    openrouter: OpenRouterProvider | None = None
 
     def key_slots() -> list[int]:
         if tavily is None:
@@ -227,22 +231,32 @@ async def _provider_check(
                 raise ProviderError(
                     "no free model supports discovery tools and structured output"
                 )
-            provider = OpenRouterProvider(
+            openrouter = OpenRouterProvider(
                 settings.openrouter_api_key.get_secret_value(),
                 settings.openrouter_model,
                 fallback_models=fallback_models,
                 allow_free_fallbacks=allow_free_fallbacks,
                 capability_report=capabilities,
             )
-            model = await provider.health_check()
+            model = await openrouter.health_check()
             checks["openrouter"] = _status(
                 True,
                 "OpenRouter structured output completed",
                 model=model,
                 capabilities=capabilities.as_dict(),
+                attempts=openrouter.call_history,
             )
         except (ProviderError, ValueError) as error:
-            checks["openrouter"] = _status(False, f"OpenRouter check failed: {error}")
+            checks["openrouter"] = _status(
+                False,
+                f"OpenRouter check failed: {error}",
+                error_code=getattr(error, "error_code", None),
+                attempts=(
+                    openrouter.call_history
+                    if openrouter is not None
+                    else getattr(error, "attempts", [])
+                ),
+            )
     else:
         checks["openrouter"] = _status(
             False,
@@ -373,8 +387,13 @@ async def run_model_check(
             "policy": policy,
             "requested_models": list(model_chain),
             "message": str(error),
+            "error_code": getattr(error, "error_code", None),
             "capabilities": capabilities.as_dict() if capabilities else None,
-            "attempts": provider.call_history if provider else [],
+            "attempts": (
+                provider.call_history
+                if provider
+                else getattr(error, "attempts", [])
+            ),
         }
 
 

@@ -282,6 +282,48 @@ def test_workflow_records_a_cited_draft_and_is_idempotent() -> None:
     assert first.distillation_count == first.source_count
 
 
+def test_canary_discovery_query_limit_bounds_each_lane() -> None:
+    class RecordingLLM(FakeLLM):
+        def __init__(self) -> None:
+            self.queries_by_lane: dict[str, list[str]] = {}
+
+        async def discover_lane(
+            self,
+            lane: str,
+            queries: list[str],
+            geographies: tuple[str, ...],
+            **kwargs: Any,
+        ) -> LaneDiscoveryResult:
+            self.queries_by_lane[lane] = list(queries)
+            return await super().discover_lane(lane, queries, geographies, **kwargs)
+
+    llm = RecordingLLM()
+    workflow = ResearchWorkflow(
+        InMemoryRepository(),
+        FakeTavily(),
+        llm,
+        discovery_query_limit=1,
+    )
+    request = ResearchRunRequest(
+        topic_set="dnd-port",
+        max_sources=3,
+        validation_profile="canary",
+    )
+
+    asyncio.run(
+        workflow._discover_lanes(
+            {
+                "run_id": "canary-query-limit",
+                "request": request,
+                "topic": workflow.topic_configs["dnd-port"],
+            }
+        )
+    )
+
+    assert set(llm.queries_by_lane) == {"regulatory", "us-ports", "mexico"}
+    assert all(len(queries) == 1 for queries in llm.queries_by_lane.values())
+
+
 def test_research_keeps_three_lanes_and_covers_mexico_and_europe() -> None:
     assert [lane.name for lane in LANES] == ["regulatory", "us-ports", "mexico"]
     assert set(LANES[-1].geographies) == {"Mexico", "Europe"}
@@ -765,3 +807,39 @@ def test_discovery_schedules_all_three_lanes_concurrently() -> None:
     )
 
     assert llm.maximum_in_flight == 3
+
+
+def test_workflow_reports_discovery_and_persistence_events() -> None:
+    events: list[tuple[str, str, dict[str, object]]] = []
+
+    class Progress:
+        def emit(self, event: str, message: str, **details: object) -> None:
+            events.append((event, message, details))
+
+    repository = InMemoryRepository()
+    workflow = ResearchWorkflow(
+        repository,
+        FakeTavily(),
+        FakeLLM(),
+        progress=Progress(),
+    )
+    request = ResearchRunRequest(
+        topic_set="dnd-port",
+        max_sources=1,
+        include_topic_seeds=False,
+        validation_profile="canary",
+    )
+
+    asyncio.run(
+        workflow._discover_lanes(
+            {
+                "run_id": "run-progress",
+                "request": request,
+                "topic": workflow.topic_configs[request.topic_set],
+            }
+        )
+    )
+
+    event_names = {event for event, _, _ in events}
+    assert "discovery" in event_names
+    assert "persist" in event_names

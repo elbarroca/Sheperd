@@ -15,6 +15,17 @@ function dateLabel(value: string): string {
   return new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(value));
 }
 
+function timestampLabel(value: string | null | undefined): string {
+  if (!value) return "Not recorded";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not recorded";
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "medium",
+    timeZone: "UTC",
+  }).format(date);
+}
+
 function periodLabel(from: string, until: string): string {
   return `${dateLabel(from)} to ${dateLabel(until)}`;
 }
@@ -165,10 +176,54 @@ function AgentStepList({ steps }: { steps: AgentStep[] }) {
           <span>{step.status} / {step.duration_ms ?? "unknown"} ms</span>
           <span>{step.requested_model ?? "unknown"} to {step.resolved_model ?? "unknown"}</span>
           <span>{step.prompt_version ?? "unknown"} / {step.total_tokens ?? "unknown"} tokens</span>
-          <small>Input: {step.input_hash ?? "unknown"} / Output: {step.output_hash ?? "unknown"} / Error: {step.error_code ?? "none"}</small>
+          <small>{timestampLabel(step.created_at)} / Input: {step.input_hash ?? "unknown"} / Output: {step.output_hash ?? "unknown"} / Error: {step.error_code ?? "none"}</small>
         </li>
       ))}
     </ul>
+  );
+}
+
+type ActivityItem = {
+  id: string;
+  createdAt: string | null;
+  title: string;
+  status: string;
+  detail: string;
+};
+
+function RunActivity({ steps, calls }: { steps: AgentStep[]; calls: ToolCallReceipt[] }) {
+  const items: ActivityItem[] = [
+    ...steps.map((step, index) => ({
+      id: `step-${step.agent_name}-${step.attempt}-${index}`,
+      createdAt: step.created_at ?? null,
+      title: step.agent_name,
+      status: step.status,
+      detail: `${step.lane} / attempt ${step.attempt} / ${step.tool_calls ?? 0} tool calls / ${step.duration_ms ?? "unknown"} ms${step.fallback_reason ? ` / rerouted: ${step.fallback_reason}` : ""}`,
+    })),
+    ...calls.map((call, index) => ({
+      id: `tool-${call.tool_name}-${call.attempt ?? "unknown"}-${index}`,
+      createdAt: call.created_at ?? null,
+      title: call.tool_name,
+      status: call.status,
+      detail: `${call.lane ?? "unknown lane"} / ${call.result_count ?? 0} results / ${call.latency_ms ?? "unknown"} ms`,
+    })),
+  ].sort((left, right) => {
+    const leftTime = left.createdAt ? Date.parse(left.createdAt) : Number.MAX_SAFE_INTEGER;
+    const rightTime = right.createdAt ? Date.parse(right.createdAt) : Number.MAX_SAFE_INTEGER;
+    return leftTime - rightTime;
+  });
+
+  if (items.length === 0) return <p className="muted">No persisted activity recorded.</p>;
+  return (
+    <ol className="activity-list">
+      {items.map((item) => (
+        <li className="activity-item" key={item.id}>
+          <time dateTime={item.createdAt ?? undefined}>{timestampLabel(item.createdAt)}</time>
+          <span className="activity-event"><strong>{item.title}</strong><small>{item.detail}</small></span>
+          <span className={`status-badge status-${item.status}`}>{item.status}</span>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -189,6 +244,7 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
           <p className="eyebrow">Weekly intelligence / draft</p>
           <h1>{brief.title}</h1>
           <p className="report-period">{periodLabel(brief.covered_from, brief.covered_until)}</p>
+          <p className="report-as-of">As of {timestampLabel(report.as_of)}</p>
         </div>
         <div className="status-cluster">
           {report.run?.archived ? <span className="status-badge status-archived">Archived</span> : null}
@@ -233,12 +289,15 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
         <SourceEvidence report={report} />
       </Section>
       <Section title="7. Agent audit">
+        <h3>Run activity</h3>
+        <p className="muted">Persisted workflow steps and provider tool receipts. Hidden reasoning is never stored.</p>
+        <RunActivity steps={report.steps} calls={report.tool_calls ?? []} />
         <dl className="audit-grid">
           <div><dt>Run</dt><dd><code>{brief.run_id}</code></dd></div>
           <div><dt>Requested model(s)</dt><dd>{report.requested_models?.join(", ") || brief.model_id}</dd></div>
           <div><dt>Resolved model(s)</dt><dd>{report.resolved_models?.join(", ") || report.models.join(", ") || brief.model_id}</dd></div>
           <div><dt>Prompt</dt><dd>{brief.prompt_version}</dd></div>
-          <div><dt>As of</dt><dd>{dateLabel(report.as_of)}</dd></div>
+          <div><dt>As of</dt><dd>{timestampLabel(report.as_of)}</dd></div>
           <div><dt>Branch</dt><dd>{report.run?.neon_branch_id ?? "unknown"}</dd></div>
           <div><dt>Migration</dt><dd>{report.run?.migration_version ?? "unknown"}</dd></div>
           <div><dt>Source hashes</dt><dd>{report.source_hashes.length}</dd></div>

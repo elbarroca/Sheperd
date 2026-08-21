@@ -145,14 +145,17 @@ _AUDIT_CALL_INT_FIELDS = frozenset(
         "output_tokens",
         "record_attempt",
         "reasoning_tokens",
+        "status_code",
         "tool_calls",
         "total_tokens",
     }
 )
+_AUDIT_CALL_FLOAT_FIELDS = frozenset({"retry_after_seconds"})
 _AUDIT_CALL_LIST_FIELDS = frozenset({"required_tools"})
 _AUDIT_CALL_FIELDS = (
     _AUDIT_CALL_TEXT_FIELDS
     | _AUDIT_CALL_INT_FIELDS
+    | _AUDIT_CALL_FLOAT_FIELDS
     | _AUDIT_CALL_LIST_FIELDS
     | {"tool_call_receipts"}
 )
@@ -319,6 +322,10 @@ def _redact_audit_call(value: object) -> dict[str, object]:
             safe_text = _safe_audit_url(raw) if key == "source_url" else _safe_audit_text(raw)
             if safe_text is not None:
                 call[key] = safe_text
+        elif key in _AUDIT_CALL_FLOAT_FIELDS:
+            safe_float = _safe_audit_float(raw)
+            if safe_float is not None:
+                call[key] = safe_float
         else:
             safe_int = _safe_audit_int(raw)
             if safe_int is not None:
@@ -1940,7 +1947,7 @@ class PostgresRepository:
                 extraction_error_code, normalized_title_en, normalized_snippet_en
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (normalized_url) DO UPDATE SET
                 title = EXCLUDED.title,
                 publisher = EXCLUDED.publisher,
