@@ -27,3 +27,4 @@
 **/.ruff_cache/
 **/.cache/
 **/*.py[cod]
+.vercel
