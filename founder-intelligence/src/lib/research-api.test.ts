@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReportPayload } from "./research-api";
 import {
+  getResearchSourceExplorer,
   getMonthlyRollups,
   getResearchHealth,
   getWeeklyReport,
@@ -139,5 +140,48 @@ describe("research API runtime validation", () => {
       status: "unavailable",
       error: "API returned 503",
     });
+  });
+
+  it("reads the paginated source explorer with filters preserved", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      items: [{
+        source: {
+          url: "https://example.com/source",
+          title: "Source",
+          publisher: "Example",
+          published_at: null,
+          retrieved_at: "2026-08-19T00:00:00Z",
+          source_kind: "web",
+          snippet: "Snippet",
+          topics: [],
+          geographies: ["US"],
+          lane: "ports",
+          is_seed: false,
+          evidence_status: "unverified",
+        },
+        distillation: null,
+        claims: [],
+        source_hash: "hash",
+      }],
+      page: 2,
+      page_size: 24,
+      total: 25,
+      has_more: false,
+    }));
+
+    const result = await getResearchSourceExplorer({
+      page: 2,
+      region: "us",
+      language: "en",
+    });
+
+    expect(result.status).toBe("ok");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/sources/explorer?"),
+      expect.anything(),
+    );
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("page=2");
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("region=us");
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("language=en");
   });
 });

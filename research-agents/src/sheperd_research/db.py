@@ -599,6 +599,26 @@ class RepositoryProtocol(Protocol):
         offset: int = 0,
     ) -> list[SourceCandidate]: ...
 
+    def list_source_explorer(
+        self,
+        query: str = "",
+        *,
+        geography: str | None = None,
+        lane: str | None = None,
+        evidence_status: EvidenceStatus | str | None = None,
+        region: str | None = None,
+        language: str | None = None,
+        freshness: FreshnessStatus | str | None = None,
+        authority_tier: str | None = None,
+        source_type: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        page: int = 1,
+        page_size: int = 24,
+    ) -> dict[str, object]: ...
+
+    def source_facets(self) -> dict[str, list[str]]: ...
+
     def list_briefs(
         self,
         query: str = "",
@@ -621,7 +641,20 @@ class RepositoryProtocol(Protocol):
         until: datetime | None = None,
         limit: int = 20,
         offset: int = 0,
+        run_status: RunStatus | str | None = None,
+        ready_only: bool = False,
     ) -> list[dict[str, object]]: ...
+
+    def count_brief_summaries(
+        self,
+        *,
+        cadence: str | None = None,
+        review_state: ReviewState | str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        run_status: RunStatus | str | None = None,
+        ready_only: bool = False,
+    ) -> int: ...
 
     def list_regions(self) -> list[str]: ...
 
@@ -868,6 +901,103 @@ class InMemoryRepository:
         ]
         bounded_limit = max(1, min(limit, 1000))
         return values[max(0, offset) : max(0, offset) + bounded_limit]
+
+    def list_source_explorer(
+        self,
+        query: str = "",
+        *,
+        geography: str | None = None,
+        lane: str | None = None,
+        evidence_status: EvidenceStatus | str | None = None,
+        region: str | None = None,
+        language: str | None = None,
+        freshness: FreshnessStatus | str | None = None,
+        authority_tier: str | None = None,
+        source_type: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        page: int = 1,
+        page_size: int = 24,
+    ) -> dict[str, object]:
+        all_sources = self.list_sources(
+            query,
+            geography=geography,
+            lane=lane,
+            evidence_status=evidence_status,
+            region=region,
+            language=language,
+            freshness=freshness,
+            authority_tier=authority_tier,
+            source_type=source_type,
+            since=since,
+            until=until,
+            limit=1000,
+        )
+        ordered = sorted(
+            all_sources,
+            key=lambda source: (-source.retrieved_at.timestamp(), normalize_url(source.url)),
+        )
+        bounded_page = max(1, page)
+        bounded_size = max(1, min(page_size, 100))
+        start = (bounded_page - 1) * bounded_size
+        selected = ordered[start : start + bounded_size]
+        items: list[dict[str, object]] = []
+        for source in selected:
+            normalized_url = normalize_url(source.url)
+            snapshot = next(
+                (
+                    value
+                    for (run_id, url), value in reversed(list(self.source_snapshots.items()))
+                    if url == normalized_url and run_id in self.runs
+                ),
+                None,
+            )
+            distillation = next(
+                (
+                    value
+                    for (run_id, url), value in reversed(list(self.distillations.items()))
+                    if url == normalized_url and run_id in self.runs
+                ),
+                None,
+            )
+            claims = [
+                claim
+                for (run_id, _, _), claim in self.claims.items()
+                if run_id in self.runs
+                and normalized_url
+                in {normalize_url(url) for url in claim.source_urls}
+            ]
+            if distillation is not None:
+                distillation = distillation.model_copy(update={"claims": claims})
+            items.append(
+                {
+                    "source": source,
+                    "distillation": distillation,
+                    "claims": claims,
+                    "source_hash": snapshot.get("content_hash") if snapshot else None,
+                }
+            )
+        return {
+            "items": items,
+            "page": bounded_page,
+            "page_size": bounded_size,
+            "total": len(ordered),
+            "has_more": start + len(selected) < len(ordered),
+        }
+
+    def source_facets(self) -> dict[str, list[str]]:
+        sources = list(self.sources.values())
+        return {
+            "regions": sorted({source.region for source in sources}),
+            "languages": sorted({source.language_code for source in sources}),
+            "freshness": sorted({source.freshness_status.value for source in sources}),
+            "authority": sorted({source.authority_tier for source in sources}),
+            "source_types": sorted({source.source_type for source in sources}),
+            "lanes": sorted({source.lane for source in sources}),
+            "evidence_states": sorted(
+                {source.evidence_status.value for source in sources}
+            ),
+        }
 
     def list_claims(
         self,
@@ -1191,9 +1321,31 @@ class InMemoryRepository:
         until: datetime | None = None,
         limit: int = 20,
         offset: int = 0,
+        run_status: RunStatus | str | None = None,
+        ready_only: bool = False,
     ) -> list[WeeklyBrief]:
         needle = query.lower().strip()
         expected_review = getattr(review_state, "value", review_state)
+        expected_run_status = getattr(run_status, "value", run_status)
+
+        def run_value(brief: WeeklyBrief) -> str | None:
+            value = self.runs.get(brief.run_id, {}).get("status")
+            if isinstance(value, RunStatus):
+                return value.value
+            return value if isinstance(value, str) else None
+
+        def is_ready(brief: WeeklyBrief) -> bool:
+            validation = self.validations.get(brief.run_id)
+            validation_value = getattr(
+                getattr(validation, "status", ValidationStatus.BLOCKED),
+                "value",
+                ValidationStatus.BLOCKED.value,
+            )
+            return (
+                run_value(brief) == RunStatus.SUCCEEDED.value
+                and validation_value == ValidationStatus.PASS.value
+            )
+
         values = [
             brief
             for brief in self.briefs.values()
@@ -1206,7 +1358,16 @@ class InMemoryRepository:
             )
             and (since is None or brief.covered_until >= since)
             and (until is None or brief.covered_until <= until)
+            and (expected_run_status is None or run_value(brief) == expected_run_status)
+            and (not ready_only or is_ready(brief))
         ]
+        values.sort(
+            key=lambda brief: (
+                not is_ready(brief),
+                -brief.covered_until.timestamp(),
+                brief.run_id,
+            )
+        )
         bounded_limit = max(1, min(limit, 1000))
         return values[max(0, offset) : max(0, offset) + bounded_limit]
 
@@ -1220,6 +1381,8 @@ class InMemoryRepository:
         until: datetime | None = None,
         limit: int = 20,
         offset: int = 0,
+        run_status: RunStatus | str | None = None,
+        ready_only: bool = False,
     ) -> list[dict[str, object]]:
         briefs = self.list_briefs(
             query,
@@ -1229,6 +1392,8 @@ class InMemoryRepository:
             until=until,
             limit=limit,
             offset=offset,
+            run_status=run_status,
+            ready_only=ready_only,
         )
         return [
             {
@@ -1280,6 +1445,28 @@ class InMemoryRepository:
             }
             for brief in briefs
         ]
+
+    def count_brief_summaries(
+        self,
+        *,
+        cadence: str | None = None,
+        review_state: ReviewState | str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        run_status: RunStatus | str | None = None,
+        ready_only: bool = False,
+    ) -> int:
+        return len(
+            self.list_briefs(
+                review_state=review_state,
+                cadence=cadence,
+                since=since,
+                until=until,
+                run_status=run_status,
+                ready_only=ready_only,
+                limit=1000,
+            )
+        )
 
     def list_regions(self) -> list[str]:
         return sorted({source.region for source in self.sources.values()})
@@ -2719,7 +2906,8 @@ class PostgresRepository:
             "language_confidence, authority_tier, catalog_source_id, source_type, "
             "freshness_status, freshness_days, extraction_status, extraction_error_code, "
             "normalized_title_en, normalized_snippet_en FROM sources "
-            f"WHERE {' AND '.join(clauses)} ORDER BY retrieved_at DESC LIMIT %s OFFSET %s",
+            f"WHERE {' AND '.join(clauses)} "
+            "ORDER BY retrieved_at DESC, normalized_url ASC LIMIT %s OFFSET %s",
             tuple(params),
         )
         sources: list[SourceCandidate] = []
@@ -2765,6 +2953,198 @@ class PostgresRepository:
                 )
             )
         return sources
+
+    def list_source_explorer(
+        self,
+        query: str = "",
+        *,
+        geography: str | None = None,
+        lane: str | None = None,
+        evidence_status: EvidenceStatus | str | None = None,
+        region: str | None = None,
+        language: str | None = None,
+        freshness: FreshnessStatus | str | None = None,
+        authority_tier: str | None = None,
+        source_type: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        page: int = 1,
+        page_size: int = 24,
+    ) -> dict[str, object]:
+        clauses = ["TRUE"]
+        params: list[object] = []
+        if query.strip():
+            clauses.append("search_vector @@ plainto_tsquery('english', %s)")
+            params.append(query.strip())
+        if geography is not None:
+            clauses.append("%s = ANY(geographies)")
+            params.append(geography)
+        if lane is not None:
+            clauses.append("lane = %s")
+            params.append(lane)
+        if region is not None:
+            clauses.append("region = %s")
+            params.append(region)
+        if language is not None:
+            clauses.append("language_code = %s")
+            params.append(language)
+        if freshness is not None:
+            clauses.append("freshness_status = %s")
+            params.append(getattr(freshness, "value", freshness))
+        if authority_tier is not None:
+            clauses.append("authority_tier = %s")
+            params.append(authority_tier)
+        if source_type is not None:
+            clauses.append("source_type = %s")
+            params.append(source_type)
+        evidence_value = getattr(evidence_status, "value", evidence_status)
+        if evidence_value is not None:
+            clauses.append("evidence_status = %s")
+            params.append(evidence_value)
+        if since is not None:
+            clauses.append("published_at >= %s")
+            params.append(since)
+        if until is not None:
+            clauses.append("published_at <= %s")
+            params.append(until)
+        where = " AND ".join(clauses)
+        total_rows = self._execute(
+            f"SELECT count(*) FROM sources WHERE {where}", tuple(params)
+        )
+        total = cast(int, total_rows[0][0]) if total_rows else 0
+        bounded_page = max(1, page)
+        bounded_size = max(1, min(page_size, 100))
+        sources = self.list_sources(
+            query,
+            geography=geography,
+            lane=lane,
+            evidence_status=evidence_status,
+            region=region,
+            language=language,
+            freshness=freshness,
+            authority_tier=authority_tier,
+            source_type=source_type,
+            since=since,
+            until=until,
+            limit=bounded_size,
+            offset=(bounded_page - 1) * bounded_size,
+        )
+        urls = [normalize_url(source.url) for source in sources]
+        snapshots: dict[str, str] = {}
+        distillations: dict[str, ArticleDistillation] = {}
+        claims_by_url: dict[str, list[ClaimDraft]] = defaultdict(list)
+        if urls:
+            snapshot_rows = self._execute(
+                "SELECT DISTINCT ON (normalized_url) normalized_url, content_hash "
+                "FROM source_snapshots WHERE normalized_url = ANY(%s) "
+                "ORDER BY normalized_url, snapshot_id DESC",
+                (urls,),
+            )
+            snapshots = {
+                cast(str, row[0]): cast(str, row[1]) for row in snapshot_rows
+            }
+            distillation_rows = self._execute(
+                "SELECT DISTINCT ON (ad.normalized_url) ad.normalized_url, ad.summary, "
+                "ad.key_points, ad.entities, ad.signals, ad.limitations, s.published_at, "
+                "ad.model_id, ad.prompt_version, ad.evidence_status, ad.content_hash, "
+                "ad.source_language, ad.summary_original, ad.key_points_original, "
+                "ad.translation_status, ad.evidence_excerpts, ad.evidence_locators "
+                "FROM article_distillations ad JOIN sources s "
+                "ON s.normalized_url = ad.normalized_url "
+                "WHERE ad.normalized_url = ANY(%s) "
+                "ORDER BY ad.normalized_url, ad.distillation_id DESC",
+                (urls,),
+            )
+            for row in distillation_rows:
+                normalized_url = cast(str, row[0])
+                distillations[normalized_url] = ArticleDistillation(
+                    source_url=_require_public_url(normalized_url),
+                    summary=cast(str, row[1]),
+                    key_points=cast(list[str], row[2] or []),
+                    entities=cast(list[str], row[3] or []),
+                    signals=cast(list[str], row[4] or []),
+                    limitations=cast(list[str], row[5] or []),
+                    published_at=cast(datetime | None, row[6]),
+                    model_id=cast(str, row[7]),
+                    prompt_version=cast(str, row[8]),
+                    evidence_status=EvidenceStatus(cast(str, row[9])),
+                    content_hash=cast(str | None, row[10]),
+                    source_language=cast(str, row[11]),
+                    summary_original=cast(str, row[12]),
+                    key_points_original=cast(list[str], row[13] or []),
+                    translation_status=TranslationStatus(cast(str, row[14])),
+                    evidence_excerpts=cast(list[str], row[15] or []),
+                    evidence_locators=cast(list[str], row[16] or []),
+                )
+            claim_rows = self._execute(
+                "SELECT claim_text, evidence_status, confidence, source_urls, "
+                "support_locator, conflicts, original_claim, evidence_excerpt, "
+                "independent_source_count, citation_status, verification_basis "
+                "FROM claims c WHERE EXISTS (SELECT 1 FROM jsonb_array_elements_text "
+                "(c.source_urls) AS source_url(value) WHERE source_url.value = ANY(%s)) "
+                "ORDER BY c.created_at, c.claim_id",
+                (urls,),
+            )
+            for row in claim_rows:
+                claim = ClaimDraft(
+                    claim=cast(str, row[0]),
+                    evidence_status=EvidenceStatus(cast(str, row[1])),
+                    confidence=cast(str, row[2]),
+                    source_urls=_safe_public_urls(row[3] or []),
+                    support_locator=cast(str | None, row[4]),
+                    conflicts=cast(list[str], row[5] or []),
+                    original_claim=cast(str | None, row[6]),
+                    evidence_excerpt=cast(str | None, row[7]),
+                    independent_source_count=cast(int, row[8] or 0),
+                    citation_status=cast(str, row[9]),
+                    verification_basis=cast(str | None, row[10]),
+                )
+                for url in claim.source_urls:
+                    normalized_url = normalize_url(url)
+                    if normalized_url in urls:
+                        claims_by_url[normalized_url].append(claim)
+        items: list[dict[str, object]] = []
+        for source in sources:
+            normalized_url = normalize_url(source.url)
+            source_claims = claims_by_url.get(normalized_url, [])
+            distillation = distillations.get(normalized_url)
+            if distillation is not None:
+                distillation = distillation.model_copy(update={"claims": source_claims})
+            items.append(
+                {
+                    "source": source,
+                    "distillation": distillation,
+                    "claims": source_claims,
+                    "source_hash": snapshots.get(normalized_url),
+                }
+            )
+        start = (bounded_page - 1) * bounded_size
+        return {
+            "items": items,
+            "page": bounded_page,
+            "page_size": bounded_size,
+            "total": total,
+            "has_more": start + len(items) < total,
+        }
+
+    def source_facets(self) -> dict[str, list[str]]:
+        columns = {
+            "regions": "region",
+            "languages": "language_code",
+            "freshness": "freshness_status",
+            "authority": "authority_tier",
+            "source_types": "source_type",
+            "lanes": "lane",
+            "evidence_states": "evidence_status",
+        }
+        facets: dict[str, list[str]] = {}
+        for name, column in columns.items():
+            rows = self._execute(
+                f"SELECT DISTINCT {column} FROM sources "
+                f"WHERE {column} IS NOT NULL ORDER BY {column}"
+            )
+            facets[name] = [str(row[0]) for row in rows if row[0]]
+        return facets
 
     def list_briefs(
         self,
@@ -2820,6 +3200,8 @@ class PostgresRepository:
         until: datetime | None = None,
         limit: int = 20,
         offset: int = 0,
+        run_status: RunStatus | str | None = None,
+        ready_only: bool = False,
     ) -> list[dict[str, object]]:
         clauses = ["TRUE"]
         params: list[object] = []
@@ -2839,6 +3221,17 @@ class PostgresRepository:
         if until is not None:
             clauses.append("wb.covered_until <= %s")
             params.append(until)
+        run_status_value = getattr(run_status, "value", run_status)
+        if run_status_value is not None:
+            clauses.append("rr.status = %s")
+            params.append(run_status_value)
+        if ready_only:
+            clauses.extend(
+                [
+                    "rr.status = 'succeeded'",
+                    "COALESCE(vc.status, 'blocked') = 'pass'",
+                ]
+            )
         params.extend((max(1, min(limit, 1000)), max(0, offset)))
         rows = self._execute(
             """
@@ -2869,7 +3262,9 @@ class PostgresRepository:
             + " AND ".join(clauses)
             + " GROUP BY wb.run_id, wb.title, wb.covered_from, wb.covered_until, "
             "wb.review_state, rr.status, vc.status, rr.as_of, wb.model_id "
-            "ORDER BY wb.covered_until DESC LIMIT %s OFFSET %s",
+            "ORDER BY CASE WHEN rr.status = 'succeeded' "
+            "AND COALESCE(vc.status, 'blocked') = 'pass' THEN 0 ELSE 1 END, "
+            "wb.covered_until DESC, wb.run_id ASC LIMIT %s OFFSET %s",
             tuple(params),
         )
         fields = (
@@ -2888,6 +3283,50 @@ class PostgresRepository:
             }
             for row in rows
         ]
+
+    def count_brief_summaries(
+        self,
+        *,
+        cadence: str | None = None,
+        review_state: ReviewState | str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        run_status: RunStatus | str | None = None,
+        ready_only: bool = False,
+    ) -> int:
+        clauses = ["TRUE"]
+        params: list[object] = []
+        if review_state is not None:
+            clauses.append("wb.review_state = %s")
+            params.append(getattr(review_state, "value", review_state))
+        if cadence is not None:
+            clauses.append("rr.request ->> 'cadence' = %s")
+            params.append(cadence)
+        if since is not None:
+            clauses.append("wb.covered_until >= %s")
+            params.append(since)
+        if until is not None:
+            clauses.append("wb.covered_until <= %s")
+            params.append(until)
+        run_status_value = getattr(run_status, "value", run_status)
+        if run_status_value is not None:
+            clauses.append("rr.status = %s")
+            params.append(run_status_value)
+        if ready_only:
+            clauses.extend(
+                [
+                    "rr.status = 'succeeded'",
+                    "COALESCE(vc.status, 'blocked') = 'pass'",
+                ]
+            )
+        rows = self._execute(
+            "SELECT count(*) FROM weekly_briefs wb "
+            "JOIN research_runs rr ON rr.run_id = wb.run_id "
+            "LEFT JOIN validation_checks vc ON vc.run_id = wb.run_id "
+            f"WHERE {' AND '.join(clauses)}",
+            tuple(params),
+        )
+        return cast(int, rows[0][0]) if rows else 0
 
     def list_regions(self) -> list[str]:
         rows = self._execute("SELECT DISTINCT region FROM sources ORDER BY region")

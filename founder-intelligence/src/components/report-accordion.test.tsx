@@ -136,6 +136,7 @@ describe("ReportAccordion", () => {
     expect(markup).toContain("source-hash");
     expect(markup).toContain("fmc enforcement");
     expect(markup).toContain("critic-v4");
+    expect(markup).toContain("Download Markdown");
   });
 
   it("marks failed validation as non-decision-ready", () => {

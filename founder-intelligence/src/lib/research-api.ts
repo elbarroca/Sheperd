@@ -221,11 +221,40 @@ export interface WeeklyReportSummary {
   as_of: string;
 }
 
+export interface SourceExplorerItem {
+  source: ResearchSource;
+  distillation: ArticleDistillation | null;
+  claims: ResearchClaim[];
+  source_hash: string | null;
+}
+
+export interface SourceExplorerPage {
+  items: SourceExplorerItem[];
+  page: number;
+  page_size: number;
+  total: number;
+  has_more: boolean;
+}
+
+export interface SourceFacets {
+  regions: string[];
+  languages: string[];
+  freshness: string[];
+  authority: string[];
+  source_types: string[];
+  lanes: string[];
+  evidence_states: string[];
+}
+
 type WeeklyReportEntry = WeeklyReportSummary | ReportPayload;
 
-interface WeeklyResponse {
+export interface WeeklyResponse {
   reports: WeeklyReportEntry[];
   count: number;
+  total?: number;
+  limit?: number;
+  offset?: number;
+  has_more?: boolean;
 }
 
 interface MonthlyResponse {
@@ -246,6 +275,10 @@ interface ClaimsResponse {
 
 interface RegionsResponse {
   regions: string[];
+}
+
+interface SourceFacetsResponse extends SourceFacets {
+  status: string;
 }
 
 export interface ResearchHealth {
@@ -556,7 +589,11 @@ function isWeeklyResponse(value: unknown): value is WeeklyResponse {
       (report) =>
         isWeeklyReportSummary(report)
         || (isReportPayload(report) && hasConsistentReportIdentities(report)),
-    );
+    )
+    && isOptional(value, "total", isNonNegativeInteger)
+    && isOptional(value, "limit", isNonNegativeInteger)
+    && isOptional(value, "offset", isNonNegativeInteger)
+    && isOptional(value, "has_more", (candidate) => typeof candidate === "boolean");
 }
 
 function isMonthlyRollup(value: unknown): value is MonthlyRollup {
@@ -593,6 +630,37 @@ function isClaimsResponse(value: unknown): value is ClaimsResponse {
   return isRecord(value) && Array.isArray(value.claims) && value.claims.every(isResearchClaim);
 }
 
+function isSourceExplorerItem(value: unknown): value is SourceExplorerItem {
+  return isRecord(value)
+    && isResearchSource(value.source)
+    && (value.distillation === null || isArticleDistillation(value.distillation))
+    && Array.isArray(value.claims)
+    && value.claims.every(isResearchClaim)
+    && isNullableString(value.source_hash);
+}
+
+function isSourceExplorerPage(value: unknown): value is SourceExplorerPage {
+  return isRecord(value)
+    && Array.isArray(value.items)
+    && value.items.every(isSourceExplorerItem)
+    && isNonNegativeInteger(value.page)
+    && isNonNegativeInteger(value.page_size)
+    && isNonNegativeInteger(value.total)
+    && typeof value.has_more === "boolean";
+}
+
+function isSourceFacetsResponse(value: unknown): value is SourceFacetsResponse {
+  return isRecord(value)
+    && isString(value.status)
+    && isStringArray(value.regions)
+    && isStringArray(value.languages)
+    && isStringArray(value.freshness)
+    && isStringArray(value.authority)
+    && isStringArray(value.source_types)
+    && isStringArray(value.lanes)
+    && isStringArray(value.evidence_states);
+}
+
 async function getJson<T>(path: string, parse: JsonParser<T>): Promise<ResearchResponse<T>> {
   try {
     const response = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
@@ -607,12 +675,35 @@ async function getJson<T>(path: string, parse: JsonParser<T>): Promise<ResearchR
   }
 }
 
-export function getWeeklyReports(): Promise<ResearchResponse<WeeklyResponse>> {
-  return getJson("/api/reports/weekly", (value) => isWeeklyResponse(value) ? value : null);
+export interface ReportListFilters {
+  status?: "all" | "ready" | "draft" | "partial" | "failed";
+  limit?: number;
+  offset?: number;
 }
 
-export function getDailyReports(): Promise<ResearchResponse<WeeklyResponse>> {
-  return getJson("/api/reports/daily", (value) => isWeeklyResponse(value) ? value : null);
+function reportListPath(path: string, filters: ReportListFilters = {}): string {
+  const params = new URLSearchParams();
+  if (filters.status === "ready") params.set("ready", "true");
+  if (filters.status === "draft") params.set("review", "draft");
+  if (filters.status === "partial" || filters.status === "failed") {
+    params.set("run_status", filters.status);
+  }
+  if (filters.limit !== undefined) params.set("limit", String(filters.limit));
+  if (filters.offset !== undefined) params.set("offset", String(filters.offset));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return `${path}${suffix}`;
+}
+
+export function getWeeklyReports(
+  filters: ReportListFilters = {},
+): Promise<ResearchResponse<WeeklyResponse>> {
+  return getJson(reportListPath("/api/reports/weekly", filters), (value) => isWeeklyResponse(value) ? value : null);
+}
+
+export function getDailyReports(
+  filters: ReportListFilters = {},
+): Promise<ResearchResponse<WeeklyResponse>> {
+  return getJson(reportListPath("/api/reports/daily", filters), (value) => isWeeklyResponse(value) ? value : null);
 }
 
 export function getWeeklyReport(runId: string): Promise<ResearchResponse<ReportPayload>> {
@@ -647,6 +738,43 @@ export function getResearchSources(
   for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value);
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return getJson(`/api/sources${suffix}`, (value) => isSourcesResponse(value) ? value : null);
+}
+
+export function getResearchSourceExplorer(
+  filters: {
+    query?: string;
+    lane?: string;
+    geography?: string;
+    evidence?: string;
+    region?: string;
+    language?: string;
+    freshness?: string;
+    authority_tier?: string;
+    source_type?: string;
+    page?: number;
+    page_size?: number;
+  } = {},
+): Promise<ResearchResponse<SourceExplorerPage>> {
+  const params = new URLSearchParams({
+    page: String(filters.page ?? 1),
+    page_size: String(filters.page_size ?? 24),
+  });
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== "" && key !== "page" && key !== "page_size") {
+      params.set(key, String(value));
+    }
+  }
+  return getJson(
+    `/api/sources/explorer?${params.toString()}`,
+    (value) => isSourceExplorerPage(value) ? value : null,
+  );
+}
+
+export function getResearchSourceFacets(): Promise<ResearchResponse<SourceFacets>> {
+  return getJson(
+    "/api/sources/facets",
+    (value) => isSourceFacetsResponse(value) ? value : null,
+  );
 }
 
 export function getResearchDistillations(

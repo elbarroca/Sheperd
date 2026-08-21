@@ -16,7 +16,10 @@ from sheperd_research.contracts import (
     WeeklyBrief,
 )
 from sheperd_research.db import InMemoryRepository
-from sheperd_research.exporters.obsidian import export_reviewed_brief
+from sheperd_research.exporters.obsidian import (
+    export_reviewed_brief,
+    render_weekly_markdown,
+)
 from sheperd_research.exporters.regional_indexes import generate_regional_indexes
 
 
@@ -83,6 +86,71 @@ def test_export_rejects_approved_brief_with_partial_validation(tmp_path: Path) -
 
     with pytest.raises(PermissionError, match="passing validation"):
         export_reviewed_brief(brief, tmp_path / "report.md", validation=validation)
+
+
+def test_weekly_markdown_renderer_contains_full_evidence_sections() -> None:
+    source = SourceCandidate(
+        url="https://example.com/article",
+        title="Article title",
+        publisher="Example",
+        region="us",
+        language_code="es",
+        extraction_status="succeeded",
+    )
+    claim = ClaimDraft(
+        claim="A port signal changed.",
+        original_claim="Cambió una señal portuaria.",
+        source_urls=[source.url],
+        evidence_excerpt="Bounded excerpt.",
+        citation_status="cited",
+    )
+    brief = WeeklyBrief(
+        run_id="full-report",
+        title="Full report",
+        covered_from=datetime(2026, 8, 12, tzinfo=UTC),
+        covered_until=datetime(2026, 8, 19, tzinfo=UTC),
+        summary="Executive summary.",
+        source_urls=[source.url],
+        limitations=["One limitation."],
+        review_state=ReviewState.DRAFT,
+    )
+    markdown = render_weekly_markdown(
+        brief,
+        validation=ValidationReport(
+            run_id="full-report",
+            status=ValidationStatus.PARTIAL,
+            source_count=1,
+            claim_count=1,
+            cited_claim_count=1,
+            citation_coverage=1.0,
+        ),
+        sources=[source],
+        distillations=[
+            ArticleDistillation(
+                source_url=source.url,
+                summary="English summary.",
+                summary_original="Resumen original.",
+                key_points=["Key point."],
+                source_language="es",
+                translation_status="succeeded",
+                claims=[claim],
+            )
+        ],
+        claims=[claim],
+        source_hashes={source.url: "hash-1"},
+    )
+
+    assert "## Executive summary" in markdown
+    assert "## Developments by lane and region" in markdown
+    assert "## Risks and threats" in markdown
+    assert "## Opportunities" in markdown
+    assert "## Uncertainty and follow-up questions" in markdown
+    assert "## Article findings" in markdown
+    assert "Resumen original." in markdown
+    assert "Bounded excerpt." in markdown
+    assert "hash-1" in markdown
+    assert "prompt" not in markdown.lower()
+    assert "SECRET RAW ARTICLE BODY" not in markdown
 
 
 def test_regional_index_contains_structured_evidence_without_raw_body(tmp_path: Path) -> None:

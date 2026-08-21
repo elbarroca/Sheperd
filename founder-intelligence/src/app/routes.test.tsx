@@ -6,6 +6,8 @@ const api = vi.hoisted(() => ({
   getDailyReports: vi.fn(),
   getMonthlyRollups: vi.fn(),
   getResearchHealth: vi.fn(),
+  getResearchSourceExplorer: vi.fn(),
+  getResearchSourceFacets: vi.fn(),
   getWeeklyReport: vi.fn(),
   getWeeklyReports: vi.fn(),
 }));
@@ -22,6 +24,7 @@ vi.mock("@/components/report-accordion", () => ({
 import HomePage from "./page";
 import MonthlyPage from "./monthly/page";
 import ReportPage from "./reports/[run_id]/page";
+import SourcesPage from "./sources/page";
 
 const validReport = {
   brief: { run_id: "run-1", title: "Report", covered_from: "2026-08-01", covered_until: "2026-08-07" },
@@ -59,5 +62,74 @@ describe("production report routes", () => {
     api.getMonthlyRollups.mockResolvedValue({ status: "ok", data: { rollups: [rollup] } });
 
     expect(renderToStaticMarkup(await MonthlyPage())).toContain("2026-08-01");
+  });
+
+  it("renders the paginated source explorer from Neon records", async () => {
+    api.getResearchSourceExplorer.mockResolvedValue({
+      status: "ok",
+      data: {
+        items: [{
+          source: {
+            url: "https://example.com/article",
+            title: "Article title",
+            publisher: "Example",
+            published_at: null,
+            retrieved_at: "2026-08-19T00:00:00Z",
+            source_kind: "web",
+            snippet: "Original summary",
+            topics: [],
+            geographies: ["US"],
+            lane: "ports",
+            is_seed: false,
+            evidence_status: "cited",
+            region: "us",
+            language_code: "en",
+            freshness_status: "current",
+            extraction_status: "succeeded",
+          },
+          distillation: {
+            source_url: "https://example.com/article",
+            summary: "English summary",
+            summary_original: "Original summary",
+            key_points: ["Key point"],
+            key_points_original: [],
+            entities: [],
+            signals: [],
+            claims: [],
+            limitations: [],
+            published_at: null,
+            model_id: "google/gemma:free",
+            prompt_version: "distill",
+            evidence_status: "cited",
+            content_hash: "hash",
+            source_language: "en",
+            translation_status: "not_needed",
+          },
+          claims: [],
+          source_hash: "hash",
+        }],
+        page: 1,
+        page_size: 24,
+        total: 1,
+        has_more: false,
+      },
+    });
+    api.getResearchSourceFacets.mockResolvedValue({
+      status: "ok",
+      data: {
+        regions: ["us"],
+        languages: ["en"],
+        freshness: ["current"],
+        authority: ["secondary"],
+        source_types: ["trade_media"],
+        lanes: ["ports"],
+        evidence_states: ["cited"],
+      },
+    });
+
+    const markup = renderToStaticMarkup(await SourcesPage({ searchParams: Promise.resolve({}) }));
+    expect(markup).toContain("Article title");
+    expect(markup).toContain("English summary");
+    expect(markup).toContain("hash");
   });
 });

@@ -193,6 +193,9 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
         <div className="status-cluster">
           <span className={`status-badge status-${report.run?.status ?? "unknown"}`}>{report.run?.status ?? "unknown"}</span>
           <span className={`status-badge status-${report.validation?.status ?? "blocked"}`}>{report.validation?.status ?? "blocked"}</span>
+          <a className="secondary-action" href={`/reports/${encodeURIComponent(brief.run_id)}/markdown`}>
+            Download Markdown
+          </a>
         </div>
       </div>
 
@@ -245,17 +248,19 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
 }
 
 export function UnavailableState({ error }: { error: string }) {
-  return <div className="unavailable" role="alert"><h1>Research API unavailable</h1><p>{error}. Start the local FastAPI dashboard and reload. No stale report data is shown.</p></div>;
+  return <div className="unavailable" role="alert"><h1>Research API unavailable</h1><p>{error}. Start the FastAPI service at 127.0.0.1:8787 for local development. Production uses the configured research API. No stale report data is shown.</p></div>;
 }
 
 export function ReportLink({ runId, summary }: { runId: string; summary: WeeklyReportSummary }) {
+  const ready = summary.run_status === "succeeded" && summary.validation_status === "pass";
   return (
     <Link className="report-card" href={`/reports/${encodeURIComponent(runId)}`}>
-      <span className="eyebrow">{summary.validation_status} / {summary.review_state}</span>
+      <span className="eyebrow">{ready ? "Decision-ready" : `${summary.run_status} · ${summary.validation_status}`}</span>
       <h2>{summary.title}</h2>
       <p>{periodLabel(summary.covered_from, summary.covered_until)}</p>
       <p className="card-meta">
         <span>{summary.source_count} sources</span>
+        <span>{summary.distillation_count} distillations</span>
         <span>{summary.claim_count} claims</span>
         <span>{summary.regions.join(", ") || "No regions"}</span>
       </p>

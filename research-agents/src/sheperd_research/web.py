@@ -6,10 +6,11 @@ from html import escape
 
 from fastapi import FastAPI, Query
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from .contracts import WeeklyBrief
 from .db import RepositoryProtocol
+from .exporters.obsidian import render_weekly_markdown
 from .source_catalog import load_source_catalog
 
 
@@ -226,32 +227,81 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
     def api_weekly_reports(
         since: datetime | None = None,
         until: datetime | None = None,
+        review: str | None = Query(default=None, max_length=40),
+        run_status: str | None = Query(default=None, max_length=40),
+        ready: bool = False,
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
         reports = repository.list_brief_summaries(
+            review_state=review,
             since=since,
             until=until,
             limit=limit,
             offset=offset,
+            run_status=run_status,
+            ready_only=ready,
         )
-        return JSONResponse(jsonable_encoder({"reports": reports, "count": len(reports)}))
+        total = repository.count_brief_summaries(
+            review_state=review,
+            since=since,
+            until=until,
+            run_status=run_status,
+            ready_only=ready,
+        )
+        return JSONResponse(
+            jsonable_encoder(
+                {
+                    "reports": reports,
+                    "count": len(reports),
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset,
+                    "has_more": offset + len(reports) < total,
+                }
+            )
+        )
 
     @app.get("/api/reports/daily", response_class=JSONResponse)
     def api_daily_reports(
         since: datetime | None = None,
         until: datetime | None = None,
+        review: str | None = Query(default=None, max_length=40),
+        run_status: str | None = Query(default=None, max_length=40),
+        ready: bool = False,
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
         reports = repository.list_brief_summaries(
             cadence="daily",
+            review_state=review,
             since=since,
             until=until,
             limit=limit,
             offset=offset,
+            run_status=run_status,
+            ready_only=ready,
         )
-        return JSONResponse(jsonable_encoder({"reports": reports, "count": len(reports)}))
+        total = repository.count_brief_summaries(
+            cadence="daily",
+            review_state=review,
+            since=since,
+            until=until,
+            run_status=run_status,
+            ready_only=ready,
+        )
+        return JSONResponse(
+            jsonable_encoder(
+                {
+                    "reports": reports,
+                    "count": len(reports),
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset,
+                    "has_more": offset + len(reports) < total,
+                }
+            )
+        )
 
     @app.get("/api/regions", response_class=JSONResponse)
     def api_regions() -> JSONResponse:
@@ -259,6 +309,35 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
             jsonable_encoder(
                 {"regions": repository.list_regions(), "counts": repository.region_counts()}
             )
+        )
+
+    @app.get("/api/reports/weekly/{run_id}/markdown")
+    def api_weekly_markdown(run_id: str) -> Response:
+        brief = repository.get_brief(run_id)
+        if brief is None:
+            return Response("weekly report not found", status_code=404)
+        safe_name = "".join(
+            character if character.isalnum() or character in "-_" else "_"
+            for character in run_id
+        ) or "weekly-report"
+        markdown = render_weekly_markdown(
+            brief,
+            validation=repository.get_validation(run_id),
+            sources=repository.get_run_sources(run_id),
+            distillations=repository.get_run_distillations(run_id),
+            claims=repository.get_run_claims(run_id),
+            source_hashes=repository.get_run_source_hashes(run_id),
+            signals=repository.get_run_signal_events(run_id),
+            steps=_public_steps(repository.get_run_steps(run_id)),
+            tool_calls=_public_tool_calls(repository.get_run_tool_calls(run_id)),
+            run=_public_run(repository.get_run(run_id)),
+        )
+        return Response(
+            content=markdown,
+            media_type="text/markdown",
+            headers={
+                "Content-Disposition": f'inline; filename="{safe_name}.md"',
+            },
         )
 
     @app.get("/api/reports/weekly/{run_id}", response_class=JSONResponse)
@@ -308,6 +387,43 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                 }
             )
         )
+
+    @app.get("/api/sources/explorer", response_class=JSONResponse)
+    def api_source_explorer(
+        query: str = Query(default="", max_length=160),
+        geography: str | None = Query(default=None, max_length=80),
+        lane: str | None = Query(default=None, max_length=80),
+        evidence: str | None = Query(default=None, max_length=40),
+        region: str | None = Query(default=None, max_length=80),
+        language: str | None = Query(default=None, max_length=12),
+        freshness: str | None = Query(default=None, max_length=20),
+        authority_tier: str | None = Query(default=None, max_length=40),
+        source_type: str | None = Query(default=None, max_length=40),
+        since: datetime | None = None,
+        until: datetime | None = None,
+        page: int = Query(default=1, ge=1, le=10000),
+        page_size: int = Query(default=24, ge=1, le=100),
+    ) -> JSONResponse:
+        payload = repository.list_source_explorer(
+            query,
+            geography=geography,
+            lane=lane,
+            evidence_status=evidence,
+            region=region,
+            language=language,
+            freshness=freshness,
+            authority_tier=authority_tier,
+            source_type=source_type,
+            since=since,
+            until=until,
+            page=page,
+            page_size=page_size,
+        )
+        return JSONResponse(jsonable_encoder(payload))
+
+    @app.get("/api/sources/facets", response_class=JSONResponse)
+    def api_source_facets() -> JSONResponse:
+        return JSONResponse(jsonable_encoder({"status": "pass", **repository.source_facets()}))
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:

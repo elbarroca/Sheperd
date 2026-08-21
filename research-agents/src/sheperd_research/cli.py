@@ -993,6 +993,14 @@ def _export_command(args: argparse.Namespace, settings: Settings) -> int:
             brief,
             destination,
             validation=repository.get_validation(args.run_id),
+            sources=repository.get_run_sources(args.run_id),
+            distillations=repository.get_run_distillations(args.run_id),
+            claims=repository.get_run_claims(args.run_id),
+            source_hashes=repository.get_run_source_hashes(args.run_id),
+            signals=repository.get_run_signal_events(args.run_id),
+            steps=repository.get_run_steps(args.run_id),
+            tool_calls=repository.get_run_tool_calls(args.run_id),
+            run=run,
         )
         print(destination)
         return 0
