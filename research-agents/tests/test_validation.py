@@ -5,8 +5,10 @@ from datetime import UTC, datetime
 from sheperd_research.contracts import (
     ClaimDraft,
     EvidenceStatus,
+    ReportBullet,
     SourceCandidate,
     ValidationStatus,
+    WeeklyBrief,
 )
 from sheperd_research.settings import STRICT_OPENROUTER_MODEL
 from sheperd_research.validation import build_validation_report
@@ -31,6 +33,33 @@ def _sources() -> list[SourceCandidate]:
     ]
 
 
+def _complete_brief(source_url: str) -> WeeklyBrief:
+    def bullet(text: str, *, structured: bool = False) -> ReportBullet:
+        fields = (
+            {
+                "why_it_matters": "This changes the decision context.",
+                "next_step": "Monitor the cited source.",
+            }
+            if structured
+            else {}
+        )
+        return ReportBullet(text=text, source_urls=[source_url], **fields)
+
+    return WeeklyBrief(
+        run_id="brief-run",
+        title="Complete report",
+        covered_from=datetime(2026, 8, 12, tzinfo=UTC),
+        covered_until=datetime(2026, 8, 19, tzinfo=UTC),
+        summary="A complete source-bound report.",
+        executive_bullets=[bullet("Executive signal.")],
+        developments=[bullet("Development signal.")],
+        risks=[bullet("Risk signal.", structured=True)],
+        opportunities=[bullet("Opportunity signal.", structured=True)],
+        uncertainties=[bullet("Uncertainty signal.", structured=True)],
+        follow_up_questions=["What should be monitored next?"],
+    )
+
+
 def test_validation_passes_with_thresholds_and_full_citations() -> None:
     sources = _sources()
     claims = [
@@ -48,11 +77,67 @@ def test_validation_passes_with_thresholds_and_full_citations() -> None:
         STRICT_OPENROUTER_MODEL,
         {"regulatory": "succeeded", "us-ports": "succeeded", "mexico": "succeeded"},
         [f"hash-{index}" for index in range(10)],
+        brief=_complete_brief(sources[0].url),
     )
 
     assert report.status is ValidationStatus.PASS
     assert report.citation_coverage == 1.0
     assert report.content_hash
+
+
+def test_validation_rejects_empty_report_sections_when_brief_is_available() -> None:
+    sources = _sources()
+    brief = _complete_brief(sources[0].url).model_copy(update={"risks": []})
+    report = build_validation_report(
+        "brief-run",
+        sources,
+        [
+            ClaimDraft(claim=f"Claim {index}", source_urls=[sources[index].url])
+            for index in range(5)
+        ],
+        datetime(2026, 8, 19, tzinfo=UTC),
+        STRICT_OPENROUTER_MODEL,
+        {"regulatory": "succeeded", "us-ports": "succeeded", "mexico": "succeeded"},
+        [f"hash-{index}" for index in range(10)],
+        brief=brief,
+    )
+
+    check = next(check for check in report.checks if check.name == "report_sections")
+    assert report.status is ValidationStatus.FAILED
+    assert check.status is ValidationStatus.FAILED
+    assert "risks" in str(check.observed)
+
+
+def test_validation_rejects_uncited_and_unstructured_report_bullets() -> None:
+    sources = _sources()
+    brief = _complete_brief(sources[0].url).model_copy(
+        update={
+            "opportunities": [
+                ReportBullet(
+                    text="Unsupported opportunity.",
+                    source_urls=["https://unknown.example/opportunity"],
+                )
+            ]
+        }
+    )
+    report = build_validation_report(
+        "brief-run",
+        sources,
+        [
+            ClaimDraft(claim=f"Claim {index}", source_urls=[sources[index].url])
+            for index in range(5)
+        ],
+        datetime(2026, 8, 19, tzinfo=UTC),
+        STRICT_OPENROUTER_MODEL,
+        {"regulatory": "succeeded", "us-ports": "succeeded", "mexico": "succeeded"},
+        [f"hash-{index}" for index in range(10)],
+        brief=brief,
+    )
+
+    check = next(check for check in report.checks if check.name == "report_sections")
+    assert report.status is ValidationStatus.FAILED
+    assert check.status is ValidationStatus.FAILED
+    assert "opportunities" in str(check.observed)
 
 
 def test_validation_requires_europe_geography() -> None:

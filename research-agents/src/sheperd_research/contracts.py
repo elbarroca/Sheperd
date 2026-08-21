@@ -217,6 +217,8 @@ class ReportBullet(ContractModel):
     text: str = Field(min_length=1, max_length=600)
     source_urls: list[str] = Field(min_length=1, max_length=8)
     evidence_status: EvidenceStatus = EvidenceStatus.MIXED
+    why_it_matters: str | None = Field(default=None, min_length=1, max_length=600)
+    next_step: str | None = Field(default=None, min_length=1, max_length=600)
 
 
 class WeeklyBrief(ContractModel):

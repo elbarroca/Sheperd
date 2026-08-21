@@ -11,11 +11,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 STRICT_OPENROUTER_MODEL = "google/gemma-4-26b-a4b-it:free"
 DEFAULT_FREE_FALLBACK_MODELS = (
-    "nvidia/nemotron-3-super-120b-a12b:free",
-    "nvidia/nemotron-nano-9b-v2:free",
-    "google/gemma-4-31b-it:free",
-    "liquid/lfm-2.5-2.6b:free",
     "z-ai/glm-5.2:free",
+    "google/gemma-4-31b-it:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "openai/gpt-oss-20b:free",
+    "dots-studio/dots-3-note-preview:free",
+    "nvidia/nemotron-nano-9b-v2:free",
+    "liquid/lfm-2.5-2.6b:free",
 )
 _FREE_MODEL_PATTERN = re.compile(
     r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*:free$"
@@ -113,6 +115,7 @@ class Settings(BaseSettings):
     neon_project_name: str = "sheperd-research"
     neon_branch_id: str = "main"
     tavily_api_key: SecretStr | None = None
+    tavily_api_key_2: SecretStr | None = None
     tavily_project_id: str | None = None
     openrouter_api_key: SecretStr | None = None
     openrouter_model: str = STRICT_OPENROUTER_MODEL
@@ -166,6 +169,18 @@ class Settings(BaseSettings):
     @property
     def has_live_provider_credentials(self) -> bool:
         return bool(self.tavily_api_key and self.openrouter_api_key)
+
+    @property
+    def tavily_api_keys(self) -> tuple[str, ...]:
+        return tuple(
+            secret.get_secret_value()
+            for secret in (self.tavily_api_key, self.tavily_api_key_2)
+            if secret is not None and secret.get_secret_value().strip()
+        )
+
+    @property
+    def tavily_api_key_count(self) -> int:
+        return len(self.tavily_api_keys)
 
     @property
     def has_database_credentials(self) -> bool:

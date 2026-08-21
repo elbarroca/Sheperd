@@ -4,7 +4,7 @@ from urllib.parse import urlsplit
 
 from .contracts import SourceCandidate, ValidationStatus
 from .db import MIGRATION_VERSION
-from .providers.capabilities import resolve_capabilities
+from .providers.capabilities import resolve_capabilities, resolve_free_model_catalog
 from .providers.errors import ProviderError
 from .providers.neon import NeonApiClient
 from .providers.openrouter import OpenRouterProvider
@@ -52,13 +52,18 @@ def validate_dev_branch(branch_id: str) -> str | None:
 def _env_check(settings: Settings) -> dict[str, object]:
     fields = {
         "TAVILY_API_KEY": bool(settings.tavily_api_key),
+        "TAVILY_API_KEY_2": bool(settings.tavily_api_key_2),
+        "TAVILY_API_KEY_COUNT": settings.tavily_api_key_count,
         "TAVILY_PROJECT_ID": bool(settings.tavily_project_id),
         "OPENROUTER_API_KEY": bool(settings.openrouter_api_key),
         "NEON_PG_API_KEY": bool(settings.neon_api_key),
         "DATABASE_URL": bool(settings.database_url),
         "DIRECT_DATABASE_URL": bool(settings.direct_database_url),
         "OPENROUTER_MODEL": settings.openrouter_model,
-        "OPENROUTER_FALLBACK_MODELS": list(settings.openrouter_model_chain[1:]),
+        "OPENROUTER_FALLBACK_MODELS": list(settings.openrouter_fallback_model_list),
+        "OPENROUTER_EFFECTIVE_FREE_FALLBACKS": list(
+            settings.model_chain(allow_free_fallbacks=True)[1:]
+        ),
     }
     required = (
         "TAVILY_API_KEY",
@@ -139,11 +144,35 @@ async def _provider_check(
     settings: Settings, *, allow_free_fallbacks: bool = False
 ) -> dict[str, object]:
     checks: dict[str, object] = {}
-    if settings.tavily_api_key:
+    tavily: TavilyProvider | None = None
+    openrouter: OpenRouterProvider | None = None
+
+    def key_slots() -> list[int]:
+        if tavily is None:
+            return []
+        slots: list[int] = []
+        for attempt in tavily.call_history:
+            slot = attempt.get("key_slot")
+            if isinstance(slot, int) and not isinstance(slot, bool):
+                slots.append(slot)
+        return sorted(set(slots))
+
+    def successful_key_slot() -> int | None:
+        if tavily is None:
+            return None
+        for attempt in reversed(tavily.call_history):
+            slot = attempt.get("key_slot")
+            if (
+                attempt.get("status") == "succeeded"
+                and isinstance(slot, int)
+                and not isinstance(slot, bool)
+            ):
+                return slot
+        return None
+
+    if settings.tavily_api_keys:
         try:
-            tavily = TavilyProvider(
-                settings.tavily_api_key.get_secret_value(), settings.tavily_project_id
-            )
+            tavily = TavilyProvider(settings.tavily_api_keys, settings.tavily_project_id)
             search_results = await tavily.search(
                 "latest FMC demurrage detention enforcement",
                 include_domains=["fmc.gov"],
@@ -158,9 +187,15 @@ async def _provider_check(
                 "Tavily Search and Extract completed",
                 search_results=len(search_results),
                 extracted_sources=len(extracted),
+                key_slots_attempted=key_slots(),
+                successful_key_slot=successful_key_slot(),
             )
         except (ProviderError, ValueError) as error:
-            checks["tavily"] = _status(False, f"Tavily check failed: {error}")
+            checks["tavily"] = _status(
+                False,
+                f"Tavily check failed: {error}",
+                key_slots_attempted=key_slots(),
+            )
     else:
         checks["tavily"] = _status(False, "TAVILY_API_KEY is not configured")
 
@@ -196,22 +231,32 @@ async def _provider_check(
                 raise ProviderError(
                     "no free model supports discovery tools and structured output"
                 )
-            provider = OpenRouterProvider(
+            openrouter = OpenRouterProvider(
                 settings.openrouter_api_key.get_secret_value(),
                 settings.openrouter_model,
                 fallback_models=fallback_models,
                 allow_free_fallbacks=allow_free_fallbacks,
                 capability_report=capabilities,
             )
-            model = await provider.health_check()
+            model = await openrouter.health_check()
             checks["openrouter"] = _status(
                 True,
                 "OpenRouter structured output completed",
                 model=model,
                 capabilities=capabilities.as_dict(),
+                attempts=openrouter.call_history,
             )
         except (ProviderError, ValueError) as error:
-            checks["openrouter"] = _status(False, f"OpenRouter check failed: {error}")
+            checks["openrouter"] = _status(
+                False,
+                f"OpenRouter check failed: {error}",
+                error_code=getattr(error, "error_code", None),
+                attempts=(
+                    openrouter.call_history
+                    if openrouter is not None
+                    else getattr(error, "attempts", [])
+                ),
+            )
     else:
         checks["openrouter"] = _status(
             False,
@@ -300,6 +345,8 @@ async def run_model_check(
             "policy": policy,
             "message": "OPENROUTER_API_KEY is not configured",
         }
+
+
     capabilities = None
     provider = None
     try:
@@ -342,8 +389,37 @@ async def run_model_check(
             "policy": policy,
             "requested_models": list(model_chain),
             "message": str(error),
+            "error_code": getattr(error, "error_code", None),
             "capabilities": capabilities.as_dict() if capabilities else None,
-            "attempts": provider.call_history if provider else [],
+            "attempts": (
+                provider.call_history
+                if provider
+                else getattr(error, "attempts", [])
+            ),
+        }
+
+
+async def run_model_map(settings: Settings) -> dict[str, object]:
+    if not settings.openrouter_api_key:
+        return {
+            "status": "blocked",
+            "message": "OPENROUTER_API_KEY is not configured",
+        }
+    try:
+        catalog = await resolve_free_model_catalog(
+            settings.openrouter_api_key.get_secret_value(),
+            primary_model=settings.openrouter_model,
+        )
+        if not catalog.models:
+            return {
+                "status": "blocked",
+                "message": "OpenRouter returned no explicit :free models",
+            }
+        return {"status": "pass", "catalog": catalog.as_dict()}
+    except ProviderError as error:
+        return {
+            "status": "blocked",
+            "message": str(error),
         }
 
 

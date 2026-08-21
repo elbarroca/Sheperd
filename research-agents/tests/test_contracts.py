@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from sheperd_research.contracts import (
     EvidenceStatus,
+    ReportBullet,
     ResearchRunRequest,
     ReviewState,
     SourceCandidate,
@@ -34,3 +35,15 @@ def test_source_candidate_preserves_seed_provenance() -> None:
 
     assert source.is_seed is True
     assert source.evidence_status is EvidenceStatus.UNVERIFIED
+
+
+def test_report_bullet_keeps_new_context_fields_optional_for_legacy_records() -> None:
+    bullet = ReportBullet.model_validate(
+        {
+            "text": "A legacy report signal.",
+            "source_urls": ["https://example.com/article"],
+        }
+    )
+
+    assert bullet.why_it_matters is None
+    assert bullet.next_step is None

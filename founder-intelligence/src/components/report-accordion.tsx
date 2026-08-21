@@ -15,6 +15,17 @@ function dateLabel(value: string): string {
   return new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(value));
 }
 
+function timestampLabel(value: string | null | undefined): string {
+  if (!value) return "Not recorded";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not recorded";
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "medium",
+    timeZone: "UTC",
+  }).format(date);
+}
+
 function periodLabel(from: string, until: string): string {
   return `${dateLabel(from)} to ${dateLabel(until)}`;
 }
@@ -31,13 +42,15 @@ function CitationLinks({ urls }: { urls: string[] }) {
   ));
 }
 
-function BulletList({ bullets }: { bullets: ReportBullet[] }) {
-  if (bullets.length === 0) return <p className="muted">No observations recorded.</p>;
+function BulletList({ bullets, emptyLabel = "Not recorded in this run." }: { bullets: ReportBullet[]; emptyLabel?: string }) {
+  if (bullets.length === 0) return <p className="muted">{emptyLabel}</p>;
   return (
     <ul className="report-bullets">
       {bullets.map((bullet, index) => (
         <li key={`${bullet.text}-${index}`}>
           <span>{bullet.text}</span>
+          {bullet.why_it_matters ? <span className="bullet-context"><strong>Why it matters:</strong> {bullet.why_it_matters}</span> : null}
+          {bullet.next_step ? <span className="bullet-context"><strong>Next step:</strong> {bullet.next_step}</span> : null}
           <span className="bullet-meta">
             <span className={`evidence-badge evidence-${bullet.evidence_status}`}>{bullet.evidence_status}</span>
             <CitationLinks urls={bullet.source_urls} />
@@ -45,6 +58,68 @@ function BulletList({ bullets }: { bullets: ReportBullet[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+type DecisionItem = {
+  text: string;
+  sourceUrls: string[];
+  evidenceStatus: string;
+};
+
+function nextStepItems(brief: WeeklyBrief): DecisionItem[] {
+  const seen = new Set<string>();
+  return [...brief.risks, ...brief.opportunities, ...brief.uncertainties].flatMap((bullet) => {
+    if (!bullet.next_step || seen.has(bullet.next_step)) return [];
+    seen.add(bullet.next_step);
+    return [{ text: bullet.next_step, sourceUrls: bullet.source_urls, evidenceStatus: bullet.evidence_status }];
+  });
+}
+
+function DecisionList({ items, emptyLabel }: { items: DecisionItem[]; emptyLabel: string }) {
+  if (items.length === 0) return <p className="muted">{emptyLabel}</p>;
+  return (
+    <ol className="decision-list">
+      {items.slice(0, 4).map((item, index) => (
+        <li key={`${item.text}-${index}`}>
+          <span>{item.text}</span>
+          <span className="bullet-meta">
+            <span className={`evidence-badge evidence-${item.evidenceStatus}`}>{item.evidenceStatus}</span>
+            <CitationLinks urls={item.sourceUrls} />
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function DecisionReadout({ brief }: { brief: WeeklyBrief }) {
+  const nextSteps = nextStepItems(brief);
+  const openQuestions = brief.follow_up_questions.slice(0, 4);
+  return (
+    <section className="decision-readout" aria-labelledby="decision-readout-heading">
+      <div className="decision-intro">
+        <p className="eyebrow">Decision readout</p>
+        <h2 id="decision-readout-heading">What this run tells us</h2>
+        <p className="report-summary">{brief.summary}</p>
+      </div>
+      <div className="decision-grid">
+        <article className="decision-block">
+          <p className="decision-label">Next steps</p>
+          <h3>What to do next</h3>
+          <DecisionList items={nextSteps} emptyLabel="No next step was recorded." />
+        </article>
+        <article className="decision-block">
+          <p className="decision-label">Open questions</p>
+          <h3>What still needs checking</h3>
+          {openQuestions.length > 0 ? (
+            <ol className="decision-list">
+              {openQuestions.map((question, index) => <li key={`${question}-${index}`}><span>{question}</span></li>)}
+            </ol>
+          ) : <p className="muted">No follow-up question was recorded.</p>}
+        </article>
+      </div>
+    </section>
   );
 }
 
@@ -104,6 +179,10 @@ function SourceEvidence({ report }: { report: ReportPayload }) {
                 <p>{distillation.summary}</p>
                 {distillation.summary_original && distillation.summary_original !== distillation.summary ? <p className="muted">Original: {distillation.summary_original}</p> : null}
                 {distillation.key_points.length > 0 && <ul>{distillation.key_points.map((point) => <li key={point}>{point}</li>)}</ul>}
+                {distillation.entities.length > 0 ? <p className="muted">Entities: {distillation.entities.join(", ")}</p> : null}
+                {distillation.signals.length > 0 ? <p className="muted">Signals: {distillation.signals.join(", ")}</p> : null}
+                {distillation.evidence_excerpts?.length ? <p className="muted">Evidence: {distillation.evidence_excerpts.join(" / ")}</p> : null}
+                {distillation.evidence_locators?.length ? <p className="muted">Locators: {distillation.evidence_locators.join(" / ")}</p> : null}
                 <p className="muted">{distillation.model_id} / {distillation.prompt_version} / {distillation.evidence_status} / language {distillation.source_language ?? "und"} / translation {distillation.translation_status ?? "unknown"}</p>
                 <code>Hash: {distillation.content_hash ?? "unknown"}</code>
                 {distillation.claims.length > 0 && <ul>{distillation.claims.map((claim) => <ClaimRow key={claim.claim} claim={claim} />)}</ul>}
@@ -130,6 +209,31 @@ function SourceEvidence({ report }: { report: ReportPayload }) {
       </ul>
       {report.brief.limitations.length > 0 && <><h3>Limitations</h3><ul>{report.brief.limitations.map((item) => <li key={item}>{item}</li>)}</ul></>}
     </>
+  );
+}
+
+function ReportQuality({ report, brief }: { report: ReportPayload; brief: WeeklyBrief }) {
+  const sections = [
+    ["Executive", brief.executive_bullets],
+    ["Developments", brief.developments],
+    ["Risks", brief.risks],
+    ["Opportunities", brief.opportunities],
+    ["Uncertainty", brief.uncertainties],
+  ] as const;
+  const completeSections = sections.filter(([, bullets]) => bullets.length > 0).length;
+  const coverage = Math.round((report.validation?.citation_coverage ?? 0) * 100);
+  const sectionCheck = report.validation?.checks.find((check) => check.name === "report_sections");
+  const sectionComplete = completeSections === sections.length && sectionCheck?.status !== "failed";
+  return (
+    <div className="report-quality" aria-label="Report quality">
+      <div><strong>{completeSections}/{sections.length}</strong><span>insight sections</span></div>
+      <div><strong>{coverage}%</strong><span>citation coverage</span></div>
+      <div><strong>{report.sources.length}</strong><span>sources</span></div>
+      <div><strong>{report.distillations.length}</strong><span>distillations</span></div>
+      <div><strong>{report.claims.length}</strong><span>claims</span></div>
+      <div><strong>{sectionCheck?.status ?? "not recorded"}</strong><span>section validator</span></div>
+      <p>{sectionComplete ? "All insight sections are populated." : "Older or incomplete output is visibly marked; this run is not fully mapped."}</p>
+    </div>
   );
 }
 
@@ -165,10 +269,54 @@ function AgentStepList({ steps }: { steps: AgentStep[] }) {
           <span>{step.status} / {step.duration_ms ?? "unknown"} ms</span>
           <span>{step.requested_model ?? "unknown"} to {step.resolved_model ?? "unknown"}</span>
           <span>{step.prompt_version ?? "unknown"} / {step.total_tokens ?? "unknown"} tokens</span>
-          <small>Input: {step.input_hash ?? "unknown"} / Output: {step.output_hash ?? "unknown"} / Error: {step.error_code ?? "none"}</small>
+          <small>{timestampLabel(step.created_at)} / Input: {step.input_hash ?? "unknown"} / Output: {step.output_hash ?? "unknown"} / Error: {step.error_code ?? "none"}</small>
         </li>
       ))}
     </ul>
+  );
+}
+
+type ActivityItem = {
+  id: string;
+  createdAt: string | null;
+  title: string;
+  status: string;
+  detail: string;
+};
+
+function RunActivity({ steps, calls }: { steps: AgentStep[]; calls: ToolCallReceipt[] }) {
+  const items: ActivityItem[] = [
+    ...steps.map((step, index) => ({
+      id: `step-${step.agent_name}-${step.attempt}-${index}`,
+      createdAt: step.created_at ?? null,
+      title: step.agent_name,
+      status: step.status,
+      detail: `${step.lane} / attempt ${step.attempt} / ${step.tool_calls ?? 0} tool calls / ${step.duration_ms ?? "unknown"} ms${step.fallback_reason ? ` / rerouted: ${step.fallback_reason}` : ""}`,
+    })),
+    ...calls.map((call, index) => ({
+      id: `tool-${call.tool_name}-${call.attempt ?? "unknown"}-${index}`,
+      createdAt: call.created_at ?? null,
+      title: call.tool_name,
+      status: call.status,
+      detail: `${call.lane ?? "unknown lane"} / ${call.result_count ?? 0} results / ${call.latency_ms ?? "unknown"} ms`,
+    })),
+  ].sort((left, right) => {
+    const leftTime = left.createdAt ? Date.parse(left.createdAt) : Number.MAX_SAFE_INTEGER;
+    const rightTime = right.createdAt ? Date.parse(right.createdAt) : Number.MAX_SAFE_INTEGER;
+    return leftTime - rightTime;
+  });
+
+  if (items.length === 0) return <p className="muted">No persisted activity recorded.</p>;
+  return (
+    <ol className="activity-list">
+      {items.map((item) => (
+        <li className="activity-item" key={item.id}>
+          <time dateTime={item.createdAt ?? undefined}>{timestampLabel(item.createdAt)}</time>
+          <span className="activity-event"><strong>{item.title}</strong><small>{item.detail}</small></span>
+          <span className={`status-badge status-${item.status}`}>{item.status}</span>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -178,6 +326,11 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
   const runStatus = report.run?.status ?? "missing";
   const validationStatus = report.validation?.status ?? "missing";
   const blocked = !(runStatus === "succeeded" && validationStatus === "pass");
+  const headingLabel = report.run?.archived
+    ? "Archived report"
+    : blocked
+      ? "Review required"
+      : "Decision-ready report";
   const workflowStates = ["critic", "synthesis", "validation"].map((agentName) => ({
     agentName,
     step: report.steps.find((item) => item.agent_name === agentName),
@@ -186,18 +339,26 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
     <div className="report-stack">
       <div className="report-heading">
         <div>
-          <p className="eyebrow">Weekly intelligence / draft</p>
+          <p className="eyebrow">{headingLabel}</p>
           <h1>{brief.title}</h1>
           <p className="report-period">{periodLabel(brief.covered_from, brief.covered_until)}</p>
+          <p className="report-as-of">As of {timestampLabel(report.as_of)}</p>
         </div>
         <div className="status-cluster">
+          {report.run?.archived ? <span className="status-badge status-archived">Archived</span> : null}
           <span className={`status-badge status-${report.run?.status ?? "unknown"}`}>{report.run?.status ?? "unknown"}</span>
           <span className={`status-badge status-${report.validation?.status ?? "blocked"}`}>{report.validation?.status ?? "blocked"}</span>
-          <a className="secondary-action" href={`/reports/${encodeURIComponent(brief.run_id)}/markdown`}>
+          <a className="secondary-action" href={`/reports/${encodeURIComponent(brief.run_id)}/markdown${report.run?.archived ? "?archive_scope=archived" : ""}`}>
             Download Markdown
           </a>
         </div>
       </div>
+
+      {report.run?.archived ? (
+        <div className="archive-notice" role="status">
+          Archived from the default dashboard. Reason: {report.run.archive_reason ?? "terminal failure"}.
+        </div>
+      ) : null}
 
       {blocked && (
         <div className="unavailable" role="alert">
@@ -206,18 +367,17 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
         </div>
       )}
 
-      <Section title="1. Executive readout" open>
-        <p className="report-summary">{brief.summary}</p>
-        <BulletList bullets={brief.executive_bullets} />
-      </Section>
+      <DecisionReadout brief={brief} />
+      <Section title="1. Executive findings" open><BulletList bullets={brief.executive_bullets} /></Section>
       <Section title="2. Developments by lane and geography">
         <BulletList bullets={brief.developments} />
         <p className="lane-line">Coverage: {report.lane_coverage.join(", ") || "none recorded"}</p>
       </Section>
-      <Section title="3. Risks"><BulletList bullets={brief.risks} /></Section>
-      <Section title="4. Opportunities"><BulletList bullets={brief.opportunities} /></Section>
+      <ReportQuality report={report} brief={brief} />
+      <Section title="3. Risks / exposure and impact"><BulletList bullets={brief.risks} emptyLabel="No evidence-backed risks were recorded by this run." /></Section>
+      <Section title="4. Opportunities / openings and next moves"><BulletList bullets={brief.opportunities} emptyLabel="No evidence-backed opportunities were recorded by this run." /></Section>
       <Section title="5. Uncertainty and follow-up research">
-        <BulletList bullets={brief.uncertainties} />
+        <BulletList bullets={brief.uncertainties} emptyLabel="No uncertainty statement was recorded by this run." />
         {brief.follow_up_questions.length > 0 ? (
           <ol className="follow-up-list">{brief.follow_up_questions.map((question) => <li key={question}>{question}</li>)}</ol>
         ) : <p className="muted">No follow-up questions recorded.</p>}
@@ -226,12 +386,15 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
         <SourceEvidence report={report} />
       </Section>
       <Section title="7. Agent audit">
+        <h3>Run activity</h3>
+        <p className="muted">Persisted workflow steps and provider tool receipts. Hidden reasoning is never stored.</p>
+        <RunActivity steps={report.steps} calls={report.tool_calls ?? []} />
         <dl className="audit-grid">
           <div><dt>Run</dt><dd><code>{brief.run_id}</code></dd></div>
           <div><dt>Requested model(s)</dt><dd>{report.requested_models?.join(", ") || brief.model_id}</dd></div>
           <div><dt>Resolved model(s)</dt><dd>{report.resolved_models?.join(", ") || report.models.join(", ") || brief.model_id}</dd></div>
           <div><dt>Prompt</dt><dd>{brief.prompt_version}</dd></div>
-          <div><dt>As of</dt><dd>{dateLabel(report.as_of)}</dd></div>
+          <div><dt>As of</dt><dd>{timestampLabel(report.as_of)}</dd></div>
           <div><dt>Branch</dt><dd>{report.run?.neon_branch_id ?? "unknown"}</dd></div>
           <div><dt>Migration</dt><dd>{report.run?.migration_version ?? "unknown"}</dd></div>
           <div><dt>Source hashes</dt><dd>{report.source_hashes.length}</dd></div>
@@ -253,17 +416,23 @@ export function UnavailableState({ error }: { error: string }) {
 
 export function ReportLink({ runId, summary }: { runId: string; summary: WeeklyReportSummary }) {
   const ready = summary.run_status === "succeeded" && summary.validation_status === "pass";
+  const archived = summary.archived === true || summary.archived_at != null;
+  const href = `/reports/${encodeURIComponent(runId)}${archived ? "?archive_scope=archived" : ""}`;
   return (
-    <Link className="report-card" href={`/reports/${encodeURIComponent(runId)}`}>
-      <span className="eyebrow">{ready ? "Decision-ready" : `${summary.run_status} · ${summary.validation_status}`}</span>
-      <h2>{summary.title}</h2>
-      <p>{periodLabel(summary.covered_from, summary.covered_until)}</p>
-      <p className="card-meta">
+    <Link className="report-row" href={href}>
+      <span className="report-row-title">
+        <span className="eyebrow">{archived ? "Archived" : ready ? "Decision-ready" : `${summary.run_status} / ${summary.validation_status}`}</span>
+        <strong>{summary.title}</strong>
+      </span>
+      <span className="report-row-period">{periodLabel(summary.covered_from, summary.covered_until)}</span>
+      <span className="report-row-metrics">
         <span>{summary.source_count} sources</span>
         <span>{summary.distillation_count} distillations</span>
         <span>{summary.claim_count} claims</span>
-        <span>{summary.regions.join(", ") || "No regions"}</span>
-      </p>
+      </span>
+      <span className="report-row-state">
+        {archived ? summary.archive_reason ?? "archived" : `${summary.validation_status} / ${summary.review_state}`}
+      </span>
       <span className="card-arrow">Open report</span>
     </Link>
   );

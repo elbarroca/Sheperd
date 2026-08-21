@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
-from .contracts import ClaimDraft, FreshnessStatus, SourceCandidate
+from .contracts import ClaimDraft, FreshnessStatus, SourceCandidate, WeeklyBrief
 
 REQUIRED_DRAFT_PREFIX = "DRAFT - HUMAN REVIEW REQUIRED"
 MANDATORY_EXCLUDED_DOMAINS = ("linkedin.com",)
@@ -18,6 +18,14 @@ PAYWALL_QUERY_MARKERS = {
     "subscription",
 }
 ALLOWED_URL_SCHEMES = {"http", "https"}
+REPORT_BULLET_SECTIONS = (
+    "executive_bullets",
+    "developments",
+    "risks",
+    "opportunities",
+    "uncertainties",
+)
+ACTIONABLE_REPORT_SECTIONS = {"risks", "opportunities", "uncertainties"}
 
 
 def normalize_url(url: str) -> str:
@@ -189,6 +197,32 @@ def validate_claim_citations(
         }
         if unknown:
             raise ValueError(f"claim cites unknown source: {sorted(unknown)[0]}")
+
+
+def validate_report_sections(
+    brief: WeeklyBrief,
+    known_urls: set[str],
+) -> list[str]:
+    """Return deterministic completeness issues for a newly synthesized brief."""
+    normalized_known = {normalize_url(url) for url in known_urls}
+    issues: list[str] = []
+    for section in REPORT_BULLET_SECTIONS:
+        bullets = list(getattr(brief, section))
+        if not bullets:
+            issues.append(f"{section}_empty")
+            continue
+        for index, bullet in enumerate(bullets, start=1):
+            normalized_urls = {normalize_url(url) for url in bullet.source_urls}
+            if not normalized_urls or not normalized_urls.issubset(normalized_known):
+                issues.append(f"{section}_{index}_unknown_citation")
+            if section in ACTIONABLE_REPORT_SECTIONS:
+                if not bullet.why_it_matters:
+                    issues.append(f"{section}_{index}_missing_why_it_matters")
+                if not bullet.next_step:
+                    issues.append(f"{section}_{index}_missing_next_step")
+    if not any(question.strip() for question in brief.follow_up_questions):
+        issues.append("follow_up_questions_empty")
+    return issues
 
 
 def with_draft_prefix(text: str) -> str:

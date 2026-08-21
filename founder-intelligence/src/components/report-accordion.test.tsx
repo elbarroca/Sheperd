@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ReportPayload } from "@/lib/research-api";
-import { ReportAccordion } from "./report-accordion";
+import { ReportAccordion, ReportLink } from "./report-accordion";
 
 const report: ReportPayload = {
   brief: {
@@ -55,6 +55,7 @@ const report: ReportPayload = {
     input_tokens: 10,
     output_tokens: 0,
     total_tokens: 10,
+    created_at: "2026-08-19T12:34:56Z",
   }],
   tool_calls: [{
     agent_name: "discovery:regulatory",
@@ -137,6 +138,41 @@ describe("ReportAccordion", () => {
     expect(markup).toContain("fmc enforcement");
     expect(markup).toContain("critic-v4");
     expect(markup).toContain("Download Markdown");
+    expect(markup).toContain("Run activity");
+    expect(markup).toContain("Aug 19, 2026, 12:34:56 PM");
+  });
+
+  it("renders report summaries as compact rows and labels archived reports", () => {
+    const markup = renderToStaticMarkup(
+      <ReportLink
+        runId="failed-run"
+        summary={{
+          run_id: "failed-run",
+          title: "Archived report",
+          covered_from: "2026-08-12T00:00:00Z",
+          covered_until: "2026-08-19T00:00:00Z",
+          review_state: "draft",
+          run_status: "partial",
+          validation_status: "failed",
+          source_count: 2,
+          distillation_count: 2,
+          claim_count: 3,
+          signal_count: 1,
+          regions: ["global"],
+          languages: ["en"],
+          lane_coverage: ["regulatory"],
+          models: ["google/gemma-4-26b-a4b-it:free"],
+          as_of: "2026-08-19T00:00:00Z",
+          archived: true,
+          archived_at: "2026-08-20T00:00:00Z",
+          archive_reason: "validation_failed",
+        }}
+      />,
+    );
+
+    expect(markup).toContain("report-row");
+    expect(markup).toContain("Archived");
+    expect(markup).toContain("validation_failed");
   });
 
   it("marks failed validation as non-decision-ready", () => {
@@ -163,6 +199,39 @@ describe("ReportAccordion", () => {
 
     expect(markup).toContain("status-blocked");
     expect(markup).toContain("Report is blocked, failed, or partial.");
+  });
+
+  it("renders structured insight context and section completeness", () => {
+    const detailedReport: ReportPayload = {
+      ...report,
+      brief: {
+        ...report.brief,
+        executive_bullets: [{
+          text: "The source reports a measurable delay.",
+          source_urls: ["https://example.com/source"],
+          evidence_status: "partially-supported",
+          why_it_matters: "The delay can increase importer exposure.",
+          next_step: "Compare the signal with a primary port source.",
+        }],
+        risks: [{
+          text: "The delay may increase importer exposure.",
+          source_urls: ["https://example.com/source"],
+          evidence_status: "partially-supported",
+          why_it_matters: "The timing affects cost exposure.",
+          next_step: "Check the next port update before changing routing.",
+        }],
+        follow_up_questions: ["Which primary source confirms the timing?"],
+      },
+    };
+
+    const markup = renderToStaticMarkup(<ReportAccordion report={detailedReport} />);
+
+    expect(markup).toContain("Why it matters:");
+    expect(markup).toContain("Compare the signal with a primary port source.");
+    expect(markup).toContain("What this run tells us");
+    expect(markup).toContain("Check the next port update before changing routing.");
+    expect(markup).toContain("Which primary source confirms the timing?");
+    expect(markup).toContain("2/5");
   });
 
   it("blocks every state except succeeded with pass validation", () => {

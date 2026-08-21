@@ -34,6 +34,7 @@ from .contracts import (
     WeeklyBrief,
 )
 from .db import RepositoryProtocol
+from .progress import ProgressSink
 from .providers.errors import ProviderError
 from .source_catalog import load_source_catalog
 from .topics import default_topic_configs
@@ -45,6 +46,7 @@ from .validators import (
     normalize_url,
     url_policy_error,
     validate_claim_citations,
+    validate_report_sections,
     validate_source_dates,
     with_draft_prefix,
 )
@@ -219,6 +221,8 @@ class ResearchWorkflow:
         max_llm_calls: int = DEFAULT_MAX_LLM_CALLS,
         max_llm_input_chars: int = DEFAULT_MAX_LLM_INPUT_CHARS,
         max_run_seconds: int = DEFAULT_MAX_RUN_SECONDS,
+        discovery_query_limit: int | None = None,
+        progress: ProgressSink | None = None,
     ) -> None:
         self.repository = repository
         self.tavily = tavily
@@ -228,8 +232,16 @@ class ResearchWorkflow:
         self.max_llm_calls = max_llm_calls
         self.max_llm_input_chars = max_llm_input_chars
         self.max_run_seconds = max_run_seconds
+        if discovery_query_limit is not None and discovery_query_limit < 1:
+            raise ValueError("discovery query limit must be positive")
+        self.discovery_query_limit = discovery_query_limit
+        self.progress = progress
         self._llm_calls = 0
         self._llm_input_chars = 0
+
+    def _emit(self, event: str, message: str, **details: object) -> None:
+        if self.progress is not None:
+            self.progress.emit(event, message, **details)
 
     def _reserve_llm_call(self, input_chars: int) -> bool:
         if self._llm_calls >= self.max_llm_calls:
@@ -341,6 +353,29 @@ class ResearchWorkflow:
                     lane,
                     [item for item in receipts if isinstance(item, dict)],
                 )
+                self._emit(
+                    "persist",
+                    "Tool receipts saved",
+                    agent=agent_name,
+                    tool_calls=len(receipts),
+                    attempt=repository_attempt,
+                )
+            self._emit(
+                "persist",
+                "Agent step saved",
+                agent=agent_name,
+                status=status,
+                attempt=repository_attempt,
+                duration_ms=(
+                    call_duration if isinstance(call_duration, int) else duration_ms
+                ),
+            )
+            self._emit(
+                "checkpoint",
+                "Checkpoint boundary reached",
+                agent=agent_name,
+                enabled=self.checkpointer is not None,
+            )
 
     @staticmethod
     def _protect_seed_claims(
@@ -424,11 +459,27 @@ class ResearchWorkflow:
         self._llm_calls = 0
         self._llm_input_chars = 0
         self.repository.create_run(run_id, request)
+        self._emit(
+            "run",
+            "Research run started",
+            run_id=run_id,
+            topic_set=request.topic_set,
+            cadence=request.cadence.value,
+            as_of=request.as_of.isoformat(),
+            max_sources=request.max_sources,
+            checkpoint_enabled=self.checkpointer is not None,
+        )
         try:
             topic = self.topic_configs.get(request.topic_set)
             if topic is None:
                 raise ValueError(f"unknown topic set: {request.topic_set}")
             retained_sources, retained_distillations = self._retained_evidence(request)
+            self._emit(
+                "checkpoint",
+                "Loaded trailing evidence for resumable research",
+                source_count=len(retained_sources),
+                distillation_count=len(retained_distillations),
+            )
             graph = self._build_graph(self.checkpointer)
             final_state = await asyncio.wait_for(
                 graph.ainvoke(
@@ -461,6 +512,15 @@ class ResearchWorkflow:
                     else f"validation: {validation.status.value}"
                 )
             self.repository.update_run_status(run_id, status, error)
+            self._emit(
+                "finish" if status is RunStatus.SUCCEEDED else "error",
+                "Research run finished",
+                run_id=run_id,
+                status=status.value,
+                source_count=len(final_state.get("sources", [])),
+                validation=validation.status.value if validation else "missing",
+                error=error or "none",
+            )
             return RunResult(
                 run_id=run_id,
                 status=status,
@@ -504,6 +564,7 @@ class ResearchWorkflow:
             status_error = self._safe_update_run_status(run_id, RunStatus.FAILED, message)
             if status_error:
                 message = f"{message}; {status_error}"
+            self._emit("error", "Research run stopped", run_id=run_id, error=message)
             return RunResult(
                 run_id=run_id,
                 status=RunStatus.FAILED,
@@ -515,6 +576,7 @@ class ResearchWorkflow:
             status_error = self._safe_update_run_status(run_id, RunStatus.FAILED, message)
             if status_error:
                 message = f"{message}; {status_error}"
+            self._emit("error", "Research run stopped", run_id=run_id, error=message)
             return RunResult(
                 run_id=run_id,
                 status=RunStatus.FAILED,
@@ -526,6 +588,7 @@ class ResearchWorkflow:
             status_error = self._safe_update_run_status(run_id, RunStatus.FAILED, message)
             if status_error:
                 message = f"{message}; {status_error}"
+            self._emit("error", "Research run stopped", run_id=run_id, error=message)
             return RunResult(
                 run_id=run_id,
                 status=RunStatus.FAILED,
@@ -667,11 +730,14 @@ class ResearchWorkflow:
             configured_queries = list(dict.fromkeys([*regional_queries, *legacy_queries]))
             if not configured_queries:
                 raise ProviderError(f"{lane.name}: no configured query families")
+            if self.discovery_query_limit is not None:
+                configured_queries = configured_queries[: self.discovery_query_limit]
             lane_geographies = list(lane.geographies)
-            for pack_name in LANE_REGION_PACKS.get(lane.name, ()):
-                pack = topic.region_packs.get(pack_name)
-                if pack is not None:
-                    lane_geographies.extend([*pack.countries, *pack.ports])
+            if self.discovery_query_limit is None:
+                for pack_name in LANE_REGION_PACKS.get(lane.name, ()):
+                    pack = topic.region_packs.get(pack_name)
+                    if pack is not None:
+                        lane_geographies.extend([*pack.countries, *pack.ports])
             lane_geographies_tuple = tuple(dict.fromkeys(lane_geographies))
             lane_include_domains = list(
                 dict.fromkeys(
@@ -696,6 +762,13 @@ class ResearchWorkflow:
             )
             if not self._reserve_llm_call(discovery_input):
                 raise ProviderError("discovery: llm budget exceeded")
+            self._emit(
+                "discovery",
+                "Discovery agent querying configured lane",
+                lane=lane.name,
+                query_count=len(configured_queries),
+                geography_count=len(lane_geographies_tuple),
+            )
             result = await self.llm.discover_lane(
                 lane.name,
                 configured_queries,
@@ -742,6 +815,14 @@ class ResearchWorkflow:
                 **dict(result.metadata),
                 "packet": result.packet.model_dump(mode="json"),
             }
+            self._emit(
+                "discovery",
+                "Discovery agent returned evidence",
+                lane=lane.name,
+                source_count=len(sources),
+                extracted_count=len(content),
+                tool_calls=metadata.get("tool_calls", 0),
+            )
             if not sources:
                 return (
                     lane.name,
@@ -760,6 +841,12 @@ class ResearchWorkflow:
                 metadata,
             )
         except ProviderError as error:
+            self._emit(
+                "error",
+                "Discovery agent failed",
+                lane=lane.name,
+                error=str(error),
+            )
             raw_attempts = getattr(error, "attempts", [])
             if isinstance(raw_attempts, list):
                 metadata["attempts"] = [
@@ -787,6 +874,12 @@ class ResearchWorkflow:
         started_at = monotonic()
         request = state["request"]
         topic = state["topic"]
+        self._emit(
+            "discovery",
+            "Three bounded discovery agents started",
+            lanes=len(LANES),
+            max_sources=request.max_sources,
+        )
         lane_results = await asyncio.gather(
             *(self._discover_lane(lane, request, topic) for lane in LANES)
         )
@@ -844,6 +937,12 @@ class ResearchWorkflow:
         unique = deduplicate_sources(
             [self.repository.record_source(source) for source in unique]
         )[: request.max_sources]
+        self._emit(
+            "persist",
+            "Sources inserted into Neon",
+            source_count=len(unique),
+            lane_count=len(LANES),
+        )
         self._record_step(
             state["run_id"],
             "discovery",
@@ -944,6 +1043,11 @@ class ResearchWorkflow:
         started_at = monotonic()
         sources = state.get("sources", [])
         extractable_sources = [source for source in sources if not source.is_seed]
+        self._emit(
+            "extract",
+            "Received extracted source content",
+            source_count=len(extractable_sources),
+        )
         content = dict(state.get("content", {}))
         missing = [
             source
@@ -978,6 +1082,12 @@ class ResearchWorkflow:
                             )
                         )
                     )
+            self._emit(
+                "persist",
+                "Source snapshots and hashes saved to Neon",
+                source_count=len(updated_sources),
+                hash_count=len(source_hashes),
+            )
             self._record_step(
                 state["run_id"],
                 "extraction",
@@ -1076,6 +1186,12 @@ class ResearchWorkflow:
         started_at = monotonic()
         all_sources = state.get("sources", [])
         sources = [source for source in all_sources if not source.is_seed]
+        self._emit(
+            "distill",
+            "Distilling extracted sources",
+            source_count=len(sources),
+            concurrency=MAX_PARALLEL_DISTILLATIONS,
+        )
         content = dict(state.get("content", {}))
         missing_bodies = [
             normalize_url(source.url)
@@ -1161,6 +1277,12 @@ class ResearchWorkflow:
                 )
             self.repository.record_distillation(state["run_id"], distillation)
             self.repository.record_claims(state["run_id"], distillation.claims)
+        self._emit(
+            "persist",
+            "Distillations and claims saved to Neon",
+            distillation_count=len(distillations),
+            claim_count=len(claims),
+        )
         step_status = "failed" if errors else "succeeded"
         self._record_step(
             state["run_id"],
@@ -1200,6 +1322,11 @@ class ResearchWorkflow:
             for claim in item.claims
         ]
         claims = self._merge_claims([*state.get("claims", []), *retained_claims])
+        self._emit(
+            "critic",
+            "Critic reconciler reviewing claims",
+            claim_count=len(claims),
+        )
         source_urls = {
             normalize_url(url)
             for source in self._merge_sources(
@@ -1245,6 +1372,12 @@ class ResearchWorkflow:
             )
         ]
         self.repository.record_claims(state["run_id"], revised)
+        self._emit(
+            "persist",
+            "Critic findings saved to Neon",
+            claim_count=len(revised),
+            mode=mode,
+        )
         self._record_step(
             state["run_id"],
             "critic",
@@ -1277,14 +1410,7 @@ class ResearchWorkflow:
         claims: list[ClaimDraft],
         known_urls: set[str],
     ) -> WeeklyBrief:
-        fallback = [
-            ReportBullet(
-                text=claim.claim,
-                source_urls=[normalize_url(url) for url in claim.source_urls],
-                evidence_status=claim.evidence_status,
-            )
-            for claim in claims[:3]
-        ]
+        del claims
         updates: dict[str, object] = {}
         for section in (
             "executive_bullets",
@@ -1294,8 +1420,6 @@ class ResearchWorkflow:
             "uncertainties",
         ):
             bullets = list(getattr(brief, section))
-            if not bullets and section in {"executive_bullets", "developments"}:
-                bullets = fallback
             normalized: list[ReportBullet] = []
             for bullet in bullets:
                 urls = [normalize_url(url) for url in bullet.source_urls]
@@ -1303,7 +1427,14 @@ class ResearchWorkflow:
                     raise ValueError(f"{section} contains an uncited or unknown URL")
                 normalized.append(bullet.model_copy(update={"source_urls": urls}))
             updates[section] = normalized
-        return brief.model_copy(update=updates)
+        normalized_brief = brief.model_copy(update=updates)
+        section_issues = validate_report_sections(normalized_brief, known_urls)
+        if section_issues:
+            raise ValueError(
+                "report output is incomplete or insufficiently evidenced: "
+                + "; ".join(section_issues)
+            )
+        return normalized_brief
 
     async def _synthesize(self, state: GraphState) -> dict[str, object]:
         started_at = monotonic()
@@ -1321,6 +1452,12 @@ class ResearchWorkflow:
                 ],
             ]
         )
+        self._emit(
+            "synthesis",
+            "Synthesizing cited report",
+            distillation_count=len(distillations),
+            claim_count=len(claims),
+        )
         source_urls = {
             normalize_url(source.url)
             for source in self._merge_sources(
@@ -1328,9 +1465,7 @@ class ResearchWorkflow:
             )
         }
         validate_claim_citations(claims, source_urls, request.as_of)
-        known_urls = {
-            normalize_url(url) for claim in claims for url in claim.source_urls
-        }
+        known_urls = set(source_urls)
         source_by_url = {
             normalize_url(source.url): source
             for source in self._merge_sources(
@@ -1384,9 +1519,7 @@ class ResearchWorkflow:
                     prompt_version=prompt_version,
                 )
                 synthesis_call = self._llm_metadata()
-                brief = self._validate_report_bullets(brief, claims, {
-                    normalize_url(url) for url in known_urls
-                })
+                brief = self._validate_report_bullets(brief, claims, source_urls)
                 brief = brief.model_copy(
                     update={
                         "summary": with_draft_prefix(brief.summary),
@@ -1397,6 +1530,13 @@ class ResearchWorkflow:
                     }
                 )
                 self.repository.record_brief(brief)
+                self._emit(
+                    "output",
+                    "Draft brief saved to Neon",
+                    run_id=state["run_id"],
+                    source_count=len(known_urls),
+                    claim_count=len(claims),
+                )
             except (ProviderError, ValueError) as error:
                 synthesis_call = self._llm_metadata()
                 synthesis_error = f"synthesis: {error}"
@@ -1431,6 +1571,11 @@ class ResearchWorkflow:
     async def _validate(self, state: GraphState) -> dict[str, ValidationReport]:
         started_at = monotonic()
         request = state["request"]
+        self._emit(
+            "validate",
+            "Running deterministic validation",
+            run_id=state["run_id"],
+        )
         brief = state.get("brief")
         model_id = (
             brief.model_id
@@ -1504,8 +1649,17 @@ class ResearchWorkflow:
                 if request.validation_profile in {"full", "global-canary"}
                 else set()
             ),
+            brief=brief,
         )
         self.repository.record_validation(report)
+        self._emit(
+            "validate",
+            "Validation result saved to Neon",
+            status=report.status.value,
+            citation_coverage=report.citation_coverage,
+            source_count=report.unique_source_count,
+            claim_count=report.claim_count,
+        )
         validation_error = (
             None
             if report.status is ValidationStatus.PASS

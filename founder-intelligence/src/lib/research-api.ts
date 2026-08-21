@@ -12,6 +12,8 @@ export interface ReportBullet {
   text: string;
   source_urls: string[];
   evidence_status: EvidenceStatus;
+  why_it_matters?: string;
+  next_step?: string;
 }
 
 export interface WeeklyBrief {
@@ -124,6 +126,7 @@ export interface ToolCallReceipt {
   latency_ms?: number | null;
   status: string;
   error_code?: string | null;
+  created_at?: string | null;
 }
 
 export interface ValidationReport {
@@ -157,9 +160,11 @@ export interface AgentStep {
   required_tools?: string[];
   requested_model?: string | null;
   resolved_model?: string | null;
+  fallback_reason?: string | null;
   input_tokens?: number | null;
   output_tokens?: number | null;
   total_tokens?: number | null;
+  created_at?: string | null;
 }
 
 export interface ReportPayload {
@@ -171,6 +176,9 @@ export interface ReportPayload {
     error: string | null;
     neon_branch_id: string | null;
     migration_version: string | null;
+    archived?: boolean;
+    archived_at?: string | null;
+    archive_reason?: string | null;
   } | null;
   validation: ValidationReport | null;
   lane_coverage: string[];
@@ -219,6 +227,9 @@ export interface WeeklyReportSummary {
   lane_coverage: string[];
   models: string[];
   as_of: string;
+  archived?: boolean;
+  archived_at?: string | null;
+  archive_reason?: string | null;
 }
 
 export interface SourceExplorerItem {
@@ -347,7 +358,9 @@ function isPrimitive(value: unknown): boolean {
 function isReportBullet(value: unknown): value is ReportBullet {
   return isRecord(value)
     && hasStrings(value, ["text", "evidence_status"])
-    && isStringArray(value.source_urls);
+    && isStringArray(value.source_urls)
+    && isOptional(value, "why_it_matters", isString)
+    && isOptional(value, "next_step", isString);
 }
 
 function isWeeklyBrief(value: unknown): value is WeeklyBrief {
@@ -382,7 +395,10 @@ function isReportRun(value: unknown): boolean {
     && hasStrings(value, ["run_id", "status", "as_of"])
     && isNullableString(value.error)
     && isNullableString(value.neon_branch_id)
-    && isNullableString(value.migration_version);
+    && isNullableString(value.migration_version)
+    && isOptional(value, "archived", (candidate) => typeof candidate === "boolean")
+    && isOptional(value, "archived_at", isNullableString)
+    && isOptional(value, "archive_reason", isNullableString);
 }
 
 function isValidationCheck(value: unknown): boolean {
@@ -417,9 +433,11 @@ function isAgentStep(value: unknown): value is AgentStep {
     && isOptional(value, "required_tools", isStringArray)
     && isOptional(value, "requested_model", isNullableString)
     && isOptional(value, "resolved_model", isNullableString)
+    && isOptional(value, "fallback_reason", isNullableString)
     && isOptional(value, "input_tokens", isNullableNumber)
     && isOptional(value, "output_tokens", isNullableNumber)
-    && isOptional(value, "total_tokens", isNullableNumber);
+    && isOptional(value, "total_tokens", isNullableNumber)
+    && isOptional(value, "created_at", isNullableString);
 }
 
 function isSafeArgs(value: unknown): boolean {
@@ -440,7 +458,8 @@ function isToolCall(value: unknown): value is ToolCallReceipt {
     && isOptional(value, "result_hash", isNullableString)
     && isOptional(value, "result_count", isNullableNumber)
     && isOptional(value, "latency_ms", isNullableNumber)
-    && isOptional(value, "error_code", isNullableString);
+    && isOptional(value, "error_code", isNullableString)
+    && isOptional(value, "created_at", isNullableString);
 }
 
 function isResearchSource(value: unknown): value is ResearchSource {
@@ -563,7 +582,10 @@ function isWeeklyReportSummary(value: unknown): value is WeeklyReportSummary {
     && isStringArray(value.regions)
     && isStringArray(value.languages)
     && isStringArray(value.lane_coverage)
-    && isStringArray(value.models);
+    && isStringArray(value.models)
+    && isOptional(value, "archived", (candidate) => typeof candidate === "boolean")
+    && isOptional(value, "archived_at", isNullableString)
+    && isOptional(value, "archive_reason", isNullableString);
 }
 
 function isReportForRun(value: unknown, runId: string): value is ReportPayload {
@@ -677,6 +699,7 @@ async function getJson<T>(path: string, parse: JsonParser<T>): Promise<ResearchR
 
 export interface ReportListFilters {
   status?: "all" | "ready" | "draft" | "partial" | "failed";
+  archive_scope?: "active" | "archived" | "all";
   limit?: number;
   offset?: number;
 }
@@ -688,6 +711,7 @@ function reportListPath(path: string, filters: ReportListFilters = {}): string {
   if (filters.status === "partial" || filters.status === "failed") {
     params.set("run_status", filters.status);
   }
+  if (filters.archive_scope) params.set("archive_scope", filters.archive_scope);
   if (filters.limit !== undefined) params.set("limit", String(filters.limit));
   if (filters.offset !== undefined) params.set("offset", String(filters.offset));
   const suffix = params.toString() ? `?${params.toString()}` : "";
@@ -706,9 +730,13 @@ export function getDailyReports(
   return getJson(reportListPath("/api/reports/daily", filters), (value) => isWeeklyResponse(value) ? value : null);
 }
 
-export function getWeeklyReport(runId: string): Promise<ResearchResponse<ReportPayload>> {
+export function getWeeklyReport(
+  runId: string,
+  archiveScope: "active" | "archived" | "all" = "active",
+): Promise<ResearchResponse<ReportPayload>> {
+  const query = archiveScope === "active" ? "" : `?archive_scope=${archiveScope}`;
   return getJson(
-    `/api/reports/weekly/${encodeURIComponent(runId)}`,
+    `/api/reports/weekly/${encodeURIComponent(runId)}${query}`,
     (value) => isReportForRun(value, runId) ? value : null,
   );
 }

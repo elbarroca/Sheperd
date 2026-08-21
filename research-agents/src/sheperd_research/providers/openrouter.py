@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from collections.abc import Sequence
+import math
+from collections.abc import Mapping, Sequence
 from contextvars import ContextVar
 from datetime import datetime
 from time import monotonic
@@ -29,6 +30,7 @@ from ..contracts import (
     TranslationStatus,
     WeeklyBrief,
 )
+from ..progress import ProgressSink
 from ..settings import (
     STRICT_OPENROUTER_MODEL,
     free_openrouter_policy_error,
@@ -163,6 +165,7 @@ class OpenRouterProvider:
         timeout_seconds: int = OPENROUTER_TIMEOUT_SECONDS,
         max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS,
         allow_free_fallbacks: bool = False,
+        progress: ProgressSink | None = None,
     ) -> None:
         if not api_key.strip():
             raise ValueError("OpenRouter API key is required")
@@ -221,6 +224,7 @@ class OpenRouterProvider:
         self.capability_report = capability_report
         self.timeout_seconds = timeout_seconds
         self.max_concurrent_requests = max_concurrent_requests
+        self._progress = progress
         self._rate_limit_seen = False
         self._agent_semaphore: asyncio.Semaphore | None = None
         self._serial_request_lock: asyncio.Lock | None = None
@@ -351,6 +355,66 @@ class OpenRouterProvider:
         if any(code in message for code in ("408", "409", "500", "502", "503", "504")):
             return "provider_unavailable"
         return "provider_error"
+
+    @staticmethod
+    def _error_observability(error: BaseException) -> dict[str, object]:
+        request_id: str | None = None
+        retry_after_seconds: int | float | None = None
+        status_code: int | None = None
+
+        def header(headers: object, *names: str) -> str | None:
+            if not isinstance(headers, Mapping):
+                return None
+            lowered = {
+                str(key).lower(): value
+                for key, value in headers.items()
+            }
+            for name in names:
+                value = lowered.get(name.lower())
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            return None
+
+        for item in OpenRouterProvider._error_chain(error):
+            if request_id is None:
+                for attribute in ("request_id", "requestId"):
+                    value = getattr(item, attribute, None)
+                    if isinstance(value, str) and value.strip():
+                        request_id = value.strip()
+                        break
+            response = getattr(item, "response", None)
+            observed_status = getattr(item, "status_code", None)
+            if not isinstance(observed_status, int) and response is not None:
+                observed_status = getattr(response, "status_code", None)
+            if status_code is None and isinstance(observed_status, int):
+                status_code = observed_status
+            headers = getattr(response, "headers", None)
+            if headers is None:
+                headers = getattr(item, "headers", None)
+            if request_id is None:
+                request_id = header(
+                    headers,
+                    "x-request-id",
+                    "request-id",
+                    "openrouter-request-id",
+                )
+            if retry_after_seconds is None:
+                raw_retry_after = header(headers, "retry-after")
+                if raw_retry_after is not None:
+                    try:
+                        parsed = float(raw_retry_after)
+                    except ValueError:
+                        parsed = None
+                    if parsed is not None and math.isfinite(parsed) and parsed >= 0:
+                        retry_after_seconds = (
+                            int(parsed) if parsed.is_integer() else parsed
+                        )
+
+        return {
+            "request_id": request_id,
+            "retry_after_seconds": retry_after_seconds,
+            "status_code": status_code,
+        }
 
     @classmethod
     def _should_retry(cls, error: BaseException, *, model_name: str, attempt: int) -> bool:
@@ -522,6 +586,32 @@ class OpenRouterProvider:
             history.append(recorded)
         if attempt_sink is not None:
             attempt_sink.append(recorded)
+        progress = getattr(self, "_progress", None)
+        if progress is not None:
+            fallback_reason = recorded.get("fallback_reason")
+            event = (
+                "route"
+                if fallback_reason
+                else "error"
+                if recorded.get("error_code")
+                else "agent"
+            )
+            progress.emit(
+                event,
+                "OpenRouter model reroute"
+                if fallback_reason
+                else "OpenRouter agent attempt",
+                operation=recorded.get("operation", "unknown"),
+                model=recorded.get("requested_model", "unknown"),
+                resolved_model=recorded.get("resolved_model", "unknown"),
+                attempt=recorded.get("attempt", "unknown"),
+                status="failed" if recorded.get("error_code") else "succeeded",
+                tool_calls=recorded.get("tool_calls", 0),
+                latency_ms=recorded.get("latency_ms", "unknown"),
+                error=recorded.get("error_code") or "none",
+                request_id=recorded.get("request_id"),
+                retry_after_seconds=recorded.get("retry_after_seconds"),
+            )
 
     async def _invoke_agent_request(
         self,
@@ -790,6 +880,7 @@ class OpenRouterProvider:
         required_tools: Sequence[str] = (),
         attempt_sink: list[dict[str, object]] | None = None,
         tool_latency_by_input: dict[str, int] | None = None,
+        tool_provider_metadata_by_input: dict[str, dict[str, object]] | None = None,
         tool_failure_sink: list[dict[str, object]] | None = None,
     ) -> OutputT:
         last_error: BaseException | None = None
@@ -802,6 +893,16 @@ class OpenRouterProvider:
                 started_at = monotonic()
                 tool_receipts: list[dict[str, object]] = []
                 try:
+                    progress = getattr(self, "_progress", None)
+                    if progress is not None:
+                        progress.emit(
+                            "agent",
+                            "LangChain agent started",
+                            agent=AGENT_NAMES.get(operation, operation),
+                            model=model_name,
+                            attempt=attempt,
+                            tool_count=len(tools),
+                        )
                     strategy = ToolStrategy(schema, handle_errors=False)
                     agent = create_agent(
                         model=self._model_for(model_name),
@@ -850,6 +951,16 @@ class OpenRouterProvider:
                             input_hash = receipt.get("input_hash")
                             if isinstance(input_hash, str) and input_hash in tool_latency_by_input:
                                 receipt["latency_ms"] = tool_latency_by_input[input_hash]
+                    if tool_provider_metadata_by_input is not None:
+                        for receipt in tool_receipts:
+                            input_hash = receipt.get("input_hash")
+                            metadata = (
+                                tool_provider_metadata_by_input.get(input_hash)
+                                if isinstance(input_hash, str)
+                                else None
+                            )
+                            if isinstance(metadata, dict):
+                                receipt.update(metadata)
                     called_tools = {
                         str(receipt["tool_name"])
                         for receipt in tool_receipts
@@ -930,6 +1041,7 @@ class OpenRouterProvider:
                             self, "capability_manifest_hash", None
                         ),
                     }
+                    metadata.update(self._error_observability(error))
                     self._record_attempt(metadata, attempt_sink)
                     if error_code == "rate_limit":
                         self._rate_limit_seen = True
@@ -966,6 +1078,7 @@ class OpenRouterProvider:
         required_tools: Sequence[str] = (),
         attempt_sink: list[dict[str, object]] | None = None,
         tool_latency_by_input: dict[str, int] | None = None,
+        tool_provider_metadata_by_input: dict[str, dict[str, object]] | None = None,
         tool_failure_sink: list[dict[str, object]] | None = None,
     ) -> OutputT:
         return await self._invoke_agent(
@@ -977,6 +1090,7 @@ class OpenRouterProvider:
             required_tools=required_tools,
             attempt_sink=attempt_sink,
             tool_latency_by_input=tool_latency_by_input,
+            tool_provider_metadata_by_input=tool_provider_metadata_by_input,
             tool_failure_sink=tool_failure_sink,
         )
 
@@ -1000,6 +1114,7 @@ class OpenRouterProvider:
         tool_errors: list[str] = []
         filtered_source_rejections: list[str] = []
         tool_latency_by_input: dict[str, int] = {}
+        tool_provider_metadata_by_input: dict[str, dict[str, object]] = {}
         tool_failure_receipts: list[dict[str, object]] = []
         attempt_sink: list[dict[str, object]] = []
         tool_calls = 0
@@ -1024,12 +1139,12 @@ class OpenRouterProvider:
             url_count: int,
             latency_ms: int,
             error: BaseException,
+            provider_metadata: dict[str, object] | None = None,
         ) -> None:
             error_code = getattr(error, "error_code", None)
             if not isinstance(error_code, str):
                 error_code = self._error_code(error)
-            tool_failure_receipts.append(
-                {
+            receipt: dict[str, object] = {
                     "call_id": f"provider-failure-{len(tool_failure_receipts) + 1}",
                     "call_index": len(tool_failure_receipts),
                     "tool_name": tool_name,
@@ -1041,7 +1156,20 @@ class OpenRouterProvider:
                     "latency_ms": latency_ms,
                     "error_code": error_code,
                 }
-            )
+            if provider_metadata:
+                receipt.update(provider_metadata)
+            tool_failure_receipts.append(receipt)
+
+        def provider_key_metadata() -> dict[str, object]:
+            raw = getattr(tavily, "last_call_metadata", {})
+            if not isinstance(raw, dict):
+                return {}
+            metadata: dict[str, object] = {}
+            for key in ("key_slot", "key_count"):
+                value = raw.get(key)
+                if isinstance(value, int) and not isinstance(value, bool):
+                    metadata[f"provider_key_{key.removeprefix('key_')}"] = value
+            return metadata
 
         async def run_search(query: str) -> str:
             input_hash = self._tool_input_hash(query, ())
@@ -1095,8 +1223,18 @@ class OpenRouterProvider:
             finally:
                 latency_ms = max(0, int((monotonic() - started) * 1000))
                 tool_latency_by_input[input_hash] = latency_ms
+                provider_metadata = provider_key_metadata()
+                if provider_metadata:
+                    tool_provider_metadata_by_input[input_hash] = provider_metadata
                 if failure is not None:
-                    record_tool_failure("tavily_search", input_hash, 0, latency_ms, failure)
+                    record_tool_failure(
+                        "tavily_search",
+                        input_hash,
+                        0,
+                        latency_ms,
+                        failure,
+                        provider_metadata,
+                    )
             for source in valid_sources:
                 if can_extract_url(source.url):
                     known_sources.setdefault(normalize_url(source.url), source)
@@ -1154,6 +1292,9 @@ class OpenRouterProvider:
             finally:
                 latency_ms = max(0, int((monotonic() - started) * 1000))
                 tool_latency_by_input[input_hash] = latency_ms
+                provider_metadata = provider_key_metadata()
+                if provider_metadata:
+                    tool_provider_metadata_by_input[input_hash] = provider_metadata
                 if failure is not None:
                     record_tool_failure(
                         "tavily_extract",
@@ -1161,6 +1302,7 @@ class OpenRouterProvider:
                         len(urls),
                         latency_ms,
                         failure,
+                        provider_metadata,
                     )
             captured_content.update(normalized_extracted)
             return json.dumps(
@@ -1212,6 +1354,7 @@ class OpenRouterProvider:
                 required_tools=("tavily_search", "tavily_extract"),
                 attempt_sink=attempt_sink,
                 tool_latency_by_input=tool_latency_by_input,
+                tool_provider_metadata_by_input=tool_provider_metadata_by_input,
                 tool_failure_sink=tool_failure_receipts,
             )
         except ProviderError as error:
@@ -1422,7 +1565,13 @@ class OpenRouterProvider:
             "opportunities, uncertainty, and follow-up questions. Separate facts "
             "from inference and limitations. Do not provide legal advice. Preserve "
             "source-linked signal IDs and never invent citations. Every factual "
-            "bullet must cite one or more supplied URLs. Return structured fields.\n\n"
+            "bullet must cite one or more supplied URLs. Return non-empty structured "
+            "fields for executive_bullets, developments, risks, opportunities, "
+            "uncertainties, and follow_up_questions. If the supplied evidence does "
+            "not support a material item, include an explicit evidence-backed absence "
+            "statement with a supplied citation instead of inventing an item or leaving "
+            "the section empty. Every risks, opportunities, and uncertainties bullet "
+            "must include non-empty why_it_matters and next_step fields.\n\n"
             f"RUN ID: {run_id}\nEVIDENCE:\n{evidence[:30000]}"
         )
         try:

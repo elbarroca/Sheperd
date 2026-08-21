@@ -11,6 +11,7 @@ from .contracts import (
     ValidationCheck,
     ValidationReport,
     ValidationStatus,
+    WeeklyBrief,
     is_free_model,
 )
 from .validators import (
@@ -18,6 +19,7 @@ from .validators import (
     content_hash,
     normalize_url,
     validate_evidence_quality,
+    validate_report_sections,
 )
 
 MIN_SOURCE_COUNT = 10
@@ -67,6 +69,7 @@ def build_validation_report(
     distillations: list[ArticleDistillation] | None = None,
     required_geographies: set[str] | None = None,
     required_regions: set[str] | None = None,
+    brief: WeeklyBrief | None = None,
 ) -> ValidationReport:
     quality_sources = source_quality_sources(sources)
     enriched_sources = [
@@ -285,6 +288,20 @@ def build_validation_report(
                 sum(1 for passed in required_tool_lanes.values() if passed),
                 len(required_tool_lanes),
                 "every discovery lane must call Search and Extract",
+            )
+        )
+    if brief is not None:
+        report_section_issues = validate_report_sections(
+            brief,
+            {normalize_url(source.url) for source in sources},
+        )
+        checks.append(
+            _check(
+                "report_sections",
+                not report_section_issues,
+                ";".join(report_section_issues) or "complete",
+                "complete",
+                "all report sections must be populated, cited, and structured",
             )
         )
     lane_partial = any(status in {"partial", "blocked"} for status in lane_statuses.values())

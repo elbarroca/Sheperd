@@ -33,7 +33,12 @@ def _bullet_lines(values: Iterable[ReportBullet]) -> str:
     rows = []
     for item in values:
         citations = " ".join(f"[{url}]({url})" for url in item.source_urls)
-        rows.append(f"- {item.text}  \n  Evidence: {item.evidence_status.value}. {citations}")
+        details = [f"Evidence: {item.evidence_status.value}. {citations}"]
+        if item.why_it_matters:
+            details.append(f"Why it matters: {item.why_it_matters}")
+        if item.next_step:
+            details.append(f"Next step: {item.next_step}")
+        rows.append(f"- {item.text}  \n  " + "\n  ".join(details))
     return "\n".join(rows) or "- None recorded."
 
 

@@ -190,6 +190,39 @@ def test_free_fallback_advances_after_primary_rate_limit(
     )
 
 
+def test_rate_limit_attempt_records_request_and_retry_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+
+    class Response:
+        status_code = 429
+        headers = {"x-request-id": "request-rate-limited", "retry-after": "4"}
+
+    class RateLimitedResponseError(RuntimeError):
+        status_code = 429
+        response = Response()
+
+    class RateLimitedAgent:
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            raise RateLimitedResponseError("too many requests")
+
+    monkeypatch.setattr(
+        openrouter_module,
+        "create_agent",
+        lambda *, model, **__: RateLimitedAgent(),
+    )
+
+    with pytest.raises(ProviderError, match="OpenRouter health failed"):
+        asyncio.run(provider.health_check())
+
+    attempt = provider.call_history[0]
+    assert attempt["request_id"] == "request-rate-limited"
+    assert attempt["retry_after_seconds"] == 4
+    assert attempt["status_code"] == 429
+
+
 def test_free_fallback_advances_after_tool_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -430,6 +463,7 @@ def test_discovery_requires_model_issued_tavily_tool_calls(
     class TavilyStub:
         searches = 0
         extractions = 0
+        last_call_metadata = {"key_slot": 2, "key_count": 2}
 
         async def search(self, query: str, **_: object) -> list[SourceCandidate]:
             self.searches += 1
@@ -535,6 +569,7 @@ def test_discovery_requires_model_issued_tavily_tool_calls(
     receipts = result.metadata["attempts"][0]["tool_call_receipts"]
     assert all("query" not in receipt for receipt in receipts)
     assert all("urls" not in receipt for receipt in receipts)
+    assert [receipt["provider_key_slot"] for receipt in receipts] == [2, 2]
 
 
 def test_discovery_persists_failed_tavily_tool_receipt(
@@ -1425,13 +1460,20 @@ def test_create_agent_names_all_six_workers(monkeypatch: pytest.MonkeyPatch) -> 
             return {source.url: "Public evidence fixture." for source in sources}
 
     names: list[str] = []
+    prompts: list[str] = []
 
     class Agent:
         def __init__(self, name: str, tools: list[BaseTool]) -> None:
             self.name = name
             self.tools = {tool.name: tool for tool in tools}
 
-        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+        async def ainvoke(self, payload: object, **__: object) -> dict[str, object]:
+            if isinstance(payload, dict):
+                messages = payload.get("messages")
+                if isinstance(messages, list) and messages:
+                    message = messages[0]
+                    if isinstance(message, dict) and isinstance(message.get("content"), str):
+                        prompts.append(message["content"])
             response = SimpleNamespace(
                 response_metadata={
                     "model_name": STRICT_OPENROUTER_MODEL,
@@ -1533,3 +1575,16 @@ def test_create_agent_names_all_six_workers(monkeypatch: pytest.MonkeyPatch) -> 
         "critic_agent",
         "weekly_synthesis_agent",
     ]
+    synthesis_prompt = prompts[-1]
+    for required_section in (
+        "executive_bullets",
+        "developments",
+        "risks",
+        "opportunities",
+        "uncertainties",
+        "follow_up_questions",
+    ):
+        assert required_section in synthesis_prompt
+    assert "evidence-backed absence" in synthesis_prompt
+    assert "why_it_matters" in synthesis_prompt
+    assert "next_step" in synthesis_prompt

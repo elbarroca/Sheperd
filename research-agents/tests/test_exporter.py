@@ -8,6 +8,7 @@ import pytest
 from sheperd_research.contracts import (
     ArticleDistillation,
     ClaimDraft,
+    ReportBullet,
     ResearchRunRequest,
     ReviewState,
     SourceCandidate,
@@ -113,6 +114,33 @@ def test_weekly_markdown_renderer_contains_full_evidence_sections() -> None:
         source_urls=[source.url],
         limitations=["One limitation."],
         review_state=ReviewState.DRAFT,
+        executive_bullets=[ReportBullet(text="Executive signal.", source_urls=[source.url])],
+        developments=[ReportBullet(text="Development.", source_urls=[source.url])],
+        risks=[
+            ReportBullet(
+                text="Risk.",
+                source_urls=[source.url],
+                why_it_matters="It may change the operating picture.",
+                next_step="Monitor the source.",
+            )
+        ],
+        opportunities=[
+            ReportBullet(
+                text="Opportunity.",
+                source_urls=[source.url],
+                why_it_matters="It may create an opening.",
+                next_step="Validate the signal.",
+            )
+        ],
+        uncertainties=[
+            ReportBullet(
+                text="Uncertainty.",
+                source_urls=[source.url],
+                why_it_matters="The evidence remains incomplete.",
+                next_step="Seek a confirming source.",
+            )
+        ],
+        follow_up_questions=["What should be monitored next?"],
     )
     markdown = render_weekly_markdown(
         brief,
@@ -148,6 +176,8 @@ def test_weekly_markdown_renderer_contains_full_evidence_sections() -> None:
     assert "## Article findings" in markdown
     assert "Resumen original." in markdown
     assert "Bounded excerpt." in markdown
+    assert "Why it matters: It may change the operating picture." in markdown
+    assert "Next step: Monitor the source." in markdown
     assert "hash-1" in markdown
     assert "prompt" not in markdown.lower()
     assert "SECRET RAW ARTICLE BODY" not in markdown

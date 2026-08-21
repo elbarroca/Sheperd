@@ -4,7 +4,7 @@ import json
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from psycopg import Connection, OperationalError
@@ -28,7 +28,9 @@ from .contracts import (
 )
 from .validators import content_hash, normalize_url
 
-MIGRATION_VERSION = "0010_multilingual_evidence_quality"
+MIGRATION_VERSION = "0011_archive_failed_runs"
+ArchiveScope = Literal["active", "archived", "all"]
+_ARCHIVE_SCOPES = frozenset({"active", "archived", "all"})
 _AUDIT_TEXT_LIMIT = 400
 _AUDIT_LIST_LIMIT = 100
 _AUDIT_SENSITIVE_MARKERS = (
@@ -143,14 +145,17 @@ _AUDIT_CALL_INT_FIELDS = frozenset(
         "output_tokens",
         "record_attempt",
         "reasoning_tokens",
+        "status_code",
         "tool_calls",
         "total_tokens",
     }
 )
+_AUDIT_CALL_FLOAT_FIELDS = frozenset({"retry_after_seconds"})
 _AUDIT_CALL_LIST_FIELDS = frozenset({"required_tools"})
 _AUDIT_CALL_FIELDS = (
     _AUDIT_CALL_TEXT_FIELDS
     | _AUDIT_CALL_INT_FIELDS
+    | _AUDIT_CALL_FLOAT_FIELDS
     | _AUDIT_CALL_LIST_FIELDS
     | {"tool_call_receipts"}
 )
@@ -158,7 +163,14 @@ _AUDIT_RECEIPT_TEXT_FIELDS = frozenset(
     {"call_id", "error_code", "input_hash", "result_hash", "status", "tool_name"}
 )
 _AUDIT_RECEIPT_INT_FIELDS = frozenset(
-    {"call_index", "latency_ms", "result_count", "url_count"}
+    {
+        "call_index",
+        "latency_ms",
+        "provider_key_count",
+        "provider_key_slot",
+        "result_count",
+        "url_count",
+    }
 )
 _AUDIT_RECEIPT_FIELDS = _AUDIT_RECEIPT_TEXT_FIELDS | _AUDIT_RECEIPT_INT_FIELDS
 
@@ -215,6 +227,20 @@ def _row_strings(value: object) -> list[str]:
     if not isinstance(value, (list, tuple)):
         return []
     return [item for item in value if isinstance(item, str)]
+
+
+def _archive_scope_clause(scope: str, column: str) -> str:
+    if scope not in _ARCHIVE_SCOPES:
+        raise ValueError("archive_scope must be active, archived, or all")
+    if scope == "active":
+        return f"{column} IS NULL"
+    if scope == "archived":
+        return f"{column} IS NOT NULL"
+    return "TRUE"
+
+
+def _is_archived(run: dict[str, object]) -> bool:
+    return run.get("archived_at") is not None
 
 
 def _safe_audit_string_list(value: object) -> list[str]:
@@ -296,6 +322,10 @@ def _redact_audit_call(value: object) -> dict[str, object]:
             safe_text = _safe_audit_url(raw) if key == "source_url" else _safe_audit_text(raw)
             if safe_text is not None:
                 call[key] = safe_text
+        elif key in _AUDIT_CALL_FLOAT_FIELDS:
+            safe_float = _safe_audit_float(raw)
+            if safe_float is not None:
+                call[key] = safe_float
         else:
             safe_int = _safe_audit_int(raw)
             if safe_int is not None:
@@ -386,6 +416,10 @@ def _sanitized_tool_args(receipt: dict[str, object]) -> dict[str, object]:
         urls = receipt.get("urls")
     if "url_count" not in sanitized:
         sanitized["url_count"] = len(_safe_audit_urls(urls))
+    for key in ("provider_key_slot", "provider_key_count"):
+        value = args.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            sanitized[key] = max(0, value)
     return sanitized
 
 
@@ -629,6 +663,7 @@ class RepositoryProtocol(Protocol):
         until: datetime | None = None,
         limit: int = 20,
         offset: int = 0,
+        archive_scope: ArchiveScope = "active",
     ) -> list[WeeklyBrief]: ...
 
     def list_brief_summaries(
@@ -643,6 +678,7 @@ class RepositoryProtocol(Protocol):
         offset: int = 0,
         run_status: RunStatus | str | None = None,
         ready_only: bool = False,
+        archive_scope: ArchiveScope = "active",
     ) -> list[dict[str, object]]: ...
 
     def count_brief_summaries(
@@ -654,6 +690,7 @@ class RepositoryProtocol(Protocol):
         until: datetime | None = None,
         run_status: RunStatus | str | None = None,
         ready_only: bool = False,
+        archive_scope: ArchiveScope = "active",
     ) -> int: ...
 
     def list_regions(self) -> list[str]: ...
@@ -673,6 +710,8 @@ class RepositoryProtocol(Protocol):
     ) -> list[dict[str, object]]: ...
 
     def health(self) -> dict[str, object]: ...
+
+    def audit_summary(self) -> dict[str, object]: ...
 
 
 class InMemoryRepository:
@@ -705,6 +744,8 @@ class InMemoryRepository:
                 "neon_branch_id": None,
                 "migration_version": MIGRATION_VERSION,
                 "error": None,
+                "archived_at": None,
+                "archive_reason": None,
             },
         )
 
@@ -713,6 +754,9 @@ class InMemoryRepository:
     ) -> None:
         self.runs.setdefault(run_id, {})["status"] = status
         self.runs[run_id]["error"] = error
+        if status is RunStatus.FAILED and self.runs[run_id].get("archived_at") is None:
+            self.runs[run_id]["archived_at"] = datetime.now(UTC)
+            self.runs[run_id]["archive_reason"] = "run_failed"
 
     def record_step(
         self,
@@ -1108,6 +1152,11 @@ class InMemoryRepository:
 
     def record_validation(self, report: ValidationReport) -> None:
         self.validations.setdefault(report.run_id, report)
+        if report.status is ValidationStatus.FAILED:
+            run = self.runs.setdefault(report.run_id, {})
+            if run.get("archived_at") is None:
+                run["archived_at"] = datetime.now(UTC)
+                run["archive_reason"] = "validation_failed"
 
     def get_validation(self, run_id: str) -> ValidationReport | None:
         return self.validations.get(run_id)
@@ -1323,7 +1372,10 @@ class InMemoryRepository:
         offset: int = 0,
         run_status: RunStatus | str | None = None,
         ready_only: bool = False,
+        archive_scope: ArchiveScope = "active",
     ) -> list[WeeklyBrief]:
+        if archive_scope not in _ARCHIVE_SCOPES:
+            raise ValueError("archive_scope must be active, archived, or all")
         needle = query.lower().strip()
         expected_review = getattr(review_state, "value", review_state)
         expected_run_status = getattr(run_status, "value", run_status)
@@ -1360,6 +1412,11 @@ class InMemoryRepository:
             and (until is None or brief.covered_until <= until)
             and (expected_run_status is None or run_value(brief) == expected_run_status)
             and (not ready_only or is_ready(brief))
+            and (
+                archive_scope == "all"
+                or _is_archived(self.runs.get(brief.run_id, {}))
+                == (archive_scope == "archived")
+            )
         ]
         values.sort(
             key=lambda brief: (
@@ -1383,6 +1440,7 @@ class InMemoryRepository:
         offset: int = 0,
         run_status: RunStatus | str | None = None,
         ready_only: bool = False,
+        archive_scope: ArchiveScope = "active",
     ) -> list[dict[str, object]]:
         briefs = self.list_briefs(
             query,
@@ -1394,6 +1452,7 @@ class InMemoryRepository:
             offset=offset,
             run_status=run_status,
             ready_only=ready_only,
+            archive_scope=archive_scope,
         )
         return [
             {
@@ -1426,6 +1485,9 @@ class InMemoryRepository:
                     | {brief.model_id},
                 ),
                 "as_of": self.runs.get(brief.run_id, {}).get("as_of"),
+                "archived": _is_archived(self.runs.get(brief.run_id, {})),
+                "archived_at": self.runs.get(brief.run_id, {}).get("archived_at"),
+                "archive_reason": self.runs.get(brief.run_id, {}).get("archive_reason"),
                 # Test/local repository compatibility: production uses the SQL
                 # summary query and does not hydrate these detail fields.
                 "brief": brief,
@@ -1455,6 +1517,7 @@ class InMemoryRepository:
         until: datetime | None = None,
         run_status: RunStatus | str | None = None,
         ready_only: bool = False,
+        archive_scope: ArchiveScope = "active",
     ) -> int:
         return len(
             self.list_briefs(
@@ -1464,6 +1527,7 @@ class InMemoryRepository:
                 until=until,
                 run_status=run_status,
                 ready_only=ready_only,
+                archive_scope=archive_scope,
                 limit=1000,
             )
         )
@@ -1587,6 +1651,33 @@ class InMemoryRepository:
             "migration_version": MIGRATION_VERSION,
             "branch_id": None,
             "database": "in-memory",
+        }
+
+    def audit_summary(self) -> dict[str, object]:
+        runs = list(self.runs.values())
+        validations = list(self.validations.values())
+        return {
+            "reports": {
+                "active": sum(not _is_archived(run) for run in runs),
+                "archived": sum(_is_archived(run) for run in runs),
+                "succeeded": sum(run.get("status") == RunStatus.SUCCEEDED for run in runs),
+                "partial": sum(run.get("status") == RunStatus.PARTIAL for run in runs),
+                "failed": sum(run.get("status") == RunStatus.FAILED for run in runs),
+            },
+            "records": {
+                "sources": len(self.sources),
+                "distillations": len(self.distillations),
+                "claims": len(self.claims),
+                "signals": len(self.signal_events),
+            },
+            "validation": {
+                "checks": len(validations),
+                "pass": sum(item.status is ValidationStatus.PASS for item in validations),
+                "partial": sum(item.status is ValidationStatus.PARTIAL for item in validations),
+                "failed": sum(item.status is ValidationStatus.FAILED for item in validations),
+                "blocked": sum(item.status is ValidationStatus.BLOCKED for item in validations),
+            },
+            "migration_version": MIGRATION_VERSION,
         }
 
 
@@ -1760,13 +1851,21 @@ class PostgresRepository:
             UPDATE research_runs
             SET status = %s,
                 error = %s,
+                archived_at = CASE
+                    WHEN %s = 'failed' THEN COALESCE(archived_at, now())
+                    ELSE archived_at
+                END,
+                archive_reason = CASE
+                    WHEN %s = 'failed' THEN COALESCE(archive_reason, 'run_failed')
+                    ELSE archive_reason
+                END,
                 completed_at = CASE
                     WHEN %s IN ('succeeded', 'partial', 'failed') THEN now()
                     ELSE completed_at
                 END
             WHERE run_id = %s
             """,
-            (status, error, status, run_id),
+            (status, error, status, status, status, run_id),
         )
 
     def record_step(
@@ -1848,7 +1947,7 @@ class PostgresRepository:
                 extraction_error_code, normalized_title_en, normalized_snippet_en
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (normalized_url) DO UPDATE SET
                 title = EXCLUDED.title,
                 publisher = EXCLUDED.publisher,
@@ -2170,10 +2269,25 @@ class PostgresRepository:
             UPDATE research_runs
             SET citation_coverage = %s,
                 validation_status = %s,
-                validation_content_hash = %s
+                validation_content_hash = %s,
+                archived_at = CASE
+                    WHEN %s = 'failed' THEN COALESCE(archived_at, now())
+                    ELSE archived_at
+                END,
+                archive_reason = CASE
+                    WHEN %s = 'failed' THEN COALESCE(archive_reason, 'validation_failed')
+                    ELSE archive_reason
+                END
             WHERE run_id = %s
             """,
-            (report.citation_coverage, report.status, report.content_hash, report.run_id),
+            (
+                report.citation_coverage,
+                report.status,
+                report.content_hash,
+                report.status,
+                report.status,
+                report.run_id,
+            ),
         )
 
     def get_validation(self, run_id: str) -> ValidationReport | None:
@@ -2260,7 +2374,7 @@ class PostgresRepository:
         rows = self._execute(
             "SELECT run_id, topic_set, request, status, as_of, started_at, completed_at, error, "
             "model_id, prompt_version, citation_coverage, validation_status, neon_branch_id, "
-            "migration_version "
+            "migration_version, archived_at, archive_reason "
             "FROM research_runs WHERE run_id = %s",
             (run_id,),
         )
@@ -2282,6 +2396,8 @@ class PostgresRepository:
             "validation_status": row[11],
             "neon_branch_id": row[12],
             "migration_version": row[13],
+            "archived_at": row[14],
+            "archive_reason": row[15],
         }
 
     def get_run_sources(self, run_id: str) -> list[SourceCandidate]:
@@ -2865,7 +2981,7 @@ class PostgresRepository:
         clauses = ["TRUE"]
         params: list[object] = []
         if query.strip():
-            clauses.append("search_vector @@ plainto_tsquery('english', %s)")
+            clauses.append("wb.search_vector @@ plainto_tsquery('english', %s)")
             params.append(query.strip())
         if geography is not None:
             clauses.append("%s = ANY(geographies)")
@@ -3156,6 +3272,7 @@ class PostgresRepository:
         until: datetime | None = None,
         limit: int = 20,
         offset: int = 0,
+        archive_scope: ArchiveScope = "active",
     ) -> list[WeeklyBrief]:
         clauses = ["TRUE"]
         params: list[object] = []
@@ -3164,24 +3281,26 @@ class PostgresRepository:
             params.append(query.strip())
         review_value = getattr(review_state, "value", review_state)
         if review_value is not None:
-            clauses.append("review_state = %s")
+            clauses.append("wb.review_state = %s")
             params.append(review_value)
         if cadence is not None:
             clauses.append(
-                "run_id IN (SELECT run_id FROM research_runs WHERE request ->> 'cadence' = %s)"
+                "wb.run_id IN (SELECT run_id FROM research_runs WHERE request ->> 'cadence' = %s)"
             )
             params.append(cadence)
         if since is not None:
-            clauses.append("covered_until >= %s")
+            clauses.append("wb.covered_until >= %s")
             params.append(since)
         if until is not None:
-            clauses.append("covered_until <= %s")
+            clauses.append("wb.covered_until <= %s")
             params.append(until)
+        clauses.append(_archive_scope_clause(archive_scope, "rr.archived_at"))
         params.append(max(1, min(limit, 1000)))
         params.append(max(0, offset))
         rows = self._execute(
-            "SELECT brief_id FROM weekly_briefs "
-            f"WHERE {' AND '.join(clauses)} ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            "SELECT wb.brief_id FROM weekly_briefs wb "
+            "JOIN research_runs rr ON rr.run_id = wb.run_id "
+            f"WHERE {' AND '.join(clauses)} ORDER BY wb.created_at DESC LIMIT %s OFFSET %s",
             tuple(params),
         )
         return [
@@ -3202,6 +3321,7 @@ class PostgresRepository:
         offset: int = 0,
         run_status: RunStatus | str | None = None,
         ready_only: bool = False,
+        archive_scope: ArchiveScope = "active",
     ) -> list[dict[str, object]]:
         clauses = ["TRUE"]
         params: list[object] = []
@@ -3221,6 +3341,7 @@ class PostgresRepository:
         if until is not None:
             clauses.append("wb.covered_until <= %s")
             params.append(until)
+        clauses.append(_archive_scope_clause(archive_scope, "rr.archived_at"))
         run_status_value = getattr(run_status, "value", run_status)
         if run_status_value is not None:
             clauses.append("rr.status = %s")
@@ -3249,7 +3370,7 @@ class PostgresRepository:
                        array_agg(DISTINCT ad.model_id)
                        FILTER (WHERE ad.model_id IS NOT NULL), '{}'
                    ) || ARRAY[wb.model_id],
-                   rr.as_of
+                   rr.as_of, rr.archived_at, rr.archive_reason
             FROM weekly_briefs wb
             JOIN research_runs rr ON rr.run_id = wb.run_id
             LEFT JOIN validation_checks vc ON vc.run_id = wb.run_id
@@ -3261,7 +3382,8 @@ class PostgresRepository:
             WHERE """
             + " AND ".join(clauses)
             + " GROUP BY wb.run_id, wb.title, wb.covered_from, wb.covered_until, "
-            "wb.review_state, rr.status, vc.status, rr.as_of, wb.model_id "
+            "wb.review_state, rr.status, vc.status, rr.as_of, wb.model_id, "
+            "rr.archived_at, rr.archive_reason "
             "ORDER BY CASE WHEN rr.status = 'succeeded' "
             "AND COALESCE(vc.status, 'blocked') = 'pass' THEN 0 ELSE 1 END, "
             "wb.covered_until DESC, wb.run_id ASC LIMIT %s OFFSET %s",
@@ -3271,11 +3393,12 @@ class PostgresRepository:
             "run_id", "title", "covered_from", "covered_until", "review_state",
             "run_status", "validation_status", "source_count", "distillation_count",
             "claim_count", "signal_count", "regions", "languages", "lane_coverage",
-            "models", "as_of",
+            "models", "as_of", "archived_at", "archive_reason",
         )
         return [
             {
                 **dict(zip(fields, row, strict=True)),
+                "archived": row[16] is not None,
                 "regions": sorted(set(_row_strings(row[11]))),
                 "languages": sorted(set(_row_strings(row[12]))),
                 "lane_coverage": sorted(set(_row_strings(row[13]))),
@@ -3293,6 +3416,7 @@ class PostgresRepository:
         until: datetime | None = None,
         run_status: RunStatus | str | None = None,
         ready_only: bool = False,
+        archive_scope: ArchiveScope = "active",
     ) -> int:
         clauses = ["TRUE"]
         params: list[object] = []
@@ -3308,6 +3432,7 @@ class PostgresRepository:
         if until is not None:
             clauses.append("wb.covered_until <= %s")
             params.append(until)
+        clauses.append(_archive_scope_clause(archive_scope, "rr.archived_at"))
         run_status_value = getattr(run_status, "value", run_status)
         if run_status_value is not None:
             clauses.append("rr.status = %s")
@@ -3433,6 +3558,56 @@ class PostgresRepository:
             "migration_version": row[2] or MIGRATION_VERSION,
             "branch_id": self.neon_branch_id,
             "server_version": row[3],
+        }
+
+    def audit_summary(self) -> dict[str, object]:
+        rows = self._execute(
+            """
+            SELECT
+                count(*) FILTER (WHERE archived_at IS NULL),
+                count(*) FILTER (WHERE archived_at IS NOT NULL),
+                count(*) FILTER (WHERE status = 'succeeded'),
+                count(*) FILTER (WHERE status = 'partial'),
+                count(*) FILTER (WHERE status = 'failed'),
+                count(*) FILTER (WHERE validation_status = 'pass'),
+                count(*) FILTER (WHERE validation_status = 'partial'),
+                count(*) FILTER (WHERE validation_status = 'failed'),
+                count(*) FILTER (WHERE validation_status = 'blocked'),
+                (SELECT count(*) FROM sources),
+                (SELECT count(*) FROM article_distillations),
+                (SELECT count(*) FROM claims),
+                (SELECT count(*) FROM signal_events),
+                (SELECT count(*) FROM validation_checks)
+            FROM research_runs
+            """
+        )
+        if not rows:
+            raise RuntimeError("audit query returned no row")
+        row = rows[0]
+        health = self.health()
+        return {
+            "database": health,
+            "reports": {
+                "active": row[0],
+                "archived": row[1],
+                "succeeded": row[2],
+                "partial": row[3],
+                "failed": row[4],
+            },
+            "records": {
+                "sources": row[9],
+                "distillations": row[10],
+                "claims": row[11],
+                "signals": row[12],
+            },
+            "validation": {
+                "pass": row[5],
+                "partial": row[6],
+                "failed": row[7],
+                "blocked": row[8],
+                "checks": row[13],
+            },
+            "migration_version": health.get("migration_version"),
         }
 
 

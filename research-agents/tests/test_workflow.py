@@ -4,6 +4,7 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any, cast
 
+import pytest
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -13,6 +14,7 @@ from sheperd_research.contracts import (
     EvidenceStatus,
     LaneDiscoveryPacket,
     LaneDiscoveryResult,
+    ReportBullet,
     ResearchRunRequest,
     SourceCandidate,
     TopicConfig,
@@ -123,6 +125,19 @@ class FakeLLM:
         distillations: list[ArticleDistillation],
         **_: object,
     ) -> WeeklyBrief:
+        source_urls = [item.source_url for item in distillations]
+
+        def bullet(text: str, *, structured: bool = False) -> ReportBullet:
+            fields = (
+                {
+                    "why_it_matters": "This is relevant to the operating picture.",
+                    "next_step": "Monitor the cited evidence.",
+                }
+                if structured
+                else {}
+            )
+            return ReportBullet(text=text, source_urls=source_urls, **fields)
+
         return WeeklyBrief(
             run_id=run_id,
             title="Weekly port intelligence",
@@ -130,8 +145,14 @@ class FakeLLM:
             covered_until=datetime(2026, 8, 19, tzinfo=UTC),
             summary="A cited draft.",
             signal_event_ids=[],
-            source_urls=[item.source_url for item in distillations],
+            source_urls=source_urls,
             model_id="google/gemma-4-26b-a4b-it:free",
+            executive_bullets=[bullet("Executive signal.")],
+            developments=[bullet("Development signal.")],
+            risks=[bullet("Risk signal.", structured=True)],
+            opportunities=[bullet("Opportunity signal.", structured=True)],
+            uncertainties=[bullet("Uncertainty signal.", structured=True)],
+            follow_up_questions=["What should be monitored next?"],
         )
 
 
@@ -212,6 +233,7 @@ class OutOfScopeDiscoveryLLM(FakeLLM):
             max_results=max_results,
             tavily=tavily,
         )
+
         return result.model_copy(
             update={
                 "sources": [
@@ -258,6 +280,86 @@ class UnsafeModelSourceLLM(FakeLLM):
         )
 
 
+def test_validate_report_bullets_rejects_empty_sections_instead_of_fallback() -> None:
+    source = SourceCandidate(url="https://example.com/source")
+    brief = WeeklyBrief(
+        run_id="run-1",
+        title="Empty report",
+        covered_from=datetime(2026, 8, 12, tzinfo=UTC),
+        covered_until=datetime(2026, 8, 19, tzinfo=UTC),
+        summary="A report with empty sections.",
+    )
+    claim = ClaimDraft(claim="A cited claim.", source_urls=[source.url])
+
+    with pytest.raises(ValueError, match="report output is incomplete"):
+        ResearchWorkflow._validate_report_bullets(brief, [claim], {source.url})
+
+
+def test_synthesis_accepts_bullets_citing_known_sources_without_claims() -> None:
+    claimed_source = SourceCandidate(url="https://example.com/claimed")
+    source_without_claim = SourceCandidate(url="https://example.com/context")
+    claim = ClaimDraft(claim="A cited claim.", source_urls=[claimed_source.url])
+
+    class SourceContextLLM(FakeLLM):
+        async def synthesize(
+            self,
+            run_id: str,
+            distillations: list[ArticleDistillation],
+            **kwargs: object,
+        ) -> WeeklyBrief:
+            brief = await super().synthesize(run_id, distillations, **kwargs)
+            context_bullet = ReportBullet(
+                text="Context source informs the report.",
+                source_urls=[source_without_claim.url],
+                why_it_matters="It provides relevant context.",
+                next_step="Review it alongside the claim.",
+            )
+            return brief.model_copy(
+                update={
+                    "executive_bullets": [context_bullet],
+                    "developments": [context_bullet],
+                    "risks": [context_bullet],
+                    "opportunities": [context_bullet],
+                    "uncertainties": [context_bullet],
+                }
+            )
+
+    repository = InMemoryRepository()
+    workflow = ResearchWorkflow(repository, FakeTavily(), SourceContextLLM())
+    request = ResearchRunRequest(
+        topic_set="dnd-port",
+        max_sources=1,
+        validation_profile="canary",
+    )
+    result = asyncio.run(
+        workflow._synthesize(
+            {
+                "run_id": "run-1",
+                "request": request,
+                "topic": workflow.topic_configs[request.topic_set],
+                "sources": [claimed_source, source_without_claim],
+                "content": {},
+                "distillations": [
+                    ArticleDistillation(
+                        source_url=claimed_source.url,
+                        summary="Claimed source summary.",
+                        claims=[claim],
+                    ),
+                    ArticleDistillation(
+                        source_url=source_without_claim.url,
+                        summary="Context source summary.",
+                    ),
+                ],
+                "claims": [claim],
+            }
+        )
+    )
+
+    assert cast(WeeklyBrief, result["brief"]).executive_bullets[0].source_urls == [
+        source_without_claim.url
+    ]
+
+
 def test_workflow_records_a_cited_draft_and_is_idempotent() -> None:
     repository = InMemoryRepository()
     workflow = ResearchWorkflow(repository, FakeTavily(), FakeLLM())
@@ -280,6 +382,55 @@ def test_workflow_records_a_cited_draft_and_is_idempotent() -> None:
     assert repository.briefs[first.run_id].signal_event_ids
     assert repository.briefs[first.run_id].review_state.value == "draft"
     assert first.distillation_count == first.source_count
+
+
+def test_canary_discovery_query_limit_bounds_each_lane() -> None:
+    class RecordingLLM(FakeLLM):
+        def __init__(self) -> None:
+            self.queries_by_lane: dict[str, list[str]] = {}
+            self.geographies_by_lane: dict[str, tuple[str, ...]] = {}
+
+        async def discover_lane(
+            self,
+            lane: str,
+            queries: list[str],
+            geographies: tuple[str, ...],
+            **kwargs: Any,
+        ) -> LaneDiscoveryResult:
+            self.queries_by_lane[lane] = list(queries)
+            self.geographies_by_lane[lane] = geographies
+            return await super().discover_lane(lane, queries, geographies, **kwargs)
+
+    llm = RecordingLLM()
+    workflow = ResearchWorkflow(
+        InMemoryRepository(),
+        FakeTavily(),
+        llm,
+        discovery_query_limit=1,
+    )
+    request = ResearchRunRequest(
+        topic_set="dnd-port",
+        max_sources=3,
+        validation_profile="canary",
+    )
+
+    asyncio.run(
+        workflow._discover_lanes(
+            {
+                "run_id": "canary-query-limit",
+                "request": request,
+                "topic": workflow.topic_configs["dnd-port"],
+            }
+        )
+    )
+
+    assert set(llm.queries_by_lane) == {"regulatory", "us-ports", "mexico"}
+    assert all(len(queries) == 1 for queries in llm.queries_by_lane.values())
+    assert llm.geographies_by_lane == {
+        "regulatory": ("Regulatory", "United States"),
+        "us-ports": ("West Coast", "East Coast", "Gulf"),
+        "mexico": ("Mexico", "Europe"),
+    }
 
 
 def test_research_keeps_three_lanes_and_covers_mexico_and_europe() -> None:
@@ -765,3 +916,39 @@ def test_discovery_schedules_all_three_lanes_concurrently() -> None:
     )
 
     assert llm.maximum_in_flight == 3
+
+
+def test_workflow_reports_discovery_and_persistence_events() -> None:
+    events: list[tuple[str, str, dict[str, object]]] = []
+
+    class Progress:
+        def emit(self, event: str, message: str, **details: object) -> None:
+            events.append((event, message, details))
+
+    repository = InMemoryRepository()
+    workflow = ResearchWorkflow(
+        repository,
+        FakeTavily(),
+        FakeLLM(),
+        progress=Progress(),
+    )
+    request = ResearchRunRequest(
+        topic_set="dnd-port",
+        max_sources=1,
+        include_topic_seeds=False,
+        validation_profile="canary",
+    )
+
+    asyncio.run(
+        workflow._discover_lanes(
+            {
+                "run_id": "run-progress",
+                "request": request,
+                "topic": workflow.topic_configs[request.topic_set],
+            }
+        )
+    )
+
+    event_names = {event for event, _, _ in events}
+    assert "discovery" in event_names
+    assert "persist" in event_names

@@ -35,6 +35,16 @@ def test_settings_resolve_root_env_and_vault_paths(monkeypatch: pytest.MonkeyPat
     assert settings.resolved_obsidian_output_dir == root / "obsidian/06_Research/Agent Runs"
 
 
+def test_settings_exposes_ordered_tavily_key_slots() -> None:
+    settings = Settings(
+        tavily_api_key="primary-secret",
+        tavily_api_key_2="secondary-secret",
+    )
+
+    assert settings.tavily_api_keys == ("primary-secret", "secondary-secret")
+    assert settings.tavily_api_key_count == 2
+
+
 def test_research_request_rejects_paid_models() -> None:
     with pytest.raises(ValueError, match=STRICT_OPENROUTER_MODEL):
         ResearchRunRequest(topic_set="dnd-port", model="openrouter/some-paid-model")
@@ -212,3 +222,32 @@ def test_run_model_check_blocks_when_live_capabilities_fail(
 
     assert result["status"] == "blocked"
     assert result["message"] == "OpenRouter live capability manifest unavailable"
+
+
+def test_model_check_strict_gate_allows_explicit_free_fallbacks(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    observed: dict[str, object] = {}
+
+    class SettingsStub:
+        pass
+
+    async def fake_model_check(
+        settings: object, *, allow_free_fallbacks: bool
+    ) -> dict[str, object]:
+        observed["settings"] = settings
+        observed["allow_free_fallbacks"] = allow_free_fallbacks
+        return {"status": "pass"}
+
+    monkeypatch.setattr(cli_module, "Settings", SettingsStub)
+    monkeypatch.setattr(cli_module, "run_model_check", fake_model_check)
+
+    assert (
+        cli_module.main(
+            ["model-check", "--allow-free-fallbacks", "--strict", "--json"]
+        )
+        == 0
+    )
+    assert observed["allow_free_fallbacks"] is True
+    assert capsys.readouterr().out.strip() == '{"status": "pass"}'

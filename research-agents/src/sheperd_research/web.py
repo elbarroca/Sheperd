@@ -9,7 +9,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from .contracts import WeeklyBrief
-from .db import RepositoryProtocol
+from .db import ArchiveScope, RepositoryProtocol
 from .exporters.obsidian import render_weekly_markdown
 from .source_catalog import load_source_catalog
 
@@ -105,7 +105,21 @@ _PUBLIC_RUN_FIELDS = (
     "error",
     "neon_branch_id",
     "migration_version",
+    "archived_at",
+    "archive_reason",
 )
+
+
+def _archive_visible(
+    run: dict[str, object] | None,
+    archive_scope: ArchiveScope,
+) -> bool:
+    if archive_scope not in {"active", "archived", "all"}:
+        raise ValueError("archive_scope must be active, archived, or all")
+    if run is None:
+        return False
+    archived = run.get("archived_at") is not None
+    return archive_scope == "all" or archived == (archive_scope == "archived")
 
 
 def _public_steps(steps: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -137,6 +151,7 @@ def _public_run(run: dict[str, object] | None) -> dict[str, object] | None:
         topic_set = getattr(request, "topic_set", None)
     if isinstance(topic_set, str):
         public_run["topic_set"] = topic_set
+    public_run["archived"] = run.get("archived_at") is not None
     return public_run
 
 
@@ -144,18 +159,21 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
     app = FastAPI(title="SheperD Research", docs_url=None, redoc_url=None)
 
     def report_payload(
-        run_id: str, *, brief: WeeklyBrief | None = None
+        run_id: str,
+        *,
+        brief: WeeklyBrief | None = None,
+        archive_scope: ArchiveScope = "active",
     ) -> dict[str, object]:
         selected_brief = brief if brief is not None else repository.get_brief(run_id)
         run = repository.get_run(run_id)
+        if selected_brief is None or not _archive_visible(run, archive_scope):
+            raise KeyError(run_id)
         validation = repository.get_validation(run_id)
         steps = _public_steps(repository.get_run_steps(run_id))
         sources = repository.get_run_sources(run_id)
         distillations = repository.get_run_distillations(run_id)
         claims = repository.get_run_claims(run_id)
         signals = repository.get_run_signal_events(run_id)
-        if selected_brief is None:
-            raise KeyError(run_id)
         resolved_models = sorted(
             {
                 str(step["resolved_model"])
@@ -232,6 +250,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         ready: bool = False,
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0, le=10000),
+        archive_scope: ArchiveScope = Query(default="active", max_length=8),  # noqa: B008
     ) -> JSONResponse:
         reports = repository.list_brief_summaries(
             review_state=review,
@@ -241,6 +260,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
             offset=offset,
             run_status=run_status,
             ready_only=ready,
+            archive_scope=archive_scope,
         )
         total = repository.count_brief_summaries(
             review_state=review,
@@ -248,6 +268,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
             until=until,
             run_status=run_status,
             ready_only=ready,
+            archive_scope=archive_scope,
         )
         return JSONResponse(
             jsonable_encoder(
@@ -271,6 +292,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         ready: bool = False,
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0, le=10000),
+        archive_scope: ArchiveScope = Query(default="active", max_length=8),  # noqa: B008
     ) -> JSONResponse:
         reports = repository.list_brief_summaries(
             cadence="daily",
@@ -281,6 +303,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
             offset=offset,
             run_status=run_status,
             ready_only=ready,
+            archive_scope=archive_scope,
         )
         total = repository.count_brief_summaries(
             cadence="daily",
@@ -289,6 +312,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
             until=until,
             run_status=run_status,
             ready_only=ready,
+            archive_scope=archive_scope,
         )
         return JSONResponse(
             jsonable_encoder(
@@ -311,10 +335,25 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
             )
         )
 
+    @app.get("/api/audit", response_class=JSONResponse)
+    def api_audit() -> JSONResponse:
+        try:
+            return JSONResponse(
+                jsonable_encoder({"status": "pass", **repository.audit_summary()})
+            )
+        except Exception as error:
+            return JSONResponse(
+                {"status": "blocked", "error": error.__class__.__name__},
+                status_code=503,
+            )
+
     @app.get("/api/reports/weekly/{run_id}/markdown")
-    def api_weekly_markdown(run_id: str) -> Response:
+    def api_weekly_markdown(
+        run_id: str,
+        archive_scope: ArchiveScope = Query(default="active", max_length=8),  # noqa: B008
+    ) -> Response:
         brief = repository.get_brief(run_id)
-        if brief is None:
+        if brief is None or not _archive_visible(repository.get_run(run_id), archive_scope):
             return Response("weekly report not found", status_code=404)
         safe_name = "".join(
             character if character.isalnum() or character in "-_" else "_"
@@ -341,10 +380,13 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         )
 
     @app.get("/api/reports/weekly/{run_id}", response_class=JSONResponse)
-    def api_weekly_report(run_id: str) -> JSONResponse:
+    def api_weekly_report(
+        run_id: str,
+        archive_scope: ArchiveScope = Query(default="active", max_length=8),  # noqa: B008
+    ) -> JSONResponse:
         try:
-            payload = report_payload(run_id)
-        except KeyError:
+            payload = report_payload(run_id, archive_scope=archive_scope)
+        except (KeyError, ValueError):
             return JSONResponse({"error": "weekly report not found"}, status_code=404)
         return JSONResponse(jsonable_encoder(payload))
 

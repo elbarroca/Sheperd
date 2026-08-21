@@ -3,13 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import httpx
 
+from ..settings import is_free_openrouter_model
 from .errors import ProviderError
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
@@ -22,6 +23,65 @@ class ModelCapability:
     supports_tools: bool
     supports_structured_outputs: bool
     reason: str | None = None
+    name: str | None = None
+    context_length: int | None = None
+    agentic_index: float | None = None
+    intelligence_index: float | None = None
+    coding_index: float | None = None
+
+
+@dataclass(frozen=True)
+class FreeModelCatalog:
+    models: tuple[ModelCapability, ...]
+    eligible_models: tuple[str, ...]
+    recommended_cascade: tuple[str, ...]
+    skipped_models: tuple[dict[str, str], ...]
+    manifest_hash: str
+    source: str
+    checked_at: datetime
+
+    def as_dict(self) -> dict[str, object]:
+        eligible_ranks = {
+            model: index + 1
+            for index, model in enumerate(self.recommended_cascade)
+        }
+        return {
+            "total_free_models": len(self.models),
+            "eligible_agentic_models": len(self.eligible_models),
+            "eligible_models": list(self.eligible_models),
+            "recommended_cascade": list(self.recommended_cascade),
+            "models": [
+                {
+                    "model": item.model,
+                    "name": item.name,
+                    "free": item.free,
+                    "supports_tools": item.supports_tools,
+                    "supports_structured_outputs": item.supports_structured_outputs,
+                    "context_length": item.context_length,
+                    "agentic_index": item.agentic_index,
+                    "intelligence_index": item.intelligence_index,
+                    "coding_index": item.coding_index,
+                    "selection_rank": eligible_ranks.get(item.model),
+                    "status": "eligible" if item.model in self.eligible_models else "skipped",
+                    "reason": item.reason,
+                }
+                for item in self.models
+            ],
+            "skipped_models": [dict(item) for item in self.skipped_models],
+            "manifest_hash": self.manifest_hash,
+            "source": self.source,
+            "checked_at": self.checked_at.isoformat(),
+            "policy": {
+                "explicit_free_variant_required": True,
+                "require_tools": True,
+                "require_structured_outputs": True,
+                "provider_fallbacks": False,
+                "ranking_note": (
+                    "The cascade is a capability and benchmark heuristic; every model "
+                    "still requires a live agent-check before production use."
+                ),
+            },
+        }
 
 
 @dataclass(frozen=True)
@@ -93,7 +153,29 @@ def _capability_from_record(record: object, model: str) -> ModelCapability | Non
             "structured_outputs" in supported_parameters
             or "response_format" in supported_parameters
         ),
+        name=record.get("name") if isinstance(record.get("name"), str) else None,
+        context_length=(
+            int(record["context_length"])
+            if isinstance(record.get("context_length"), int)
+            else None
+        ),
+        agentic_index=_benchmark_metric(record, "agentic_index"),
+        intelligence_index=_benchmark_metric(record, "intelligence_index"),
+        coding_index=_benchmark_metric(record, "coding_index"),
     )
+
+
+def _benchmark_metric(record: dict[object, object], metric: str) -> float | None:
+    benchmarks = record.get("benchmarks")
+    if not isinstance(benchmarks, dict):
+        return None
+    artificial_analysis = benchmarks.get("artificial_analysis")
+    if not isinstance(artificial_analysis, dict):
+        return None
+    value = artificial_analysis.get(metric)
+    if isinstance(value, bool) or not isinstance(value, (float, int)):
+        return None
+    return float(value)
 
 
 def _manifest_hash(capabilities: list[ModelCapability]) -> str:
@@ -165,6 +247,103 @@ def _build_report(
         manifest_hash=_manifest_hash(capabilities),
         source=source,
         checked_at=datetime.now(UTC),
+    )
+
+
+def _catalog_order_key(item: ModelCapability) -> tuple[float, float, float, int, str]:
+    return (
+        item.agentic_index if item.agentic_index is not None else -1.0,
+        item.intelligence_index if item.intelligence_index is not None else -1.0,
+        item.coding_index if item.coding_index is not None else -1.0,
+        item.context_length or 0,
+        item.model,
+    )
+
+
+def _build_free_model_catalog(
+    records: Sequence[object],
+    *,
+    primary_model: str | None = None,
+    source: str,
+) -> FreeModelCatalog:
+    free_ids = sorted(
+        {
+            record["id"]
+            for record in records
+            if isinstance(record, dict)
+            and isinstance(record.get("id"), str)
+            and _free_pricing(record.get("pricing"))
+        }
+    )
+    report = _build_report(
+        tuple(free_ids),
+        records,
+        require_tools=True,
+        source=source,
+    )
+    models = tuple(
+        sorted(
+            [
+                replace(item, reason="not_explicit_free_variant")
+                if not is_free_openrouter_model(item.model)
+                else item
+                for item in report.capabilities
+            ],
+            key=lambda item: item.model,
+        )
+    )
+    eligible = tuple(
+        sorted(
+            (item.model for item in models if item.reason is None),
+            key=lambda model: _catalog_order_key(
+                next(item for item in models if item.model == model)
+            ),
+            reverse=True,
+        )
+    )
+    if primary_model in eligible:
+        recommended = (primary_model, *(model for model in eligible if model != primary_model))
+    else:
+        recommended = eligible
+    manifest_hash = hashlib.sha256(
+        json.dumps(
+            [
+                {
+                    "model": item.model,
+                    "free": item.free,
+                    "tools": item.supports_tools,
+                    "structured": item.supports_structured_outputs,
+                    "context_length": item.context_length,
+                    "agentic_index": item.agentic_index,
+                    "intelligence_index": item.intelligence_index,
+                    "coding_index": item.coding_index,
+                }
+                for item in models
+            ],
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    skipped_by_model = {
+        item["model"]: item["reason"] for item in report.skipped_models
+    }
+    skipped_by_model.update(
+        {
+            item.model: item.reason
+            for item in models
+            if item.reason is not None
+        }
+    )
+    return FreeModelCatalog(
+        models=models,
+        eligible_models=eligible,
+        recommended_cascade=recommended,
+        skipped_models=tuple(
+            {"model": model, "reason": reason}
+            for model, reason in sorted(skipped_by_model.items())
+        ),
+        manifest_hash=manifest_hash,
+        source=source,
+        checked_at=report.checked_at,
     )
 
 
@@ -309,3 +488,30 @@ async def resolve_capabilities(
         if cached is not None:
             return cached
         raise ProviderError("OpenRouter capability manifest unavailable") from None
+
+
+async def resolve_free_model_catalog(
+    api_key: str,
+    *,
+    primary_model: str | None = None,
+    timeout_seconds: float = 15,
+) -> FreeModelCatalog:
+    """Fetch the live explicit-free catalog; never authorize from cache."""
+    if not api_key.strip():
+        raise ProviderError("OpenRouter model map requires an API key")
+    headers = {"Authorization": f"Bearer {api_key}"}
+    try:
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            response = await client.get(OPENROUTER_MODELS_URL, headers=headers)
+            response.raise_for_status()
+            payload: Any = response.json()
+        records = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(records, list):
+            raise ValueError("models manifest is malformed")
+        return _build_free_model_catalog(
+            records,
+            primary_model=primary_model,
+            source="live",
+        )
+    except (httpx.HTTPError, ValueError, OSError):
+        raise ProviderError("OpenRouter live model catalog unavailable") from None
