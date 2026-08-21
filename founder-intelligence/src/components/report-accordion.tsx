@@ -179,6 +179,10 @@ function SourceEvidence({ report }: { report: ReportPayload }) {
                 <p>{distillation.summary}</p>
                 {distillation.summary_original && distillation.summary_original !== distillation.summary ? <p className="muted">Original: {distillation.summary_original}</p> : null}
                 {distillation.key_points.length > 0 && <ul>{distillation.key_points.map((point) => <li key={point}>{point}</li>)}</ul>}
+                {distillation.entities.length > 0 ? <p className="muted">Entities: {distillation.entities.join(", ")}</p> : null}
+                {distillation.signals.length > 0 ? <p className="muted">Signals: {distillation.signals.join(", ")}</p> : null}
+                {distillation.evidence_excerpts?.length ? <p className="muted">Evidence: {distillation.evidence_excerpts.join(" / ")}</p> : null}
+                {distillation.evidence_locators?.length ? <p className="muted">Locators: {distillation.evidence_locators.join(" / ")}</p> : null}
                 <p className="muted">{distillation.model_id} / {distillation.prompt_version} / {distillation.evidence_status} / language {distillation.source_language ?? "und"} / translation {distillation.translation_status ?? "unknown"}</p>
                 <code>Hash: {distillation.content_hash ?? "unknown"}</code>
                 {distillation.claims.length > 0 && <ul>{distillation.claims.map((claim) => <ClaimRow key={claim.claim} claim={claim} />)}</ul>}
@@ -322,6 +326,11 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
   const runStatus = report.run?.status ?? "missing";
   const validationStatus = report.validation?.status ?? "missing";
   const blocked = !(runStatus === "succeeded" && validationStatus === "pass");
+  const headingLabel = report.run?.archived
+    ? "Archived report"
+    : blocked
+      ? "Review required"
+      : "Decision-ready report";
   const workflowStates = ["critic", "synthesis", "validation"].map((agentName) => ({
     agentName,
     step: report.steps.find((item) => item.agent_name === agentName),
@@ -330,7 +339,7 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
     <div className="report-stack">
       <div className="report-heading">
         <div>
-          <p className="eyebrow">Weekly intelligence / draft</p>
+          <p className="eyebrow">{headingLabel}</p>
           <h1>{brief.title}</h1>
           <p className="report-period">{periodLabel(brief.covered_from, brief.covered_until)}</p>
           <p className="report-as-of">As of {timestampLabel(report.as_of)}</p>
