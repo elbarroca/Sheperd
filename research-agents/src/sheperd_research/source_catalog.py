@@ -26,7 +26,14 @@ CATALOG_WEIGHT_TARGETS = {
     "europe": 0.15,
     "global": 0.05,
 }
-REGIONS = frozenset(CATALOG_WEIGHT_TARGETS)
+REGIONS = frozenset(
+    {
+        *CATALOG_WEIGHT_TARGETS,
+        "canada",
+        "south-america",
+        "middle-east",
+    }
+)
 JURISDICTIONS = frozenset(
     {
         "us-federal",
@@ -37,8 +44,15 @@ JURISDICTIONS = frozenset(
         "mexico-federal",
         "mexico-pacific",
         "mexico-gulf",
+        "canada-federal",
+        "canada-pacific",
+        "canada-atlantic",
         "eu",
         "europe-port",
+        "south-america-federal",
+        "south-america-port",
+        "middle-east-federal",
+        "middle-east-port",
         "global",
         "public-trade",
     }
@@ -89,8 +103,15 @@ DISCOVERY_GEOGRAPHIES_BY_JURISDICTION: dict[str, tuple[str, ...]] = {
     "mexico-federal": ("Mexico",),
     "mexico-pacific": ("Mexico",),
     "mexico-gulf": ("Mexico",),
+    "canada-federal": ("Canada",),
+    "canada-pacific": ("Canada",),
+    "canada-atlantic": ("Canada",),
     "eu": ("Europe",),
     "europe-port": ("Europe",),
+    "south-america-federal": ("South America",),
+    "south-america-port": ("South America",),
+    "middle-east-federal": ("Middle East",),
+    "middle-east-port": ("Middle East",),
 }
 
 
@@ -308,7 +329,7 @@ class SourceCatalog(BaseModel):
                 "access": source.access,
                 "coverage": {
                     "region": source.region,
-                    "weight": coverage[source.region],
+                    "weight": coverage.get(source.region, 0.0),
                 },
                 "authority": {
                     "tier": source.authority_tier,

@@ -5,7 +5,7 @@ export default function NotFoundPage() {
     <section className="error-state">
       <p className="eyebrow">Not in the manifest</p>
       <h1>This intelligence view does not exist.</h1>
-      <Link href="/">Return to the founder brief</Link>
+      <Link href="/">Return to the research briefs</Link>
     </section>
   );
 }

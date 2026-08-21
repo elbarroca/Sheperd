@@ -79,8 +79,29 @@ def patch_client(
 def test_tavily_rate_limit_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
     patch_client(monkeypatch, [response(429, {"error": "rate limit"})])
 
-    with pytest.raises(ProviderError, match="rate limit"):
+    with pytest.raises(ProviderError, match="rate limit") as raised:
         asyncio.run(TavilyProvider("secret").search("ports"))
+    assert raised.value.error_code == "rate_limit"
+
+
+@pytest.mark.parametrize(
+    ("status_code", "message", "error_code"),
+    [
+        (432, "plan usage limit", "plan_usage_limit"),
+        (433, "pay-as-you-go limit", "payg_limit"),
+    ],
+)
+def test_tavily_usage_limits_are_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+    message: str,
+    error_code: str,
+) -> None:
+    patch_client(monkeypatch, [response(status_code, {"detail": "blocked"})])
+
+    with pytest.raises(ProviderError, match=message) as raised:
+        asyncio.run(TavilyProvider("secret").search("ports"))
+    assert raised.value.error_code == error_code
 
 
 def test_tavily_retries_are_rejected_by_strict_policy() -> None:
@@ -123,6 +144,48 @@ def test_tavily_extract_chunks_batches_at_twenty_urls() -> None:
     with pytest.raises(ProviderError, match="incomplete content"):
         asyncio.run(BatchingProvider("secret").extract(sources))
     assert [len(batch) for batch in calls] == [20, 1]
+
+
+def test_tavily_search_uses_basic_depth_for_discovery_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class CapturingClient(FakeAsyncClient):
+        async def post(self, url: object, **kwargs: object) -> httpx.Response:
+            captured["url"] = url
+            captured["headers"] = kwargs.get("headers")
+            captured["json"] = kwargs.get("json")
+            return response(200, {"results": []})
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **_: CapturingClient([]),
+    )
+
+    asyncio.run(
+        TavilyProvider("secret", project_id="project-1").search(
+            "ports",
+            include_domains=["fmc.gov"],
+            exclude_domains=["linkedin.com"],
+        )
+    )
+
+    assert captured["url"] == "https://api.tavily.com/search"
+    assert captured["headers"] == {
+        "Authorization": "Bearer secret",
+        "X-Project-ID": "project-1",
+    }
+    assert captured["json"] == {
+        "query": "ports",
+        "search_depth": "basic",
+        "max_results": 5,
+        "include_answer": False,
+        "include_raw_content": False,
+        "include_domains": ["fmc.gov"],
+        "exclude_domains": ["linkedin.com"],
+    }
 
 
 class MalformedStructuredOutput:

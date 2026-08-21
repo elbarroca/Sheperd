@@ -47,6 +47,18 @@ export interface ResearchSource {
   lane: string;
   is_seed: boolean;
   evidence_status: EvidenceStatus;
+  region?: string;
+  language_code?: string;
+  language_confidence?: number;
+  authority_tier?: string;
+  catalog_source_id?: string | null;
+  source_type?: string;
+  freshness_status?: string;
+  freshness_days?: number | null;
+  extraction_status?: string;
+  extraction_error_code?: string | null;
+  normalized_title_en?: string | null;
+  normalized_snippet_en?: string | null;
 }
 
 export interface ResearchClaim {
@@ -56,6 +68,11 @@ export interface ResearchClaim {
   confidence: string;
   support_locator: string | null;
   conflicts: string[];
+  original_claim?: string | null;
+  evidence_excerpt?: string | null;
+  independent_source_count?: number;
+  citation_status?: string;
+  verification_basis?: string | null;
 }
 
 export interface ResearchSignal {
@@ -84,6 +101,12 @@ export interface ArticleDistillation {
   prompt_version: string;
   evidence_status: EvidenceStatus;
   content_hash: string | null;
+  source_language?: string;
+  summary_original?: string;
+  key_points_original?: string[];
+  translation_status?: string;
+  evidence_excerpts?: string[];
+  evidence_locators?: string[];
 }
 
 export interface ToolCallReceipt {
@@ -171,10 +194,37 @@ export interface MonthlyRollup {
   signals: number;
   runs: number;
   geographies: string[];
+  region?: string;
+  language?: string;
+  lane?: string;
+  authority?: string;
+  signal?: string;
+  evidence?: string;
 }
 
+export interface WeeklyReportSummary {
+  run_id: string;
+  title: string;
+  covered_from: string;
+  covered_until: string;
+  review_state: string;
+  run_status: string;
+  validation_status: string;
+  source_count: number;
+  distillation_count: number;
+  claim_count: number;
+  signal_count: number;
+  regions: string[];
+  languages: string[];
+  lane_coverage: string[];
+  models: string[];
+  as_of: string;
+}
+
+type WeeklyReportEntry = WeeklyReportSummary | ReportPayload;
+
 interface WeeklyResponse {
-  reports: ReportPayload[];
+  reports: WeeklyReportEntry[];
   count: number;
 }
 
@@ -192,6 +242,10 @@ interface DistillationsResponse {
 
 interface ClaimsResponse {
   claims: ResearchClaim[];
+}
+
+interface RegionsResponse {
+  regions: string[];
 }
 
 export interface ResearchHealth {
@@ -371,7 +425,19 @@ function isResearchSource(value: unknown): value is ResearchSource {
     && isNullableString(value.published_at)
     && isStringArray(value.topics)
     && isStringArray(value.geographies)
-    && typeof value.is_seed === "boolean";
+    && typeof value.is_seed === "boolean"
+    && isOptional(value, "region", isString)
+    && isOptional(value, "language_code", isString)
+    && isOptional(value, "language_confidence", isNumber)
+    && isOptional(value, "authority_tier", isString)
+    && isOptional(value, "catalog_source_id", isNullableString)
+    && isOptional(value, "source_type", isString)
+    && isOptional(value, "freshness_status", isString)
+    && isOptional(value, "freshness_days", isNullableNumber)
+    && isOptional(value, "extraction_status", isString)
+    && isOptional(value, "extraction_error_code", isNullableString)
+    && isOptional(value, "normalized_title_en", isNullableString)
+    && isOptional(value, "normalized_snippet_en", isNullableString);
 }
 
 function isResearchClaim(value: unknown): value is ResearchClaim {
@@ -379,7 +445,12 @@ function isResearchClaim(value: unknown): value is ResearchClaim {
     && hasStrings(value, ["claim", "evidence_status", "confidence"])
     && isStringArray(value.source_urls)
     && isNullableString(value.support_locator)
-    && isStringArray(value.conflicts);
+    && isStringArray(value.conflicts)
+    && isOptional(value, "original_claim", isNullableString)
+    && isOptional(value, "evidence_excerpt", isNullableString)
+    && isOptional(value, "independent_source_count", isNonNegativeInteger)
+    && isOptional(value, "citation_status", isString)
+    && isOptional(value, "verification_basis", isNullableString);
 }
 
 function isResearchSignal(value: unknown): value is ResearchSignal {
@@ -402,7 +473,13 @@ function isArticleDistillation(value: unknown): value is ArticleDistillation {
     && value.claims.every(isResearchClaim)
     && isStringArray(value.limitations)
     && isNullableString(value.published_at)
-    && isNullableString(value.content_hash);
+    && isNullableString(value.content_hash)
+    && isOptional(value, "source_language", isString)
+    && isOptional(value, "summary_original", isString)
+    && isOptional(value, "key_points_original", isStringArray)
+    && isOptional(value, "translation_status", isString)
+    && isOptional(value, "evidence_excerpts", isStringArray)
+    && isOptional(value, "evidence_locators", isStringArray);
 }
 
 function isReportPayload(value: unknown): value is ReportPayload {
@@ -434,6 +511,28 @@ function hasConsistentReportIdentities(value: ReportPayload): boolean {
     && (value.validation === null || value.validation.run_id === value.brief.run_id);
 }
 
+function isWeeklyReportSummary(value: unknown): value is WeeklyReportSummary {
+  return isRecord(value)
+    && hasStrings(value, [
+      "run_id",
+      "title",
+      "covered_from",
+      "covered_until",
+      "review_state",
+      "run_status",
+      "validation_status",
+      "as_of",
+    ])
+    && isNonNegativeInteger(value.source_count)
+    && isNonNegativeInteger(value.distillation_count)
+    && isNonNegativeInteger(value.claim_count)
+    && isNonNegativeInteger(value.signal_count)
+    && isStringArray(value.regions)
+    && isStringArray(value.languages)
+    && isStringArray(value.lane_coverage)
+    && isStringArray(value.models);
+}
+
 function isReportForRun(value: unknown, runId: string): value is ReportPayload {
   return isReportPayload(value)
     && value.brief.run_id === runId
@@ -453,7 +552,11 @@ function isWeeklyResponse(value: unknown): value is WeeklyResponse {
   return isRecord(value)
     && isNonNegativeInteger(value.count)
     && Array.isArray(value.reports)
-    && value.reports.every((report) => isReportPayload(report) && hasConsistentReportIdentities(report));
+    && value.reports.every(
+      (report) =>
+        isWeeklyReportSummary(report)
+        || (isReportPayload(report) && hasConsistentReportIdentities(report)),
+    );
 }
 
 function isMonthlyRollup(value: unknown): value is MonthlyRollup {
@@ -461,7 +564,13 @@ function isMonthlyRollup(value: unknown): value is MonthlyRollup {
     && hasStrings(value, ["month"])
     && isNonNegativeInteger(value.signals)
     && isNonNegativeInteger(value.runs)
-    && isStringArray(value.geographies);
+    && isStringArray(value.geographies)
+    && isOptional(value, "region", isString)
+    && isOptional(value, "language", isString)
+    && isOptional(value, "lane", isString)
+    && isOptional(value, "authority", isString)
+    && isOptional(value, "signal", isString)
+    && isOptional(value, "evidence", isString);
 }
 
 function isMonthlyResponse(value: unknown): value is MonthlyResponse {
@@ -502,6 +611,10 @@ export function getWeeklyReports(): Promise<ResearchResponse<WeeklyResponse>> {
   return getJson("/api/reports/weekly", (value) => isWeeklyResponse(value) ? value : null);
 }
 
+export function getDailyReports(): Promise<ResearchResponse<WeeklyResponse>> {
+  return getJson("/api/reports/daily", (value) => isWeeklyResponse(value) ? value : null);
+}
+
 export function getWeeklyReport(runId: string): Promise<ResearchResponse<ReportPayload>> {
   return getJson(
     `/api/reports/weekly/${encodeURIComponent(runId)}`,
@@ -518,7 +631,17 @@ export function getResearchHealth(): Promise<ResearchResponse<ResearchHealth>> {
 }
 
 export function getResearchSources(
-  filters: { query?: string; lane?: string; geography?: string; evidence?: string } = {},
+  filters: {
+    query?: string;
+    lane?: string;
+    geography?: string;
+    evidence?: string;
+    region?: string;
+    language?: string;
+    freshness?: string;
+    authority_tier?: string;
+    source_type?: string;
+  } = {},
 ): Promise<ResearchResponse<SourcesResponse>> {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value);
@@ -526,13 +649,28 @@ export function getResearchSources(
   return getJson(`/api/sources${suffix}`, (value) => isSourcesResponse(value) ? value : null);
 }
 
-export function getResearchDistillations(): Promise<ResearchResponse<DistillationsResponse>> {
+export function getResearchDistillations(
+  filters: { region?: string; language?: string } = {},
+): Promise<ResearchResponse<DistillationsResponse>> {
+  const params = new URLSearchParams({ limit: "100" });
+  for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value);
   return getJson(
-    "/api/distillations?limit=100",
+    `/api/distillations?${params.toString()}`,
     (value) => isDistillationsResponse(value) ? value : null,
   );
 }
 
-export function getResearchClaims(): Promise<ResearchResponse<ClaimsResponse>> {
-  return getJson("/api/claims?limit=100", (value) => isClaimsResponse(value) ? value : null);
+export function getResearchClaims(
+  filters: { verification_basis?: string; independent_source_min?: string } = {},
+): Promise<ResearchResponse<ClaimsResponse>> {
+  const params = new URLSearchParams({ limit: "100" });
+  for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value);
+  return getJson(`/api/claims?${params.toString()}`, (value) => isClaimsResponse(value) ? value : null);
+}
+
+export function getResearchRegions(): Promise<ResearchResponse<RegionsResponse>> {
+  return getJson("/api/regions", (value) => {
+    if (!isRecord(value) || !isStringArray(value.regions)) return null;
+    return { regions: value.regions };
+  });
 }

@@ -1,0 +1,62 @@
+{
+  "files": {
+    "Canada/index.md": "fdbcedb302e16d54a69314310d8c360712da8d4d32af5c913c7bd3754f4874e1",
+    "Europe/index.md": "f1fb44b43993244fe76ae7b55e6823f3d55f2eb4877d01d7a59221ae3116c8be",
+    "Global/index.md": "b24a73692f5ad237888ba24cbff7e03bbd2681426a908b54762dd7152173a8e3",
+    "Mexico/index.md": "b3252b97a0075c5f6d92efe72cf048021828bd018c2ca66c523ccd0afaefcd90",
+    "Middle East/index.md": "cf8d5c031a550657c8afc167aadce4d02144889a1b157ea7f24cae936c673ed6",
+    "South America/index.md": "c5e23dafd296429486d737ac79c20433e57ec942700bb907d4e470dbe0ffa6b6",
+    "US/index.md": "15996b2d2ff0652612834b5da74715246f1b5f6d24af3cb7953d788e98442cd8"
+  },
+  "generated_at": "2026-08-21T00:07:38.188107+00:00",
+  "migration_version": "0010_multilingual_evidence_quality",
+  "neon_branch_id": "br-weathered-bar-axbzje5c",
+  "regions": {
+    "canada": {
+      "claims": 0,
+      "distillations": 0,
+      "sources": 0
+    },
+    "europe": {
+      "claims": 0,
+      "distillations": 0,
+      "sources": 0
+    },
+    "global": {
+      "claims": 9,
+      "distillations": 3,
+      "sources": 3
+    },
+    "mexico": {
+      "claims": 0,
+      "distillations": 0,
+      "sources": 0
+    },
+    "middle-east": {
+      "claims": 0,
+      "distillations": 0,
+      "sources": 0
+    },
+    "south-america": {
+      "claims": 0,
+      "distillations": 0,
+      "sources": 0
+    },
+    "us": {
+      "claims": 0,
+      "distillations": 0,
+      "sources": 0
+    }
+  },
+  "run_id": "e2e-agent-20260820T130000Z",
+  "status": "partial",
+  "statuses": {
+    "canada": "pass",
+    "europe": "pass",
+    "global": "partial",
+    "mexico": "pass",
+    "middle-east": "pass",
+    "south-america": "pass",
+    "us": "pass"
+  }
+}

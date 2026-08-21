@@ -48,8 +48,24 @@ class TavilyProvider:
         except httpx.HTTPStatusError as error:
             status = error.response.status_code
             if status == 429:
-                raise ProviderError("Tavily rate limit reached") from error
-            raise ProviderError(f"Tavily request failed with status {status}") from error
+                raise ProviderError(
+                    "Tavily rate limit reached",
+                    error_code="rate_limit",
+                ) from error
+            if status == 432:
+                raise ProviderError(
+                    "Tavily plan usage limit reached",
+                    error_code="plan_usage_limit",
+                ) from error
+            if status == 433:
+                raise ProviderError(
+                    "Tavily pay-as-you-go limit reached",
+                    error_code="payg_limit",
+                ) from error
+            raise ProviderError(
+                f"Tavily request failed with status {status}",
+                error_code="provider_error",
+            ) from error
         except (httpx.TimeoutException, httpx.RequestError, ValueError) as error:
             if isinstance(error, httpx.TimeoutException):
                 message = "Tavily request timed out"
@@ -76,7 +92,7 @@ class TavilyProvider:
     ) -> list[SourceCandidate]:
         payload: dict[str, object] = {
             "query": query,
-            "search_depth": "advanced",
+            "search_depth": "basic",
             "max_results": max_results,
             "include_answer": False,
             "include_raw_content": False,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,20 @@ from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 STRICT_OPENROUTER_MODEL = "google/gemma-4-26b-a4b-it:free"
+DEFAULT_FREE_FALLBACK_MODELS = (
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "nvidia/nemotron-nano-9b-v2:free",
+    "google/gemma-4-31b-it:free",
+    "liquid/lfm-2.5-2.6b:free",
+    "z-ai/glm-5.2:free",
+)
+_FREE_MODEL_PATTERN = re.compile(
+    r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*:free$"
+)
+
+
+def is_free_openrouter_model(value: str) -> bool:
+    return bool(_FREE_MODEL_PATTERN.fullmatch(value))
 
 
 def parse_openrouter_fallback_models(value: str) -> tuple[str, ...]:
@@ -41,6 +56,27 @@ def strict_openrouter_policy_error(
         return "OPENROUTER_FALLBACK_MODELS must be empty"
     if fallback_models:
         return "OPENROUTER_FALLBACK_MODELS must be empty"
+    return None
+
+
+def free_openrouter_policy_error(
+    model: str,
+    fallback_models: Sequence[str],
+    *,
+    raw_fallback_config: str | Sequence[str] | None = None,
+) -> str | None:
+    if model != STRICT_OPENROUTER_MODEL:
+        return f"OPENROUTER_MODEL must remain {STRICT_OPENROUTER_MODEL}"
+    if (
+        raw_fallback_config is not None
+        and isinstance(raw_fallback_config, str)
+        and raw_fallback_config.strip()
+        and not fallback_models
+    ):
+        return "OPENROUTER_FALLBACK_MODELS contains no valid free models"
+    for fallback in fallback_models:
+        if not is_free_openrouter_model(fallback):
+            return f"fallback model must be a valid OpenRouter :free model: {fallback}"
     return None
 
 
@@ -147,6 +183,13 @@ class Settings(BaseSettings):
     def openrouter_model_chain(self) -> tuple[str, ...]:
         configured = [self.openrouter_model, *self.openrouter_fallback_model_list]
         return tuple(dict.fromkeys(configured))
+
+    def model_chain(self, *, allow_free_fallbacks: bool) -> tuple[str, ...]:
+        if not allow_free_fallbacks:
+            return (self.openrouter_model,)
+        configured = self.openrouter_fallback_model_list
+        fallbacks = configured or DEFAULT_FREE_FALLBACK_MODELS
+        return tuple(dict.fromkeys((self.openrouter_model, *fallbacks)))
 
     @property
     def openrouter_fallback_model_list(self) -> tuple[str, ...]:

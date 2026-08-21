@@ -4,21 +4,30 @@ import json
 from datetime import datetime
 
 from .contracts import (
+    ArticleDistillation,
     ClaimDraft,
+    ExtractionStatus,
     SourceCandidate,
     ValidationCheck,
     ValidationReport,
     ValidationStatus,
     is_free_model,
 )
-from .settings import STRICT_OPENROUTER_MODEL
-from .validators import content_hash, normalize_url
+from .validators import (
+    claim_verification_allowed,
+    content_hash,
+    normalize_url,
+    validate_evidence_quality,
+)
 
 MIN_SOURCE_COUNT = 10
 MIN_CLAIM_COUNT = 5
 REQUIRED_LANES = frozenset({"regulatory", "us-ports", "mexico"})
 REQUIRED_GEOGRAPHIES = frozenset(
     {"Regulatory", "West Coast", "East Coast", "Gulf", "Mexico", "Europe"}
+)
+REQUIRED_REGIONS = frozenset(
+    {"us", "canada", "mexico", "europe", "south-america", "middle-east", "global"}
 )
 
 
@@ -55,8 +64,19 @@ def build_validation_report(
     minimum_claims: int = MIN_CLAIM_COUNT,
     tool_call_count: int | None = None,
     required_tool_lanes: dict[str, bool] | None = None,
+    distillations: list[ArticleDistillation] | None = None,
+    required_geographies: set[str] | None = None,
+    required_regions: set[str] | None = None,
 ) -> ValidationReport:
     quality_sources = source_quality_sources(sources)
+    enriched_sources = [
+        source
+        for source in quality_sources
+        if source.extraction_status is not ExtractionStatus.NOT_ATTEMPTED
+        or source.region != "global"
+        or source.language_code != "und"
+    ]
+    enriched_urls = {normalize_url(source.url) for source in enriched_sources}
     normalized_urls = [normalize_url(source.url) for source in quality_sources]
     known_urls = set(normalized_urls)
     cited_claims = [
@@ -74,17 +94,26 @@ def build_validation_report(
         for source in quality_sources
         for geography in source.geographies
     }
-    missing_geographies = sorted(REQUIRED_GEOGRAPHIES - geography_coverage)
+    expected_geographies = (
+        set(REQUIRED_GEOGRAPHIES)
+        if required_geographies is None
+        else set(required_geographies)
+    )
+    missing_geographies = sorted(expected_geographies - geography_coverage)
+    region_coverage = {source.region for source in quality_sources}
+    expected_regions = set() if required_regions is None else set(required_regions)
+    missing_regions = sorted(expected_regions - region_coverage)
     future_sources = [
         source
         for source in quality_sources
         if source.published_at is not None and source.published_at > as_of
     ]
-    uncited_verified = [
+    invalid_verified = [
         claim
         for claim in claims
         if claim.evidence_status.value == "verified"
-        and not claim.source_urls
+        and any(normalize_url(url) in enriched_urls for url in claim.source_urls)
+        and not claim_verification_allowed(claim, quality_sources)
     ]
     seed_urls = {
         normalize_url(source.url) for source in sources if source.is_seed
@@ -98,6 +127,35 @@ def build_validation_report(
     ]
     hashes = source_hashes or []
     duplicate_hashes = len(hashes) != len(set(hashes))
+    quality_mode = any(
+        source.extraction_status is not ExtractionStatus.NOT_ATTEMPTED
+        or source.region != "global"
+        or source.language_code != "und"
+        for source in quality_sources
+    )
+    extraction_failures = [
+        source
+        for source in enriched_sources
+        if source.extraction_status is not ExtractionStatus.SUCCEEDED
+    ]
+    distillation_urls = {
+        normalize_url(item.source_url) for item in (distillations or [])
+    }
+    missing_distillations = [
+        source
+        for source in enriched_sources
+        if distillations is not None
+        and source.extraction_status is ExtractionStatus.SUCCEEDED
+        and normalize_url(source.url) not in distillation_urls
+    ]
+    evidence_quality_issues = validate_evidence_quality(
+        [
+            claim
+            for claim in claims
+            if any(normalize_url(url) in enriched_urls for url in claim.source_urls)
+        ],
+        quality_sources,
+    )
     checks = [
         _check(
             "minimum_sources",
@@ -150,10 +208,10 @@ def build_validation_report(
         ),
         _check(
             "verified_claims",
-            not uncited_verified,
-            len(uncited_verified),
+            not invalid_verified,
+            len(invalid_verified),
             0,
-            "verified claims require citations",
+            "verified claims require independent evidence or primary-source critic approval",
         ),
         _check(
             "seed_verified_claims",
@@ -166,10 +224,49 @@ def build_validation_report(
             "free_model",
             is_free_model(model_id),
             model_id,
-            STRICT_OPENROUTER_MODEL,
-            "only the strict Gemma model is permitted",
+            ":free",
+            "only OpenRouter :free models are permitted",
         ),
     ]
+    if quality_mode:
+        checks.extend(
+            [
+                _check(
+                    "extraction_status",
+                    not extraction_failures,
+                    len(extraction_failures),
+                    0,
+                    "all selected non-seed sources must be extracted",
+                ),
+                _check(
+                    "evidence_quality",
+                    not evidence_quality_issues,
+                    ",".join(evidence_quality_issues),
+                    "none",
+                    "evidence excerpts and verification bases must be valid",
+                ),
+            ]
+        )
+        if distillations is not None:
+            checks.append(
+                _check(
+                    "source_distillation_completeness",
+                    not missing_distillations,
+                    len(missing_distillations),
+                    0,
+                    "every successfully extracted source must have one distillation",
+                )
+            )
+        if expected_regions:
+            checks.append(
+                _check(
+                    "regional_coverage",
+                    not missing_regions,
+                    ",".join(sorted(region_coverage)),
+                    ",".join(sorted(expected_regions)),
+                    "all required regional packs must produce evidence",
+                )
+            )
     if tool_call_count is not None:
         checks.append(
             _check(

@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { MonthlyRollup, ReportPayload } from "@/lib/research-api";
 
 const api = vi.hoisted(() => ({
+  getDailyReports: vi.fn(),
   getMonthlyRollups: vi.fn(),
+  getResearchHealth: vi.fn(),
   getWeeklyReport: vi.fn(),
   getWeeklyReports: vi.fn(),
 }));
@@ -27,6 +29,11 @@ const validReport = {
 
 describe("production report routes", () => {
   it("renders the weekly list and detail accordion from API data", async () => {
+    api.getResearchHealth.mockResolvedValue({
+      status: "ok",
+      data: { status: "pass", migration_version: "0010", branch_id: "main", database: "neondb" },
+    });
+    api.getDailyReports.mockResolvedValue({ status: "ok", data: { reports: [], count: 0 } });
     api.getWeeklyReports.mockResolvedValue({ status: "ok", data: { reports: [validReport], count: 1 } });
     api.getWeeklyReport.mockResolvedValue({ status: "ok", data: validReport });
 
@@ -36,6 +43,8 @@ describe("production report routes", () => {
 
   it("renders an explicit unavailable state for each production route", async () => {
     const unavailable = { status: "unavailable", error: "Research API is unavailable" } as const;
+    api.getResearchHealth.mockResolvedValue(unavailable);
+    api.getDailyReports.mockResolvedValue(unavailable);
     api.getWeeklyReports.mockResolvedValue(unavailable);
     api.getWeeklyReport.mockResolvedValue(unavailable);
     api.getMonthlyRollups.mockResolvedValue(unavailable);

@@ -3,6 +3,7 @@
 import { List, X } from "@phosphor-icons/react";
 import { AnimatePresence, m } from "motion/react";
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 
 import { navigationItems } from "@/lib/content";
 
@@ -12,6 +13,10 @@ const MOBILE_MENU_EXIT_MS = 260;
 
 export function SiteHeader() {
   const [isOpen, setIsOpen] = useState(false);
+  const pathname = usePathname();
+
+  const anchorHref = (href: string) =>
+    pathname === "/" ? href : `/${href}`;
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -26,6 +31,12 @@ export function SiteHeader() {
 
   function followMobileLink(href: string) {
     setIsOpen(false);
+
+    if (href.startsWith("/")) {
+      window.location.assign(href);
+      return;
+    }
+
     window.history.replaceState(null, "", href);
     window.setTimeout(() => {
       document.querySelector(href)?.scrollIntoView({
@@ -44,19 +55,19 @@ export function SiteHeader() {
 
         <div className="header-links">
           {navigationItems.map((item) => (
-            <a href={item.href} key={item.href}>
+            <a href={anchorHref(item.href)} key={item.href}>
               {item.label}
             </a>
           ))}
         </div>
 
-        <a className="button button-small header-audit" href="#audit-form">
-          Free Invoice Audit
+        <a className="button button-small header-audit" href="/pilot">
+          Request a pilot
         </a>
 
         <div className="mobile-header-actions">
-          <a className="mobile-audit-link" href="#audit-form">
-            Free audit
+          <a className="mobile-audit-link" href="/pilot">
+            Request a pilot
           </a>
           <button
             className="mobile-nav-toggle"
@@ -88,11 +99,11 @@ export function SiteHeader() {
             <div className="container mobile-navigation-inner">
               {navigationItems.map((item) => (
                 <a
-                  href={item.href}
+                  href={anchorHref(item.href)}
                   key={item.href}
                   onClick={(event) => {
                     event.preventDefault();
-                    followMobileLink(item.href);
+                    followMobileLink(anchorHref(item.href));
                   }}
                 >
                   {item.label}
@@ -100,13 +111,13 @@ export function SiteHeader() {
               ))}
               <a
                 className="button"
-                href="#audit-form"
+                href="/pilot"
                 onClick={(event) => {
                   event.preventDefault();
-                  followMobileLink("#audit-form");
+                  followMobileLink("/pilot");
                 }}
               >
-                Get a Free Invoice Audit
+                Request a pilot
               </a>
             </div>
           </m.div>

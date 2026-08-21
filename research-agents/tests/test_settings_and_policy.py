@@ -15,6 +15,7 @@ from sheperd_research.providers.errors import ProviderError
 from sheperd_research.settings import (
     STRICT_OPENROUTER_MODEL,
     Settings,
+    free_openrouter_policy_error,
     strict_openrouter_policy_error,
 )
 
@@ -46,6 +47,16 @@ def test_strict_openrouter_policy_rejects_router_model_and_fallbacks() -> None:
         strict_openrouter_policy_error("openrouter/free", ())
         == f"OPENROUTER_MODEL must be {STRICT_OPENROUTER_MODEL}"
     )
+
+
+def test_free_fallback_policy_keeps_gemma_primary() -> None:
+    assert free_openrouter_policy_error("nvidia/nemotron-3-super-120b-a12b:free", ()) == (
+        f"OPENROUTER_MODEL must remain {STRICT_OPENROUTER_MODEL}"
+    )
+    assert free_openrouter_policy_error(
+        STRICT_OPENROUTER_MODEL,
+        ("openai/gpt-4o",),
+    ) == "fallback model must be a valid OpenRouter :free model: openai/gpt-4o"
     assert (
         strict_openrouter_policy_error(
             STRICT_OPENROUTER_MODEL,

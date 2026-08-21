@@ -6,7 +6,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .settings import STRICT_OPENROUTER_MODEL
+from .settings import STRICT_OPENROUTER_MODEL, is_free_openrouter_model
 
 
 def utc_now() -> datetime:
@@ -14,7 +14,7 @@ def utc_now() -> datetime:
 
 
 def is_free_model(model: str) -> bool:
-    return model == STRICT_OPENROUTER_MODEL
+    return is_free_openrouter_model(model)
 
 
 class EvidenceStatus(StrEnum):
@@ -60,6 +60,26 @@ class ResearchCadence(StrEnum):
     WEEKLY = "weekly"
 
 
+class FreshnessStatus(StrEnum):
+    CURRENT = "current"
+    STALE = "stale"
+    UNDATED = "undated"
+    FUTURE = "future"
+    UNKNOWN = "unknown"
+
+
+class ExtractionStatus(StrEnum):
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    NOT_ATTEMPTED = "not_attempted"
+
+
+class TranslationStatus(StrEnum):
+    NOT_NEEDED = "not_needed"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
 class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -77,6 +97,18 @@ class SourceCandidate(ContractModel):
     lane: str = "unassigned"
     is_seed: bool = False
     evidence_status: EvidenceStatus = EvidenceStatus.UNVERIFIED
+    region: str = "global"
+    language_code: str = "und"
+    language_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    authority_tier: str = "unknown"
+    catalog_source_id: str | None = None
+    source_type: str = "unknown"
+    freshness_status: FreshnessStatus = FreshnessStatus.UNKNOWN
+    freshness_days: int | None = Field(default=None, ge=0)
+    extraction_status: ExtractionStatus = ExtractionStatus.NOT_ATTEMPTED
+    extraction_error_code: str | None = None
+    normalized_title_en: str | None = None
+    normalized_snippet_en: str | None = None
 
     @field_validator("url")
     @classmethod
@@ -92,10 +124,20 @@ class SourceCandidate(ContractModel):
             raise ValueError("source timestamps must include a timezone")
         return value
 
+    @field_validator("language_code")
+    @classmethod
+    def validate_language_code(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized != "und" and (
+            not normalized.isalpha() or len(normalized) not in {2, 3}
+        ):
+            raise ValueError("language_code must be ISO-639-1/2 or und")
+        return normalized
+
 
 class LaneDiscoveryPacket(ContractModel):
     source_urls: list[str] = Field(default_factory=list, max_length=25)
-    selected_queries: list[str] = Field(default_factory=list, max_length=12)
+    selected_queries: list[str] = Field(default_factory=list, max_length=30)
     evidence_notes: list[str] = Field(default_factory=list, max_length=8)
 
 
@@ -113,6 +155,20 @@ class ClaimDraft(ContractModel):
     confidence: str = "low"
     support_locator: str | None = None
     conflicts: list[str] = Field(default_factory=list)
+    original_claim: str | None = None
+    evidence_excerpt: str | None = None
+    independent_source_count: int = Field(default=0, ge=0)
+    citation_status: str = "uncited"
+    verification_basis: str | None = None
+
+    @field_validator("evidence_excerpt")
+    @classmethod
+    def validate_evidence_excerpt(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if len(value) > 320 or len(value.split()) > 40:
+            raise ValueError("evidence_excerpt must be at most 320 characters and 40 words")
+        return value
 
 
 class ArticleDistillation(ContractModel):
@@ -128,6 +184,20 @@ class ArticleDistillation(ContractModel):
     prompt_version: str = "distill-v1"
     evidence_status: EvidenceStatus = EvidenceStatus.MIXED
     content_hash: str | None = None
+    source_language: str = "und"
+    summary_original: str = ""
+    key_points_original: list[str] = Field(default_factory=list)
+    translation_status: TranslationStatus = TranslationStatus.NOT_NEEDED
+    evidence_excerpts: list[str] = Field(default_factory=list, max_length=8)
+    evidence_locators: list[str] = Field(default_factory=list, max_length=8)
+
+    @field_validator("source_language")
+    @classmethod
+    def validate_source_language(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized != "und" and (not normalized.isalpha() or len(normalized) not in {2, 3}):
+            raise ValueError("source_language must be ISO-639-1/2 or und")
+        return normalized
 
 
 class SignalEvent(ContractModel):
@@ -177,6 +247,19 @@ class WeeklyBrief(ContractModel):
         return self
 
 
+class RegionQueryPack(ContractModel):
+    region: str
+    countries: list[str] = Field(default_factory=list)
+    ports: list[str] = Field(default_factory=list)
+    signal_types: list[str] = Field(default_factory=list)
+    query_families: list[str] = Field(min_length=1)
+    language_hints: list[str] = Field(default_factory=list)
+    required: bool = False
+    freshness_days: int = Field(default=14, ge=1, le=365)
+    authority_domains: list[str] = Field(default_factory=list)
+    allow_open_discovery: bool = True
+
+
 class TopicConfig(ContractModel):
     name: str
     description: str
@@ -186,6 +269,7 @@ class TopicConfig(ContractModel):
     include_domains: list[str] = Field(default_factory=list)
     exclude_domains: list[str] = Field(default_factory=list)
     lookback_days: int = Field(default=14, ge=1, le=365)
+    region_packs: dict[str, RegionQueryPack] = Field(default_factory=dict)
 
 
 class ResearchRunRequest(ContractModel):
@@ -212,14 +296,17 @@ class ResearchRunRequest(ContractModel):
     @classmethod
     def require_free_model(cls, value: str) -> str:
         if not is_free_model(value):
-            raise ValueError(f"model must be {STRICT_OPENROUTER_MODEL}")
+            raise ValueError(
+                "model must be a valid OpenRouter :free model; "
+                f"strict default is {STRICT_OPENROUTER_MODEL}"
+            )
         return value
 
     @field_validator("validation_profile")
     @classmethod
     def require_known_validation_profile(cls, value: str) -> str:
-        if value not in {"full", "canary"}:
-            raise ValueError("validation_profile must be full or canary")
+        if value not in {"full", "canary", "global-canary"}:
+            raise ValueError("validation_profile must be full, canary, or global-canary")
         return value
 
     @model_validator(mode="after")

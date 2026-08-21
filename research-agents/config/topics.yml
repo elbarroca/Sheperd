@@ -18,18 +18,35 @@ topics:
       - Gulf
       - Mexico
       - Europe
+      - Canada
+      - South America
+      - Middle East
+      - Global
     include_domains:
       - fmc.gov
       - ecfr.gov
+      - federalregister.gov
+      - cadc.uscourts.gov
+      - courtlistener.com
+      - justice.gov
+      - ftc.gov
       - portoflosangeles.org
       - polb.com
       - oaklandca.gov
       - nwseaportalliance.com
+      - portseattle.org
+      - portoftacoma.com
       - gaports.com
       - scspa.com
       - panynj.gov
+      - portofvirginia.com
       - porthouston.com
       - puertomanzanillo.com.mx
+      - puertolazarocardenas.com.mx
+      - puertodeveracruz.com.mx
+      - puertoaltamira.com.mx
+      - anam.gob.mx
+      - gob.mx
       - transport.ec.europa.eu
       - emsa.europa.eu
       - ec.europa.eu
@@ -40,6 +57,15 @@ topics:
       - portdebarcelona.cat
       - portoffelixstowe.co.uk
       - peelports.com
+      - imo.org
+      - unctad.org
+      - worldbank.org
+      - portwatch.imf.org
+      - wto.org
+      - gcaptain.com
+      - container-news.com
+      - theloadstar.com
+      - splash247.com
     exclude_domains:
       - linkedin.com
     lookback_days: 14

@@ -26,10 +26,15 @@ from ..contracts import (
     LaneDiscoveryResult,
     ReportBullet,
     SourceCandidate,
+    TranslationStatus,
     WeeklyBrief,
-    is_free_model,
 )
-from ..settings import STRICT_OPENROUTER_MODEL, strict_openrouter_policy_error
+from ..settings import (
+    STRICT_OPENROUTER_MODEL,
+    free_openrouter_policy_error,
+    is_free_openrouter_model,
+    strict_openrouter_policy_error,
+)
 from ..source_catalog import authoritative_geography_domain_catalog
 from ..validators import can_extract_url, normalize_url, url_policy_error
 from .capabilities import CapabilityReport
@@ -43,9 +48,22 @@ MAX_SOURCE_CONTENT_CHARS = 8_000
 MAX_CLAIMS_PER_SOURCE = 4
 MAX_KEY_POINTS_PER_SOURCE = 8
 MAX_DISCOVERY_SOURCES = 8
-MAX_DISCOVERY_TOOL_CALLS = 6
+MAX_DISCOVERY_TOOL_CALLS = 20
 MAX_DISCOVERY_INPUT_CHARS = 20_000
-MAX_DISCOVERY_RECURSION = 12
+MAX_DISCOVERY_RECURSION = 24
+FALLBACKABLE_ERROR_CODES = frozenset(
+    {
+        "rate_limit",
+        "provider_unavailable",
+        "timeout",
+        "unsupported_capability",
+        "malformed_output",
+        "missing_tool_call",
+        "tool_failure",
+        "agent_loop",
+        "model_unavailable",
+    }
+)
 GEOGRAPHY_DOMAIN_CATALOG = authoritative_geography_domain_catalog()
 AGENT_NAMES = {
     "discovery:regulatory": "regulatory_research_agent",
@@ -54,6 +72,8 @@ AGENT_NAMES = {
     "distillation": "source_distillation_agent",
     "critic": "critic_agent",
     "synthesis": "weekly_synthesis_agent",
+    "discovery:port-operations": "port_operations_research_agent",
+    "discovery:global-market": "global_market_research_agent",
 }
 OutputT = TypeVar("OutputT", bound=BaseModel)
 
@@ -94,6 +114,12 @@ class ArticleOutput(BaseModel):
     signals: list[str] = Field(default_factory=list, max_length=8)
     claims: list[ClaimDraft] = Field(max_length=3)
     limitations: list[str] = Field(max_length=3)
+    source_language: str = "und"
+    summary_original: str = ""
+    key_points_original: list[str] = Field(default_factory=list, max_length=4)
+    translation_status: TranslationStatus = TranslationStatus.NOT_NEEDED
+    evidence_excerpts: list[str] = Field(default_factory=list, max_length=8)
+    evidence_locators: list[str] = Field(default_factory=list, max_length=8)
 
 
 class BriefOutput(BaseModel):
@@ -136,13 +162,22 @@ class OpenRouterProvider:
         capability_manifest_hash: str | None = None,
         timeout_seconds: int = OPENROUTER_TIMEOUT_SECONDS,
         max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS,
+        allow_free_fallbacks: bool = False,
     ) -> None:
         if not api_key.strip():
             raise ValueError("OpenRouter API key is required")
-        policy_error = strict_openrouter_policy_error(
-            model,
-            (),
-            raw_fallback_config=fallback_models,
+        policy_error = (
+            free_openrouter_policy_error(
+                model,
+                fallback_models,
+                raw_fallback_config=fallback_models,
+            )
+            if allow_free_fallbacks
+            else strict_openrouter_policy_error(
+                model,
+                (),
+                raw_fallback_config=fallback_models,
+            )
         )
         if policy_error is not None:
             raise ProviderError(policy_error)
@@ -150,22 +185,28 @@ class OpenRouterProvider:
             raise ProviderError("OpenRouter provider requires a live capability report")
         if not capability_report.require_tools:
             raise ProviderError("OpenRouter capability report must prove tool support")
-        if capability_report.requested_models != (STRICT_OPENROUTER_MODEL,):
-            raise ProviderError("OpenRouter capability report must target the strict Gemma model")
-        if capability_report.eligible_models != (STRICT_OPENROUTER_MODEL,):
-            raise ProviderError("configured strict model failed capability checks")
-        capability_evidence = capability_report.evidence_for(STRICT_OPENROUTER_MODEL)
-        if capability_evidence is None:
-            raise ProviderError("OpenRouter capability report is missing Gemma evidence")
-        if (
-            not capability_evidence.free
-            or not capability_evidence.supports_tools
-            or not capability_evidence.supports_structured_outputs
-            or capability_evidence.reason is not None
-        ):
-            raise ProviderError("configured strict model failed capability checks")
-        if not is_free_model(model):
-            raise ProviderError(f"OpenRouter model must be {STRICT_OPENROUTER_MODEL}")
+        configured_chain = tuple(dict.fromkeys((model, *fallback_models)))
+        if capability_report.requested_models != configured_chain:
+            raise ProviderError("OpenRouter capability report does not match model chain")
+        if not capability_report.eligible_models:
+            raise ProviderError("configured free model chain has no eligible models")
+        for eligible_model in capability_report.eligible_models:
+            capability_evidence = capability_report.evidence_for(eligible_model)
+            if (
+                capability_evidence is None
+                or not capability_evidence.free
+                or not capability_evidence.supports_tools
+                or not capability_evidence.supports_structured_outputs
+                or capability_evidence.reason is not None
+            ):
+                raise ProviderError("configured model failed capability checks")
+        if not is_free_openrouter_model(model):
+            raise ProviderError("OpenRouter primary model must be a :free model")
+        if not allow_free_fallbacks:
+            if configured_chain != (STRICT_OPENROUTER_MODEL,):
+                raise ProviderError("strict OpenRouter mode permits Gemma only")
+            if capability_report.eligible_models != (STRICT_OPENROUTER_MODEL,):
+                raise ProviderError("configured strict model failed capability checks")
         if max_output_tokens < 1:
             raise ValueError("OpenRouter output-token budget must be positive")
         if timeout_seconds < 1:
@@ -173,6 +214,8 @@ class OpenRouterProvider:
         if max_concurrent_requests < 1:
             raise ValueError("OpenRouter concurrency must be positive")
         self.model_name = model
+        self.model_chain = tuple(capability_report.eligible_models)
+        self.allow_free_fallbacks = allow_free_fallbacks
         self.max_output_tokens = max_output_tokens
         self.capability_manifest_hash = capability_report.manifest_hash
         self.capability_report = capability_report
@@ -193,11 +236,12 @@ class OpenRouterProvider:
             f"openrouter_attempts_{id(self)}",
             default=(),
         )
-        self._model = self._model_for(self.model_name)
+        self._model = self._model_for(self.model_chain[0])
 
     def _model_for(self, model: str) -> BaseChatModel:
-        if model != STRICT_OPENROUTER_MODEL:
-            raise ProviderError(f"OpenRouter model must be {STRICT_OPENROUTER_MODEL}")
+        model_chain = getattr(self, "model_chain", (self.model_name,))
+        if model not in model_chain or not is_free_openrouter_model(model):
+            raise ProviderError("OpenRouter model is not in the eligible free model chain")
         cached = self._models.get(model)
         if cached is not None:
             return cached
@@ -252,7 +296,17 @@ class OpenRouterProvider:
     @staticmethod
     def _error_code(error: BaseException) -> str:
         chain = OpenRouterProvider._error_chain(error)
-        message = f"{type(error).__name__} {error}".lower()
+        explicit_codes = {
+            getattr(item, "error_code", None)
+            for item in chain
+            if isinstance(getattr(item, "error_code", None), str)
+        }
+        for code in ("rate_limit", "plan_usage_limit", "payg_limit"):
+            if code in explicit_codes:
+                return code
+        message = " ".join(
+            f"{type(item).__name__} {item}" for item in chain
+        ).lower()
         if any(
             any(
                 marker in f"{type(item).__name__} {item}".lower()
@@ -271,6 +325,23 @@ class OpenRouterProvider:
             return "rate_limit"
         if OpenRouterProvider._is_transport_timeout(error):
             return "timeout"
+        if any(
+            marker in message
+            for marker in ("graphrecursion", "recursion limit", "recursion_limit")
+        ):
+            return "agent_loop"
+        if "notfoundresponse" in message or "status 404" in message or " 404" in message:
+            return "model_unavailable"
+        if any(
+            marker in message
+            for marker in (
+                "unexpected tool call",
+                "agent tool call did not succeed",
+                "tool-call budget exceeded",
+                "tool call budget exceeded",
+            )
+        ):
+            return "tool_failure"
         if "unsupported" in message or "not implemented" in message:
             return "unsupported_capability"
         if "malformed" in message or "validation" in message or "json" in message:
@@ -285,7 +356,7 @@ class OpenRouterProvider:
     def _should_retry(cls, error: BaseException, *, model_name: str, attempt: int) -> bool:
         error_code = cls._error_code(error)
         return (
-            model_name == STRICT_OPENROUTER_MODEL
+            is_free_openrouter_model(model_name)
             and attempt < 2
             and error_code == "timeout"
         )
@@ -398,7 +469,7 @@ class OpenRouterProvider:
         publisher = source.publisher.lower().removeprefix("www.")
         if publisher != host:
             raise ValueError("Tavily returned unverifiable publisher metadata")
-        if source.published_at is None or not since <= source.published_at <= until:
+        if source.published_at is not None and not since <= source.published_at <= until:
             raise ValueError("Tavily returned a source outside the configured date window")
         allowed_geographies = {value.lower() for value in geographies}
         observed_geographies = {value.lower() for value in source.geographies}
@@ -419,15 +490,21 @@ class OpenRouterProvider:
         return metadata
 
     @staticmethod
-    def _require_strict_resolved_model(metadata: dict[str, object]) -> str:
+    def _require_resolved_model(
+        metadata: dict[str, object], requested_model: str
+    ) -> str:
         resolved_model = metadata.get("resolved_model")
         if not isinstance(resolved_model, str) or not resolved_model.strip():
             raise ProviderError("OpenRouter response missing resolved model metadata")
-        if resolved_model != STRICT_OPENROUTER_MODEL:
-            raise ProviderError(
-                f"OpenRouter resolved model must be {STRICT_OPENROUTER_MODEL}"
-            )
+        if resolved_model != requested_model:
+            raise ProviderError("OpenRouter response resolved to an unexpected model")
+        if not is_free_openrouter_model(resolved_model):
+            raise ProviderError("OpenRouter response resolved to a paid model")
         return resolved_model
+
+    @classmethod
+    def _require_strict_resolved_model(cls, metadata: dict[str, object]) -> str:
+        return cls._require_resolved_model(metadata, STRICT_OPENROUTER_MODEL)
 
     def _record_attempt(
         self,
@@ -633,7 +710,15 @@ class OpenRouterProvider:
                     and all(
                         isinstance(source, dict)
                         and set(source) == source_fields
-                        and all(isinstance(source[field], str) for field in source_fields)
+                        and all(
+                            isinstance(source[field], str)
+                            for field in source_fields
+                            if field != "published_at"
+                        )
+                        and (
+                            source["published_at"] is None
+                            or isinstance(source["published_at"], str)
+                        )
                         for source in sources
                     )
                 ):
@@ -683,6 +768,13 @@ class OpenRouterProvider:
         messages = result.get("messages")
         if isinstance(messages, list):
             for message in reversed(messages):
+                response_metadata = getattr(message, "response_metadata", None)
+                if isinstance(response_metadata, dict) and any(
+                    key in response_metadata
+                    for key in ("model_name", "model", "model_id", "id", "request_id")
+                ):
+                    return message
+            for message in reversed(messages):
                 if hasattr(message, "response_metadata") or hasattr(message, "usage_metadata"):
                     return message
         return result
@@ -698,118 +790,170 @@ class OpenRouterProvider:
         required_tools: Sequence[str] = (),
         attempt_sink: list[dict[str, object]] | None = None,
         tool_latency_by_input: dict[str, int] | None = None,
+        tool_failure_sink: list[dict[str, object]] | None = None,
     ) -> OutputT:
         last_error: BaseException | None = None
-        model_name = self.model_name
-        for attempt in range(1, 3):
-            started_at = monotonic()
-            tool_receipts: list[dict[str, object]] = []
-            try:
-                strategy = ToolStrategy(schema, handle_errors=False)
-                agent = create_agent(
-                    model=self._model_for(model_name),
-                    tools=list(tools),
-                    system_prompt=(
-                        "Return only the requested structured response. "
-                        "Do not reveal reasoning or add unsupported facts."
-                    ),
-                    response_format=strategy,
-                    name=AGENT_NAMES.get(operation),
-                )
-                result = await self._invoke_agent_request(
-                    agent,
-                    {
-                        "messages": [{"role": "user", "content": prompt}],
-                    },
-                )
-                tool_receipts = self._tool_call_receipts(result)
-                tool_names = {tool.name for tool in tools}
-                for receipt in tool_receipts:
-                    if receipt.get("tool_name") not in tool_names:
-                        receipt["status"] = "failed"
-                unknown_tools = {
-                    str(receipt.get("tool_name"))
-                    for receipt in tool_receipts
-                    if receipt.get("tool_name") not in tool_names
-                }
-                if unknown_tools:
-                    raise ProviderError(
-                        "unexpected tool call: " + ", ".join(sorted(unknown_tools))
+        last_error_code: str | None = None
+        model_chain = tuple(getattr(self, "model_chain", (self.model_name,)))
+        allow_free_fallbacks = bool(getattr(self, "allow_free_fallbacks", False))
+        fallback_reason: str | None = None
+        for model_index, model_name in enumerate(model_chain):
+            for attempt in range(1, 3):
+                started_at = monotonic()
+                tool_receipts: list[dict[str, object]] = []
+                try:
+                    strategy = ToolStrategy(schema, handle_errors=False)
+                    agent = create_agent(
+                        model=self._model_for(model_name),
+                        tools=list(tools),
+                        system_prompt=(
+                            "Return only the requested structured response. "
+                            "Do not reveal reasoning or add unsupported facts."
+                        ),
+                        response_format=strategy,
+                        name=AGENT_NAMES.get(operation),
                     )
-                if any(receipt.get("status") != "succeeded" for receipt in tool_receipts):
-                    raise ProviderError("agent tool call did not succeed")
-                if tool_latency_by_input is not None:
+                    result = await self._invoke_agent_request(
+                        agent,
+                        {
+                            "messages": [{"role": "user", "content": prompt}],
+                        },
+                    )
+                    structured_tool_names = {
+                        schema.__name__,
+                        schema.__name__.lower(),
+                    }
+                    tool_receipts = [
+                        receipt
+                        for receipt in self._tool_call_receipts(result)
+                        if receipt.get("tool_name") not in structured_tool_names
+                    ]
+                    if tool_failure_sink is not None:
+                        tool_failure_sink.clear()
+                    tool_names = {tool.name for tool in tools}
                     for receipt in tool_receipts:
-                        input_hash = receipt.get("input_hash")
-                        if isinstance(input_hash, str) and input_hash in tool_latency_by_input:
-                            receipt["latency_ms"] = tool_latency_by_input[input_hash]
-                called_tools = {
-                    str(receipt["tool_name"])
-                    for receipt in tool_receipts
-                    if receipt.get("status") == "succeeded"
-                }
-                missing_tools = sorted(set(required_tools) - called_tools)
-                if missing_tools:
-                    raise ProviderError(
-                        "required tool call missing: " + ", ".join(missing_tools)
+                        if receipt.get("tool_name") not in tool_names:
+                            receipt["status"] = "failed"
+                    unknown_tools = {
+                        str(receipt.get("tool_name"))
+                        for receipt in tool_receipts
+                        if receipt.get("tool_name") not in tool_names
+                    }
+                    if unknown_tools:
+                        raise ProviderError(
+                            "unexpected tool call: " + ", ".join(sorted(unknown_tools))
+                        )
+                    if any(receipt.get("status") != "succeeded" for receipt in tool_receipts):
+                        raise ProviderError("agent tool call did not succeed")
+                    if tool_latency_by_input is not None:
+                        for receipt in tool_receipts:
+                            input_hash = receipt.get("input_hash")
+                            if isinstance(input_hash, str) and input_hash in tool_latency_by_input:
+                                receipt["latency_ms"] = tool_latency_by_input[input_hash]
+                    called_tools = {
+                        str(receipt["tool_name"])
+                        for receipt in tool_receipts
+                        if receipt.get("status") == "succeeded"
+                    }
+                    missing_tools = sorted(set(required_tools) - called_tools)
+                    if missing_tools:
+                        raise ProviderError(
+                            "required tool call missing: " + ", ".join(missing_tools)
+                        )
+                    output = schema.model_validate(
+                        self._structured_response(result, operation)
                     )
-                output = schema.model_validate(
-                    self._structured_response(result, operation)
-                )
-                raw = self._last_message(result)
-                metadata = self._metadata_from_raw(raw)
-                resolved_model = self._require_strict_resolved_model(metadata)
-                output_tokens = metadata.get("output_tokens")
-                if isinstance(output_tokens, int) and output_tokens > self.max_output_tokens:
-                    raise ProviderError("OpenRouter output-token budget exceeded")
-                metadata.update(
-                    {
+                    raw = self._last_message(result)
+                    metadata = self._metadata_from_raw(raw)
+                    resolved_model = self._require_resolved_model(metadata, model_name)
+                    output_tokens = metadata.get("output_tokens")
+                    if isinstance(output_tokens, int) and output_tokens > self.max_output_tokens:
+                        raise ProviderError("OpenRouter output-token budget exceeded")
+                    metadata.update(
+                        {
+                            "requested_model": model_name,
+                            "resolved_model": resolved_model,
+                            "prompt_version": prompt_version,
+                            "operation": operation,
+                            "attempt": attempt,
+                            "model_index": model_index,
+                            "fallback_reason": fallback_reason,
+                            "tool_calls": len(tool_receipts),
+                            "tool_call_receipts": tool_receipts,
+                            "required_tools": list(required_tools),
+                            "latency_ms": max(0, int((monotonic() - started_at) * 1000)),
+                            "error_code": None,
+                            "output_hash": self._output_hash(output),
+                            "capability_manifest_hash": getattr(
+                                self, "capability_manifest_hash", None
+                            ),
+                        }
+                    )
+                    self._record_attempt(metadata, attempt_sink)
+                    return output
+                except Exception as error:
+                    last_error = error
+                    error_code = self._error_code(error)
+                    last_error_code = error_code
+                    if tool_failure_sink:
+                        for failure in tool_failure_sink:
+                            matching = next(
+                                (
+                                    receipt
+                                    for receipt in tool_receipts
+                                    if receipt.get("tool_name") == failure.get("tool_name")
+                                    and receipt.get("status") == "failed"
+                                ),
+                                None,
+                            )
+                            if matching is None:
+                                tool_receipts.append(dict(failure))
+                            elif failure.get("error_code"):
+                                matching["error_code"] = failure["error_code"]
+                        tool_failure_sink.clear()
+                    metadata = {
                         "requested_model": model_name,
-                        "resolved_model": resolved_model,
+                        "resolved_model": None,
                         "prompt_version": prompt_version,
                         "operation": operation,
                         "attempt": attempt,
+                        "model_index": model_index,
+                        "fallback_reason": fallback_reason,
                         "tool_calls": len(tool_receipts),
                         "tool_call_receipts": tool_receipts,
                         "required_tools": list(required_tools),
                         "latency_ms": max(0, int((monotonic() - started_at) * 1000)),
-                        "error_code": None,
-                        "output_hash": self._output_hash(output),
+                        "error_code": error_code,
+                        "error_type": type(error).__name__,
+                        "output_hash": None,
                         "capability_manifest_hash": getattr(
                             self, "capability_manifest_hash", None
                         ),
                     }
-                )
-                self._record_attempt(metadata, attempt_sink)
-                return output
-            except Exception as error:
-                last_error = error
-                error_code = self._error_code(error)
-                metadata = {
-                    "requested_model": model_name,
-                    "resolved_model": None,
-                    "prompt_version": prompt_version,
-                    "operation": operation,
-                    "attempt": attempt,
-                    "tool_calls": len(tool_receipts),
-                    "tool_call_receipts": tool_receipts,
-                    "required_tools": list(required_tools),
-                    "latency_ms": max(0, int((monotonic() - started_at) * 1000)),
-                    "error_code": error_code,
-                    "error_type": type(error).__name__,
-                    "output_hash": None,
-                    "capability_manifest_hash": getattr(
-                        self, "capability_manifest_hash", None
-                    ),
-                }
-                self._record_attempt(metadata, attempt_sink)
-                if error_code == "rate_limit":
-                    self._rate_limit_seen = True
-                if self._should_retry(error, model_name=model_name, attempt=attempt):
-                    await asyncio.sleep(0.2)
-                    continue
-                raise ProviderError(f"OpenRouter {operation} failed") from error
-        raise ProviderError(f"OpenRouter {operation} failed") from last_error
+                    self._record_attempt(metadata, attempt_sink)
+                    if error_code == "rate_limit":
+                        self._rate_limit_seen = True
+                    if self._should_retry(error, model_name=model_name, attempt=attempt):
+                        await asyncio.sleep(0.2)
+                        continue
+                    next_model_available = model_index + 1 < len(model_chain)
+                    if (
+                        allow_free_fallbacks
+                        and next_model_available
+                        and error_code in FALLBACKABLE_ERROR_CODES
+                    ):
+                        fallback_reason = f"{model_name}:{error_code}"
+                        break
+                    raise ProviderError(
+                        f"OpenRouter {operation} failed",
+                        attempts=list(self._task_attempts.get()),
+                        error_code=error_code,
+                    ) from error
+        raise ProviderError(
+            f"OpenRouter {operation} failed; free model chain exhausted",
+            attempts=list(self._task_attempts.get()),
+            error_code=last_error_code,
+        ) from last_error
 
     async def _invoke_structured(
         self,
@@ -822,6 +966,7 @@ class OpenRouterProvider:
         required_tools: Sequence[str] = (),
         attempt_sink: list[dict[str, object]] | None = None,
         tool_latency_by_input: dict[str, int] | None = None,
+        tool_failure_sink: list[dict[str, object]] | None = None,
     ) -> OutputT:
         return await self._invoke_agent(
             schema,
@@ -832,6 +977,7 @@ class OpenRouterProvider:
             required_tools=required_tools,
             attempt_sink=attempt_sink,
             tool_latency_by_input=tool_latency_by_input,
+            tool_failure_sink=tool_failure_sink,
         )
 
     async def discover_lane(
@@ -852,7 +998,9 @@ class OpenRouterProvider:
         search_calls: set[str] = set()
         requested_extraction_urls: set[str] = set()
         tool_errors: list[str] = []
+        filtered_source_rejections: list[str] = []
         tool_latency_by_input: dict[str, int] = {}
+        tool_failure_receipts: list[dict[str, object]] = []
         attempt_sink: list[dict[str, object]] = []
         tool_calls = 0
         tool_input_chars = 0
@@ -870,15 +1018,41 @@ class OpenRouterProvider:
             if tool_input_chars > MAX_DISCOVERY_INPUT_CHARS:
                 raise ValueError("discovery tool-input budget exceeded")
 
+        def record_tool_failure(
+            tool_name: str,
+            input_hash: str,
+            url_count: int,
+            latency_ms: int,
+            error: BaseException,
+        ) -> None:
+            error_code = getattr(error, "error_code", None)
+            if not isinstance(error_code, str):
+                error_code = self._error_code(error)
+            tool_failure_receipts.append(
+                {
+                    "call_id": f"provider-failure-{len(tool_failure_receipts) + 1}",
+                    "call_index": len(tool_failure_receipts),
+                    "tool_name": tool_name,
+                    "url_count": url_count,
+                    "status": "failed",
+                    "input_hash": input_hash,
+                    "result_hash": None,
+                    "result_count": 0,
+                    "latency_ms": latency_ms,
+                    "error_code": error_code,
+                }
+            )
+
         async def run_search(query: str) -> str:
             input_hash = self._tool_input_hash(query, ())
             started = monotonic()
+            failure: BaseException | None = None
             try:
-                reserve_tool_call(len(query))
                 if query not in queries:
                     raise ValueError("discovery query is outside the configured lane scope")
                 if query in search_calls:
                     return json.dumps({"query": query, "reused": True})
+                reserve_tool_call(len(query))
                 if len(search_calls) >= len(queries):
                     raise ValueError("discovery search-call budget exceeded")
                 search_calls.add(query)
@@ -890,29 +1064,39 @@ class OpenRouterProvider:
                     exclude_domains=exclude_domains,
                     max_results=min(max(1, max_results), MAX_DISCOVERY_SOURCES),
                 )
-                valid_sources = [
-                    self._validate_discovery_source(
-                        self._enrich_discovery_geographies(
-                            source,
-                            geographies,
-                            queries,
-                            include_domains,
-                        ),
-                        geographies=geographies,
-                        since=since,
-                        until=until,
-                        include_domains=include_domains,
-                        exclude_domains=exclude_domains,
+                valid_sources: list[SourceCandidate] = []
+                for source in found:
+                    try:
+                        valid_sources.append(
+                            self._validate_discovery_source(
+                                self._enrich_discovery_geographies(
+                                    source,
+                                    geographies,
+                                    queries,
+                                    include_domains,
+                                ),
+                                geographies=geographies,
+                                since=since,
+                                until=until,
+                                include_domains=include_domains,
+                                exclude_domains=exclude_domains,
+                            )
+                        )
+                    except ValueError as error:
+                        filtered_source_rejections.append(str(error))
+                if not valid_sources:
+                    raise ValueError(
+                        "Tavily search returned no sources inside the configured policy"
                     )
-                    for source in found
-                ]
             except Exception as error:
+                failure = error
                 tool_errors.append(error.__class__.__name__)
                 raise
             finally:
-                tool_latency_by_input[input_hash] = max(
-                    0, int((monotonic() - started) * 1000)
-                )
+                latency_ms = max(0, int((monotonic() - started) * 1000))
+                tool_latency_by_input[input_hash] = latency_ms
+                if failure is not None:
+                    record_tool_failure("tavily_search", input_hash, 0, latency_ms, failure)
             for source in valid_sources:
                 if can_extract_url(source.url):
                     known_sources.setdefault(normalize_url(source.url), source)
@@ -938,8 +1122,16 @@ class OpenRouterProvider:
         async def run_extract(urls: list[str]) -> str:
             input_hash = self._tool_input_hash(None, urls)
             started = monotonic()
+            failure: BaseException | None = None
             try:
                 normalized = [normalize_url(url) for url in urls]
+                if normalized and all(url in captured_content for url in normalized):
+                    return json.dumps(
+                        {
+                            "extracted_urls": sorted(captured_content),
+                            "extracted_count": len(captured_content),
+                        }
+                    )
                 reserve_tool_call(sum(len(url) for url in normalized))
                 if any(url not in known_sources for url in normalized):
                     raise ValueError("extraction URL was not returned by Tavily Search")
@@ -956,12 +1148,20 @@ class OpenRouterProvider:
                 if missing_content:
                     raise ValueError("Tavily extraction returned incomplete content")
             except Exception as error:
+                failure = error
                 tool_errors.append(error.__class__.__name__)
                 raise
             finally:
-                tool_latency_by_input[input_hash] = max(
-                    0, int((monotonic() - started) * 1000)
-                )
+                latency_ms = max(0, int((monotonic() - started) * 1000))
+                tool_latency_by_input[input_hash] = latency_ms
+                if failure is not None:
+                    record_tool_failure(
+                        "tavily_extract",
+                        input_hash,
+                        len(urls),
+                        latency_ms,
+                        failure,
+                    )
             captured_content.update(normalized_extracted)
             return json.dumps(
                 {
@@ -1006,12 +1206,13 @@ class OpenRouterProvider:
             packet = await self._invoke_structured(
                 LaneDiscoveryPacket,
                 prompt,
-                prompt_version="discovery-v2",
+                prompt_version="discovery-v3-multilingual",
                 operation=f"discovery:{lane}",
                 tools=tools,
                 required_tools=("tavily_search", "tavily_extract"),
                 attempt_sink=attempt_sink,
                 tool_latency_by_input=tool_latency_by_input,
+                tool_failure_sink=tool_failure_receipts,
             )
         except ProviderError as error:
             if tool_calls > MAX_DISCOVERY_TOOL_CALLS:
@@ -1061,6 +1262,8 @@ class OpenRouterProvider:
             "tool_input_chars": tool_input_chars,
             "extracted_count": len(content),
             "tool_errors": tool_errors,
+            "filtered_source_count": len(filtered_source_rejections),
+            "filtered_source_reasons": sorted(set(filtered_source_rejections)),
             "agent_call": dict(attempt_sink[-1]) if attempt_sink else {},
             "attempts": list(attempt_sink),
         }
@@ -1084,7 +1287,10 @@ class OpenRouterProvider:
             if not output.ok:
                 raise ProviderError("OpenRouter health response was not affirmative")
             metadata = self.current_call_metadata()
-            return self._require_strict_resolved_model(metadata)
+            requested_model = metadata.get("requested_model")
+            if not isinstance(requested_model, str):
+                requested_model = self.model_name
+            return self._require_resolved_model(metadata, requested_model)
         except ProviderError:
             raise
         except Exception as error:
@@ -1103,11 +1309,14 @@ class OpenRouterProvider:
             "Use only the supplied public source; do not use outside knowledge. "
             "User-provided seed links remain unverified until independently supported. "
             "Do not provide legal advice. Return only the requested structured fields.\n\n"
-            "Rules: keep the summary concise; return no more than three short "
-            "key_points, entities, signals, three claims, and three limitations; "
+            "Rules: keep the summary concise; detect the source language; preserve an "
+            "original-language summary and key points, then provide normalized English "
+            "fields; return no more than three short key_points, entities, signals, "
+            "three claims, and three limitations; "
             "include limitations and access gaps; mark unsupported or inferred claims "
             "unverified; use the source URL exactly as provided for every citation; "
-            "never invent a citation, date, number, entity, or event.\n\n"
+            "never invent a citation, date, number, entity, or event. Evidence excerpts "
+            "must be <=320 characters and <=40 words and must be copied from the source.\n\n"
             f"SOURCE URL: {source.url}\nTITLE: {source.title}\n"
             f"PUBLISHER: {source.publisher}\nCONTENT:\n{content[:MAX_SOURCE_CONTENT_CHARS]}"
         )
@@ -1119,6 +1328,12 @@ class OpenRouterProvider:
                 operation="distillation",
             )
             metadata = self.current_call_metadata()
+            translation_status = output.translation_status
+            if (
+                output.source_language not in {"en", "und"}
+                and translation_status is TranslationStatus.NOT_NEEDED
+            ):
+                translation_status = TranslationStatus.FAILED
             return ArticleDistillation(
                 source_url=source.url,
                 summary=output.summary,
@@ -1128,8 +1343,23 @@ class OpenRouterProvider:
                 claims=output.claims[:MAX_CLAIMS_PER_SOURCE],
                 limitations=output.limitations,
                 published_at=source.published_at,
-                model_id=self._require_strict_resolved_model(metadata),
+                model_id=self._require_resolved_model(
+                    metadata,
+                    str(metadata.get("requested_model", self.model_name)),
+                ),
                 prompt_version=prompt_version,
+                source_language=output.source_language,
+                summary_original=output.summary_original or output.summary,
+                key_points_original=output.key_points_original or output.key_points,
+                translation_status=translation_status,
+                evidence_excerpts=output.evidence_excerpts,
+                evidence_locators=output.evidence_locators,
+                evidence_status=(
+                    EvidenceStatus.PARTIALLY_SUPPORTED
+                    if output.source_language not in {"en", "und"}
+                    and translation_status is TranslationStatus.FAILED
+                    else EvidenceStatus.MIXED
+                ),
             )
         except ProviderError:
             raise
@@ -1213,7 +1443,10 @@ class OpenRouterProvider:
                 source_urls=[item.source_url for item in distillations],
                 limitations=output.limitations,
                 evidence_status=output.evidence_status,
-                model_id=self._require_strict_resolved_model(metadata),
+                model_id=self._require_resolved_model(
+                    metadata,
+                    str(metadata.get("requested_model", self.model_name)),
+                ),
                 prompt_version=prompt_version,
                 executive_bullets=output.executive_bullets,
                 developments=output.developments,

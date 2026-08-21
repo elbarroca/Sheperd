@@ -129,6 +129,134 @@ def test_rate_limit_fails_without_retry_or_fallback(
     assert provider.call_history[0]["error_code"] == "rate_limit"
 
 
+def test_free_fallback_advances_after_primary_rate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _stub_provider()
+    fallback_model = "nvidia/nemotron-3-super-120b-a12b:free"
+    provider.model_chain = (STRICT_OPENROUTER_MODEL, fallback_model)
+    provider.allow_free_fallbacks = True
+    provider._model_for = lambda model: model
+
+    class SuccessfulFallbackAgent:
+        async def ainvoke(self, payload: object, **_: object) -> dict[str, object]:
+            del payload
+            return {
+                "structured_response": {"ok": True},
+                "messages": [
+                    SimpleNamespace(
+                        response_metadata={
+                            "model_name": fallback_model,
+                            "id": "fallback-request",
+                            "token_usage": {
+                                "prompt_tokens": 10,
+                                "completion_tokens": 4,
+                                "total_tokens": 14,
+                            },
+                        },
+                        usage_metadata={},
+                        tool_calls=[
+                            {
+                                "id": "schema-1",
+                                "name": "HealthOutput",
+                                "args": {"ok": True},
+                            }
+                        ],
+                    ),
+                    ToolMessage(
+                        content='{"ok": true}',
+                        tool_call_id="schema-1",
+                        status="success",
+                    ),
+                ],
+            }
+
+    def create_for_model(*, model: object, **_: object) -> object:
+        if model == STRICT_OPENROUTER_MODEL:
+            return RateLimitedAgent()
+        return SuccessfulFallbackAgent()
+
+    monkeypatch.setattr(openrouter_module, "create_agent", create_for_model)
+
+    result = asyncio.run(provider.health_check())
+
+    assert result == fallback_model
+    assert [item["requested_model"] for item in provider.call_history] == [
+        STRICT_OPENROUTER_MODEL,
+        fallback_model,
+    ]
+    assert provider.call_history[-1]["fallback_reason"] == (
+        f"{STRICT_OPENROUTER_MODEL}:rate_limit"
+    )
+
+
+def test_free_fallback_advances_after_tool_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _stub_provider()
+    fallback_model = "nvidia/nemotron-nano-9b-v2:free"
+    provider.model_chain = (STRICT_OPENROUTER_MODEL, fallback_model)
+    provider.allow_free_fallbacks = True
+    provider._model_for = lambda model: model
+
+    class InvalidToolAgent:
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            return {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {"id": "unknown-1", "name": "unknown_tool", "args": {}}
+                        ],
+                    ),
+                    ToolMessage(
+                        content='{"ok": true}',
+                        tool_call_id="unknown-1",
+                        status="success",
+                    ),
+                ]
+            }
+
+    class SuccessfulAgent:
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            return {
+                "structured_response": {"ok": True},
+                "messages": [
+                    SimpleNamespace(
+                        response_metadata={
+                            "model_name": fallback_model,
+                            "id": "fallback-tool-request",
+                            "token_usage": {"total_tokens": 10},
+                        },
+                        usage_metadata={},
+                        tool_calls=[
+                            {
+                                "id": "schema-1",
+                                "name": "HealthOutput",
+                                "args": {"ok": True},
+                            }
+                        ],
+                    ),
+                    ToolMessage(
+                        content='{"ok": true}',
+                        tool_call_id="schema-1",
+                        status="success",
+                    ),
+                ],
+            }
+
+    def create_for_model(*, model: object, **_: object) -> object:
+        return InvalidToolAgent() if model == STRICT_OPENROUTER_MODEL else SuccessfulAgent()
+
+    monkeypatch.setattr(openrouter_module, "create_agent", create_for_model)
+
+    assert asyncio.run(provider.health_check()) == fallback_model
+    assert provider.call_history[0]["error_code"] == "tool_failure"
+    assert provider.call_history[-1]["fallback_reason"] == (
+        f"{STRICT_OPENROUTER_MODEL}:tool_failure"
+    )
+
+
 def test_timeout_retry_records_two_attempts_for_gemma_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -409,6 +537,58 @@ def test_discovery_requires_model_issued_tavily_tool_calls(
     assert all("urls" not in receipt for receipt in receipts)
 
 
+def test_discovery_persists_failed_tavily_tool_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TavilyFailure:
+        async def search(self, *_: object, **__: object) -> list[SourceCandidate]:
+            raise ProviderError(
+                "Tavily plan usage limit reached",
+                error_code="plan_usage_limit",
+            )
+
+        async def extract(self, _: list[SourceCandidate]) -> dict[str, str]:
+            return {}
+
+    class FailingAgent:
+        def __init__(self, tools: list[object]) -> None:
+            self.tools = {tool.name: tool for tool in tools}
+
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            await self.tools["tavily_search"].ainvoke({"query": "configured"})
+            return {}
+
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+    monkeypatch.setattr(
+        openrouter_module,
+        "create_agent",
+        lambda *, tools, **_: FailingAgent(tools),
+    )
+
+    with pytest.raises(ProviderError, match="OpenRouter discovery:regulatory failed"):
+        asyncio.run(
+            provider.discover_lane(
+                "regulatory",
+                ["configured"],
+                ("Regulatory",),
+                since=datetime(2026, 8, 1, tzinfo=UTC),
+                until=datetime(2026, 8, 20, tzinfo=UTC),
+                include_domains=["fmc.gov"],
+                exclude_domains=[],
+                max_results=1,
+                tavily=TavilyFailure(),
+            )
+        )
+
+    attempt = provider.call_history[0]
+    assert attempt["error_code"] == "plan_usage_limit"
+    assert attempt["tool_calls"] == 1
+    assert attempt["tool_call_receipts"][0]["tool_name"] == "tavily_search"
+    assert attempt["tool_call_receipts"][0]["error_code"] == "plan_usage_limit"
+    assert attempt["tool_call_receipts"][0]["status"] == "failed"
+
+
 def test_discovery_rejects_a_zero_tool_response(monkeypatch: pytest.MonkeyPatch) -> None:
     class ZeroToolAgent:
         async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
@@ -539,6 +719,25 @@ def test_discovery_rejects_unverifiable_tavily_scope_metadata() -> None:
         )
 
 
+def test_discovery_accepts_undated_tavily_source() -> None:
+    source = SourceCandidate(
+        url="https://www.fmc.gov/readingroom/example",
+        publisher="fmc.gov",
+        geographies=["Regulatory"],
+    )
+
+    validated = OpenRouterProvider._validate_discovery_source(
+        source,
+        geographies=("Regulatory",),
+        since=datetime(2026, 8, 1, tzinfo=UTC),
+        until=datetime(2026, 8, 20, tzinfo=UTC),
+        include_domains=["fmc.gov"],
+        exclude_domains=[],
+    )
+
+    assert validated.published_at is None
+
+
 def test_discovery_maps_live_tavily_fmc_result_to_catalog_geography() -> None:
     source = TavilyProvider._source_from_result(
         {
@@ -573,15 +772,27 @@ def test_discovery_maps_every_configured_query_family_from_domain_evidence() -> 
     domain_cases = (
         ("fmc.gov", "Regulatory"),
         ("ecfr.gov", "Regulatory"),
+        ("federalregister.gov", "Regulatory"),
+        ("cadc.uscourts.gov", "Regulatory"),
+        ("justice.gov", "Regulatory"),
+        ("ftc.gov", "Regulatory"),
         ("portoflosangeles.org", "West Coast"),
         ("polb.com", "West Coast"),
         ("oaklandca.gov", "West Coast"),
         ("nwseaportalliance.com", "West Coast"),
+        ("portseattle.org", "West Coast"),
+        ("portoftacoma.com", "West Coast"),
         ("gaports.com", "East Coast"),
         ("scspa.com", "East Coast"),
         ("panynj.gov", "East Coast"),
+        ("portofvirginia.com", "East Coast"),
         ("porthouston.com", "Gulf"),
         ("puertomanzanillo.com.mx", "Mexico"),
+        ("puertolazarocardenas.com.mx", "Mexico"),
+        ("puertodeveracruz.com.mx", "Mexico"),
+        ("puertoaltamira.com.mx", "Mexico"),
+        ("anam.gob.mx", "Mexico"),
+        ("gob.mx", "Mexico"),
         ("transport.ec.europa.eu", "Europe"),
         ("emsa.europa.eu", "Europe"),
         ("ec.europa.eu", "Europe"),
@@ -593,8 +804,23 @@ def test_discovery_maps_every_configured_query_family_from_domain_evidence() -> 
         ("portoffelixstowe.co.uk", "Europe"),
         ("peelports.com", "Europe"),
     )
+    non_geographic_domains = (
+        "imo.org",
+        "unctad.org",
+        "worldbank.org",
+        "portwatch.imf.org",
+        "wto.org",
+        "courtlistener.com",
+        "gcaptain.com",
+        "container-news.com",
+        "theloadstar.com",
+        "splash247.com",
+    )
 
-    assert topics["dnd-port"].include_domains == [case[0] for case in domain_cases]
+    assert set(topics["dnd-port"].include_domains) == {
+        *[case[0] for case in domain_cases],
+        *non_geographic_domains,
+    }
     for host, expected_geography in domain_cases:
         enriched = OpenRouterProvider._enrich_discovery_geographies(
             SourceCandidate(url=f"https://www.{host}/example"),
@@ -654,7 +880,6 @@ def test_discovery_maps_every_configured_query_family_from_domain_evidence() -> 
         "apmterminals.com",
         "maersk.com",
         "hapag-lloyd.com",
-        "gcaptain.com",
     }.intersection(topics["dnd-port"].include_domains)
 
     houston = OpenRouterProvider._enrich_discovery_geographies(
@@ -921,6 +1146,45 @@ def test_tool_receipts_reject_malformed_success_payloads(
     }
 
     assert OpenRouterProvider._tool_call_receipts(result)[0]["status"] == "failed"
+
+
+def test_tool_receipts_accept_undated_search_results() -> None:
+    result = {
+        "messages": [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "call-1",
+                        "name": "tavily_search",
+                        "args": {"query": "configured"},
+                    }
+                ],
+            ),
+            ToolMessage(
+                content=json.dumps(
+                    {
+                        "query": "configured",
+                        "sources": [
+                            {
+                                "url": "https://www.fmc.gov/example",
+                                "title": "FMC source",
+                                "publisher": "www.fmc.gov",
+                                "published_at": None,
+                                "snippet": "Public source",
+                            }
+                        ],
+                    }
+                ),
+                tool_call_id="call-1",
+                status="success",
+            ),
+        ]
+    }
+
+    receipt = OpenRouterProvider._tool_call_receipts(result)[0]
+    assert receipt["status"] == "succeeded"
+    assert receipt["result_count"] == 1
 
 
 def test_discovery_rejects_a_failed_extra_tool_receipt(

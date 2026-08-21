@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sheperd_research.contracts import (
     ArticleDistillation,
     ClaimDraft,
+    ResearchCadence,
     ResearchRunRequest,
     ReviewState,
     SignalEvent,
@@ -135,6 +136,24 @@ def test_dashboard_exposes_read_only_run_source_and_brief_views() -> None:
     assert "user:secret@example.com" not in audit.text
     assert audit.json()["metrics"]["step_count"] == 1
     assert client.get("/api/reports/monthly").status_code == 200
+
+    repository.create_run(
+        "daily-run",
+        ResearchRunRequest(topic_set="dnd-port", cadence=ResearchCadence.DAILY),
+    )
+    repository.record_brief(
+        WeeklyBrief(
+            run_id="daily-run",
+            title="Daily brief",
+            covered_from=datetime(2026, 8, 19, tzinfo=UTC),
+            covered_until=datetime(2026, 8, 20, tzinfo=UTC),
+            summary="DRAFT - HUMAN REVIEW REQUIRED\n\nDaily summary.",
+            review_state=ReviewState.DRAFT,
+        )
+    )
+    daily = client.get("/api/reports/daily")
+    assert daily.status_code == 200
+    assert [report["run_id"] for report in daily.json()["reports"]] == ["daily-run"]
 
 
 def test_api_sources_honors_offset_pagination() -> None:

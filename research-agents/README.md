@@ -42,23 +42,27 @@ and existing run rows; paid or router model identifiers are not permitted.
 uv run sheperd-research doctor --json
 uv run sheperd-research model-check --json
 uv run sheperd-research mcp-check --json
+uv run sheperd-research source-map --check --strict --json
 uv run sheperd-research migrate
+uv run sheperd-research agent-check --allow-free-fallbacks --json
 uv run sheperd-research run --topic-set dnd-port
 uv run sheperd-research e2e --profile canary --run-id e2e-<timestamp> --as-of "<timestamp>" --json
 uv run sheperd-research validate --run-id <run-id>
+uv run sheperd-research index --region all --run-id <run-id> --json
 uv run sheperd-research dashboard
 uv run sheperd-research review --run-id <run-id> --decision approve --reviewer Mikey
 uv run sheperd-research export --run-id <run-id>
 ```
 
-The dashboard listens on `http://127.0.0.1:8787`. It is read-only; use the CLI for review and export decisions. HTML and JSON routes expose runs, step latency and hashes, sources, claims, distillations, signals, validations, and weekly briefs. Search supports full-text queries plus geography, lane, evidence, status, and date filters.
+The dashboard listens on `http://127.0.0.1:8787`. It is read-only; use the CLI for review and export decisions. HTML and JSON routes expose runs, step latency and hashes, sources, claims, distillations, signals, validations, and weekly briefs. Search supports full-text queries plus geography, region, language, freshness, authority, lane, evidence, status, and date filters. Regional Markdown indexes under `../obsidian/06_Research/Research Index/` are generated from Neon and contain structured summaries, claims, citations, evidence locators, and hashes only.
 
 `mcp-check` is intentionally host-controlled: run the Tavily and Neon MCP smoke
 checks from the development host. The service itself uses direct Tavily, OpenRouter,
-and PostgreSQL clients. Production execution accepts only
-`google/gemma-4-26b-a4b-it:free`, requires a live OpenRouter capability manifest
-showing free pricing plus tool and structured-output support, and does not allow
-configured or provider-level fallbacks.
+and PostgreSQL clients. Gemma (`google/gemma-4-26b-a4b-it:free`) is always the
+primary model. The default production-safe mode is strict Gemma-only; use
+`--allow-free-fallbacks` only when an audited, app-controlled free chain is
+required. That mode still requires live capability metadata, disables OpenRouter
+provider fallback, records every attempt, and never permits a paid model.
 
 ## Research state
 

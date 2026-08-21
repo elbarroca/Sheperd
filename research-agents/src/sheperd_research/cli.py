@@ -38,12 +38,18 @@ from .diagnostics import (
     validate_dev_branch,
 )
 from .exporters.obsidian import export_reviewed_brief
+from .exporters.regional_indexes import generate_regional_indexes
 from .providers.capabilities import CapabilityReport, resolve_capabilities
 from .providers.errors import ProviderError
 from .providers.openrouter import OpenRouterProvider
 from .providers.tavily import TavilyProvider
-from .settings import STRICT_OPENROUTER_MODEL, Settings, strict_openrouter_policy_error
-from .source_catalog import load_source_catalog, validate_required_sources
+from .settings import (
+    STRICT_OPENROUTER_MODEL,
+    Settings,
+    free_openrouter_policy_error,
+    strict_openrouter_policy_error,
+)
+from .source_catalog import REGIONS, load_source_catalog, validate_required_sources
 from .topics import load_topic_configs
 from .validation import build_validation_report
 from .web import create_app
@@ -231,8 +237,11 @@ def _capability_report(
 
 
 def _run_command(args: argparse.Namespace, settings: Settings) -> int:
-    if not getattr(args, "strict", True):
-        return _blocked(args, "run requires --strict")
+    allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
+    if not getattr(args, "strict", True) and not allow_free_fallbacks:
+        return _blocked(args, "run requires --strict or --allow-free-fallbacks")
+    if getattr(args, "strict", False) and allow_free_fallbacks:
+        return _blocked(args, "--strict and --allow-free-fallbacks are mutually exclusive")
     if not settings.has_database_credentials:
         return _blocked(args, "set pooled DATABASE_URL in the repository-root .env.local")
     if not settings.has_live_provider_credentials:
@@ -241,10 +250,20 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
             "set replacement Tavily and OpenRouter keys in the repository-root .env.local",
         )
     requested_model = args.model or settings.openrouter_model
-    policy_error = strict_openrouter_policy_error(
-        requested_model,
-        settings.openrouter_fallback_model_list,
-        raw_fallback_config=settings.openrouter_fallback_models,
+    model_chain = settings.model_chain(allow_free_fallbacks=allow_free_fallbacks)
+    fallback_models = model_chain[1:]
+    policy_error = (
+        free_openrouter_policy_error(
+            requested_model,
+            fallback_models,
+            raw_fallback_config=settings.openrouter_fallback_models,
+        )
+        if allow_free_fallbacks
+        else strict_openrouter_policy_error(
+            requested_model,
+            settings.openrouter_fallback_model_list,
+            raw_fallback_config=settings.openrouter_fallback_models,
+        )
     )
     if policy_error is not None:
         return _blocked(args, policy_error)
@@ -263,7 +282,7 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
     try:
         capabilities = _capability_report(
             settings,
-            (request.model,),
+            (request.model, *fallback_models),
             require_tools=True,
             allow_cached=False,
         )
@@ -293,10 +312,22 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
                     OpenRouterProvider(
                         openrouter_key.get_secret_value(),
                         request.model,
+                        fallback_models=tuple(
+                            model
+                            for model in fallback_models
+                            if model != request.model
+                        ),
+                        allow_free_fallbacks=allow_free_fallbacks,
                         max_output_tokens=settings.llm_max_output_tokens,
                         capability_report=capabilities,
                         max_concurrent_requests=(
-                            2 if getattr(args, "profile", "full") == "canary" else 1
+                            1
+                            if allow_free_fallbacks
+                            else (
+                                2
+                                if getattr(args, "profile", "full") == "canary"
+                                else 1
+                            )
                         ),
                     ),
                     load_topic_configs(settings.resolved_topics_path),
@@ -345,6 +376,7 @@ def _rollup_command(args: argparse.Namespace, settings: Settings) -> int:
 
 def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
     stages: dict[str, dict[str, object]] = {}
+    allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
 
     def stage(name: str, status: str, **details: object) -> None:
         stages[name] = {"status": status, **details}
@@ -357,14 +389,37 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
         stage("environment", "blocked", message="Tavily and OpenRouter credentials are required")
         _print_json({"status": "blocked", "stages": stages})
         return 2
-    if settings.strict_openrouter_policy_error is not None:
-        stage("environment", "blocked", message=settings.strict_openrouter_policy_error)
+    if getattr(args, "strict", False) and allow_free_fallbacks:
+        stage(
+            "environment",
+            "blocked",
+            message="--strict and --allow-free-fallbacks are mutually exclusive",
+        )
+        _print_json({"status": "blocked", "stages": stages})
+        return 2
+    model_chain = settings.model_chain(allow_free_fallbacks=allow_free_fallbacks)
+    fallback_models = model_chain[1:]
+    policy_error = (
+        free_openrouter_policy_error(
+            settings.openrouter_model,
+            fallback_models,
+            raw_fallback_config=settings.openrouter_fallback_models,
+        )
+        if allow_free_fallbacks
+        else strict_openrouter_policy_error(
+            settings.openrouter_model,
+            settings.openrouter_fallback_model_list,
+            raw_fallback_config=settings.openrouter_fallback_models,
+        )
+    )
+    if policy_error is not None:
+        stage("environment", "blocked", message=policy_error)
         _print_json({"status": "blocked", "stages": stages})
         return 2
     try:
         capabilities = _capability_report(
             settings,
-            settings.openrouter_model_chain,
+            model_chain,
             require_tools=True,
             allow_cached=False,
         )
@@ -379,8 +434,8 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
     stage(
         "environment",
         "pass",
-        model=STRICT_OPENROUTER_MODEL,
-        fallback_models=[],
+        model=settings.openrouter_model,
+        fallback_models=list(capabilities.eligible_models[1:]),
         eligible_models=list(capabilities.eligible_models),
         skipped_models=list(capabilities.skipped_models),
         capability_manifest_hash=capabilities.manifest_hash,
@@ -416,9 +471,15 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
                     OpenRouterProvider(
                         openrouter_key.get_secret_value(),
                         request.model,
+                        fallback_models=fallback_models,
+                        allow_free_fallbacks=allow_free_fallbacks,
                         max_output_tokens=settings.llm_max_output_tokens,
                         capability_report=capabilities,
-                        max_concurrent_requests=2 if args.profile == "canary" else 1,
+                        max_concurrent_requests=(
+                            1
+                            if allow_free_fallbacks
+                            else (2 if args.profile == "canary" else 1)
+                        ),
                     ),
                     load_topic_configs(settings.resolved_topics_path),
                     checkpointer=checkpointer,
@@ -553,11 +614,31 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
     provider: OpenRouterProvider | None = None
     capabilities: CapabilityReport | None = None
     try:
-        if settings.strict_openrouter_policy_error is not None:
-            raise ProviderError(settings.strict_openrouter_policy_error)
+        allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
+        if getattr(args, "strict", False) and allow_free_fallbacks:
+            raise ProviderError(
+                "--strict and --allow-free-fallbacks are mutually exclusive"
+            )
+        model_chain = settings.model_chain(allow_free_fallbacks=allow_free_fallbacks)
+        fallback_models = model_chain[1:]
+        policy_error = (
+            free_openrouter_policy_error(
+                settings.openrouter_model,
+                fallback_models,
+                raw_fallback_config=settings.openrouter_fallback_models,
+            )
+            if allow_free_fallbacks
+            else strict_openrouter_policy_error(
+                settings.openrouter_model,
+                settings.openrouter_fallback_model_list,
+                raw_fallback_config=settings.openrouter_fallback_models,
+            )
+        )
+        if policy_error is not None:
+            raise ProviderError(policy_error)
         capabilities = _capability_report(
             settings,
-            settings.openrouter_model_chain,
+            model_chain,
             require_tools=True,
             allow_cached=False,
         )
@@ -569,6 +650,8 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
         provider = OpenRouterProvider(
             settings.openrouter_api_key.get_secret_value(),
             settings.openrouter_model,
+            fallback_models=fallback_models,
+            allow_free_fallbacks=allow_free_fallbacks,
             capability_report=capabilities,
             timeout_seconds=15,
         )
@@ -614,7 +697,14 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
             "tavily_search": "tavily_search" in tool_names,
             "tavily_extract": "tavily_extract" in tool_names,
             "structured_output": bool(result.packet.source_urls),
-            "strict_resolved_model": resolved_models == [STRICT_OPENROUTER_MODEL],
+            "resolved_models_free": all(
+                model in set(capabilities.eligible_models) for model in resolved_models
+            ),
+            "strict_resolved_model": (
+                resolved_models == [STRICT_OPENROUTER_MODEL]
+                if not allow_free_fallbacks
+                else True
+            ),
         }
         passed = all(checks.values()) and bool(receipts)
         _print_json(
@@ -631,10 +721,19 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
         )
         return 0 if passed else 2
     except (ProviderError, ValueError) as error:
+        attempt_error_code = next(
+            (
+                str(attempt.get("error_code"))
+                for attempt in reversed(provider.call_history if provider else [])
+                if isinstance(attempt, dict) and attempt.get("error_code")
+            ),
+            None,
+        )
         _print_json(
             {
                 "status": "partial",
-                "message": error.__class__.__name__,
+                "message": str(error),
+                "error_code": getattr(error, "error_code", None) or attempt_error_code,
                 "capabilities": capabilities.as_dict() if capabilities else None,
                 "attempts": provider.call_history if provider else [],
             }
@@ -658,6 +757,9 @@ def _validate_command(args: argparse.Namespace, settings: Settings) -> int:
         request = ResearchRunRequest.model_validate(request_value)
         sources = repository.get_run_sources(args.run_id)
         claims = repository.get_run_claims(args.run_id)
+        get_distillations = getattr(repository, "get_run_distillations", None)
+        distillations = get_distillations(args.run_id) if callable(get_distillations) else None
+        strict_profile = request.validation_profile in {"full", "global-canary"}
         report = build_validation_report(
             args.run_id,
             sources,
@@ -666,8 +768,8 @@ def _validate_command(args: argparse.Namespace, settings: Settings) -> int:
             request.model,
             repository.get_run_lane_statuses(args.run_id),
             repository.get_run_snapshot_hashes(args.run_id),
-            minimum_sources=1 if request.validation_profile == "canary" else 10,
-            minimum_claims=1 if request.validation_profile == "canary" else 5,
+            minimum_sources=1 if request.validation_profile in {"canary", "global-canary"} else 10,
+            minimum_claims=1 if request.validation_profile in {"canary", "global-canary"} else 5,
             tool_call_count=sum(
                 1
                 for call in repository.get_run_tool_calls(args.run_id)
@@ -687,6 +789,24 @@ def _validate_command(args: argparse.Namespace, settings: Settings) -> int:
                 )
                 for lane in ("regulatory", "us-ports", "mexico")
             },
+            distillations=distillations,
+            required_geographies=(
+                {
+                    "Regulatory",
+                    "United States",
+                    "West Coast",
+                    "East Coast",
+                    "Gulf",
+                    "Canada",
+                    "Mexico",
+                    "Europe",
+                    "South America",
+                    "Middle East",
+                }
+                if strict_profile
+                else set()
+            ),
+            required_regions=(set(REGIONS) - {"global"} if strict_profile else set()),
         )
         repository.record_validation(report)
         _print_json(report.model_dump(mode="json"))
@@ -768,9 +888,11 @@ def _source_map_command(args: argparse.Namespace, settings: Settings) -> int:
         for source in catalog.required_sources()
         if statuses.get(source.source_id) != "pass"
     )
+    observed_regions = {source.region for source in catalog.enabled_sources()}
+    missing_regions = sorted(set(REGIONS) - observed_regions)
     status = "pass"
     if validation_message is not None or (
-        args.check and (missing_observations or failing_required)
+        args.check and (missing_observations or failing_required or missing_regions)
     ):
         status = "failed" if args.strict else "partial"
 
@@ -784,6 +906,7 @@ def _source_map_command(args: argparse.Namespace, settings: Settings) -> int:
                 "coverage_weights": catalog.coverage_weights.as_dict(),
                 "required_failures": failing_required,
                 "missing_observations": missing_observations,
+                "missing_regions": missing_regions,
                 "validation_error_code": validation_error_code,
                 "validation_message": validation_message,
             },
@@ -791,6 +914,27 @@ def _source_map_command(args: argparse.Namespace, settings: Settings) -> int:
         }
     )
     return 0 if status == "pass" or (status == "partial" and not args.strict) else 2
+
+
+def _index_command(args: argparse.Namespace, settings: Settings) -> int:
+    if not _require_database(settings):
+        return 2
+    repository = _database(settings)
+    try:
+        requested = args.region.strip().lower()
+        regions = "all" if requested == "all" else [requested]
+        result = generate_regional_indexes(
+            repository,
+            settings.vault_root / "06_Research" / "Research Index",
+            run_id=args.run_id,
+            regions=regions,
+        )
+        _print_json(result)
+        return 0 if result["status"] == "pass" else 2
+    except (RuntimeError, ValueError, OSError) as error:
+        return _blocked(args, f"regional index generation failed: {error.__class__.__name__}")
+    finally:
+        repository.close()
 
 
 def _review_command(args: argparse.Namespace, settings: Settings) -> int:
@@ -867,6 +1011,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--topic-set", default="dnd-port")
     run.add_argument("--cadence", choices=["daily", "weekly"], default="weekly")
     run.add_argument("--strict", action="store_true")
+    run.add_argument("--allow-free-fallbacks", action="store_true")
     run.add_argument("--json", action="store_true")
     run.add_argument("--run-id")
     run.add_argument("--since")
@@ -876,22 +1021,40 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--seed-url", action="append", default=[])
 
     e2e = subparsers.add_parser("e2e")
-    e2e.add_argument("--profile", choices=["canary", "full"], default="canary")
+    e2e.add_argument(
+        "--profile", choices=["canary", "global-canary", "full"], default="canary"
+    )
+    e2e.add_argument("--strict", action="store_true")
+    e2e.add_argument("--allow-free-fallbacks", action="store_true")
     e2e.add_argument("--run-id", required=True)
     e2e.add_argument("--as-of")
     e2e.add_argument("--json", action="store_true")
 
     agent_check = subparsers.add_parser("agent-check")
+    agent_check.add_argument("--strict", action="store_true")
+    agent_check.add_argument("--allow-free-fallbacks", action="store_true")
     agent_check.add_argument("--as-of")
     agent_check.add_argument("--json", action="store_true")
 
-    subparsers.add_parser("doctor").add_argument("--json", action="store_true")
-    subparsers.add_parser("mcp-check").add_argument("--json", action="store_true")
-    subparsers.add_parser("model-check").add_argument("--json", action="store_true")
+    doctor = subparsers.add_parser("doctor")
+    doctor.add_argument("--strict", action="store_true")
+    doctor.add_argument("--allow-free-fallbacks", action="store_true")
+    doctor.add_argument("--json", action="store_true")
+    mcp_check_parser = subparsers.add_parser("mcp-check")
+    mcp_check_parser.add_argument("--strict", action="store_true")
+    mcp_check_parser.add_argument("--json", action="store_true")
+    model_check = subparsers.add_parser("model-check")
+    model_check.add_argument("--strict", action="store_true")
+    model_check.add_argument("--allow-free-fallbacks", action="store_true")
+    model_check.add_argument("--json", action="store_true")
     source_map = subparsers.add_parser("source-map")
     source_map.add_argument("--check", action="store_true")
     source_map.add_argument("--strict", action="store_true")
     source_map.add_argument("--json", action="store_true")
+    index = subparsers.add_parser("index")
+    index.add_argument("--region", default="all")
+    index.add_argument("--run-id", required=True)
+    index.add_argument("--json", action="store_true")
     subparsers.add_parser("dashboard")
     subparsers.add_parser("migrate")
 
@@ -928,7 +1091,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "agent-check":
         return _agent_check_command(args, settings)
     if args.command == "doctor":
-        result = asyncio.run(run_doctor(settings))
+        if args.strict and args.allow_free_fallbacks:
+            _print_json(
+                {
+                    "status": "blocked",
+                    "message": "--strict and --allow-free-fallbacks are mutually exclusive",
+                }
+            )
+            return 2
+        result = asyncio.run(
+            run_doctor(settings, allow_free_fallbacks=args.allow_free_fallbacks)
+        )
         _print_json(result)
         return 0 if result["status"] == "pass" else 2
     if args.command == "mcp-check":
@@ -936,11 +1109,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json(result)
         return 0 if result["status"] == "pass" else 2
     if args.command == "model-check":
-        result = asyncio.run(run_model_check(settings))
+        if args.strict and args.allow_free_fallbacks:
+            _print_json(
+                {
+                    "status": "blocked",
+                    "message": "--strict and --allow-free-fallbacks are mutually exclusive",
+                }
+            )
+            return 2
+        result = asyncio.run(
+            run_model_check(
+                settings, allow_free_fallbacks=args.allow_free_fallbacks
+            )
+        )
         _print_json(result)
         return 0 if result["status"] == "pass" else 2
     if args.command == "source-map":
         return _source_map_command(args, settings)
+    if args.command == "index":
+        return _index_command(args, settings)
     if args.command == "validate":
         return _validate_command(args, settings)
     if args.command == "review":

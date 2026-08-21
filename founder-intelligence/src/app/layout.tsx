@@ -1,23 +1,13 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
-import { SHEPERD_BRAND } from "@/lib/brand";
-import "@xyflow/react/dist/style.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: `${SHEPERD_BRAND.name} Founder Intelligence`,
-    template: `%s | ${SHEPERD_BRAND.name} Intelligence`,
+    default: "SheperD Research",
+    template: "%s | SheperD Research",
   },
-  description: "Competitor, market, operating, and source intelligence for SheperD.",
-  icons: {
-    icon: [
-      { url: "/favicon.svg", type: "image/svg+xml" },
-      { url: SHEPERD_BRAND.logo.path, type: "image/png" },
-    ],
-    shortcut: "/favicon.svg",
-    apple: [{ url: SHEPERD_BRAND.logo.path, type: "image/png" }],
-  },
+  description: "Cited weekly maritime research reports for SheperD.",
   robots: { index: false, follow: false },
 };
 

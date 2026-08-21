@@ -18,6 +18,7 @@ from .contracts import (
     ArticleDistillation,
     ClaimDraft,
     EvidenceStatus,
+    ExtractionStatus,
     LaneDiscoveryResult,
     ReportBullet,
     ResearchCadence,
@@ -34,9 +35,11 @@ from .contracts import (
 )
 from .db import RepositoryProtocol
 from .providers.errors import ProviderError
+from .source_catalog import load_source_catalog
 from .topics import default_topic_configs
 from .validation import build_validation_report, source_quality_sources
 from .validators import (
+    classify_freshness,
     content_hash,
     deduplicate_sources,
     normalize_url,
@@ -53,13 +56,22 @@ DEFAULT_MAX_LLM_INPUT_CHARS = 350_000
 DEFAULT_MAX_RUN_SECONDS = 900
 # Keep workflow accounting aligned with the provider's bounded source window.
 MAX_LLM_SOURCE_CHARS = 8_000
+PIPELINE_OVERHEAD_RESERVE = 1_024
+DISCOVERY_INPUT_BUDGET_RESERVE = MAX_LLM_SOURCE_CHARS + PIPELINE_OVERHEAD_RESERVE
 PROMPT_VERSION = "workflow-v3"
 DAILY_BRIEF_PROMPT_VERSION = "daily-brief-v4"
-WEEKLY_BRIEF_PROMPT_VERSION = "weekly-brief-v4"
+WEEKLY_BRIEF_PROMPT_VERSION = "weekly-brief-v5-global"
+DISCOVERY_PROMPT_VERSION = "discovery-v3-multilingual"
+DISTILL_PROMPT_VERSION = "distill-v5-multilingual"
+CRITIC_PROMPT_VERSION = "critic-v5-evidence"
+GLOBAL_WEEKLY_BRIEF_PROMPT_VERSION = "weekly-brief-v5-global"
 CHECKPOINT_ALLOWED_MODULES = tuple(
     ("sheperd_research.contracts", name)
     for name in (
         "EvidenceStatus",
+        "FreshnessStatus",
+        "ExtractionStatus",
+        "TranslationStatus",
         "ReviewState",
         "RunStatus",
         "ValidationStatus",
@@ -95,6 +107,25 @@ LANES = (
     LaneSpec("us-ports", (1, 2), ("West Coast", "East Coast", "Gulf")),
     LaneSpec("mexico", (3, 4), ("Mexico", "Europe")),
 )
+
+LANE_REGION_PACKS: dict[str, tuple[str, ...]] = {
+    "regulatory": ("us", "canada", "europe", "global"),
+    "us-ports": ("us", "canada", "mexico"),
+    "mexico": ("mexico", "south-america", "middle-east", "global"),
+}
+
+STRICT_GLOBAL_GEOGRAPHIES = {
+    "Regulatory",
+    "United States",
+    "West Coast",
+    "East Coast",
+    "Gulf",
+    "Canada",
+    "Mexico",
+    "Europe",
+    "South America",
+    "Middle East",
+}
 
 
 class TavilyLike(Protocol):
@@ -538,6 +569,7 @@ class ResearchWorkflow:
         until: datetime,
         include_domains: list[str],
         exclude_domains: list[str],
+        allowed_geographies: tuple[str, ...] | None = None,
     ) -> SourceCandidate:
         if url_policy_error(source.url, excluded_domains=exclude_domains) is not None:
             raise ProviderError("discovery returned a source rejected by URL policy")
@@ -552,13 +584,53 @@ class ResearchWorkflow:
             raise ProviderError("discovery returned an excluded source host")
         if include_domains and not cls._domain_matches(host, include_domains):
             raise ProviderError("discovery returned a source outside allowed hosts")
-        if source.published_at is None or not since <= source.published_at <= until:
+        if source.published_at is not None and not since <= source.published_at <= until:
             raise ProviderError("discovery returned a source outside the date window")
-        allowed_geographies = {geography.casefold() for geography in lane.geographies}
+        observed_allowed_geographies = {
+            geography.casefold()
+            for geography in (allowed_geographies or lane.geographies)
+        }
         observed_geographies = {geography.casefold() for geography in source.geographies}
-        if not observed_geographies.intersection(allowed_geographies):
+        if not observed_geographies.intersection(observed_allowed_geographies):
             raise ProviderError("discovery returned a source outside lane geography")
         return source.model_copy(update={"url": normalized_url})
+
+    @staticmethod
+    def _source_region(source: SourceCandidate, lane: str) -> str:
+        observed = {value.casefold() for value in source.geographies}
+        if "canada" in observed:
+            return "canada"
+        if "mexico" in observed:
+            return "mexico"
+        if "europe" in observed:
+            return "europe"
+        if "south america" in observed:
+            return "south-america"
+        if "middle east" in observed:
+            return "middle-east"
+        if "global" in observed:
+            return "global"
+        if observed.intersection(
+            {"regulatory", "united states", "west coast", "east coast", "gulf"}
+        ):
+            return "us"
+        return {"regulatory": "us", "us-ports": "us"}.get(lane, "global")
+
+    @staticmethod
+    def _catalog_metadata(source: SourceCandidate) -> dict[str, object]:
+        host = (urlsplit(normalize_url(source.url)).hostname or "").lower()
+        try:
+            catalog = load_source_catalog()
+        except (FileNotFoundError, ValueError, OSError):
+            return {}
+        for catalog_source in catalog.enabled_sources():
+            if host == catalog_source.domain or host.endswith(f".{catalog_source.domain}"):
+                return {
+                    "catalog_source_id": catalog_source.source_id,
+                    "authority_tier": catalog_source.authority_tier,
+                    "source_type": catalog_source.source_type,
+                }
+        return {}
 
     async def _discover_lane(
         self,
@@ -581,20 +653,56 @@ class ResearchWorkflow:
         try:
             if not isinstance(self.llm, LaneResearchLike):
                 raise ProviderError("workflow requires model-issued lane discovery")
-            configured_queries = [
+            legacy_queries = [
                 topic.queries[index]
                 for index in lane.query_indexes
                 if index < len(topic.queries)
             ]
-            if not self._reserve_llm_call(sum(len(query) for query in configured_queries)):
+            regional_queries = [
+                query
+                for pack_name in LANE_REGION_PACKS.get(lane.name, ())
+                if (pack := topic.region_packs.get(pack_name)) is not None
+                for query in pack.query_families
+            ]
+            configured_queries = list(dict.fromkeys([*regional_queries, *legacy_queries]))
+            if not configured_queries:
+                raise ProviderError(f"{lane.name}: no configured query families")
+            lane_geographies = list(lane.geographies)
+            for pack_name in LANE_REGION_PACKS.get(lane.name, ()):
+                pack = topic.region_packs.get(pack_name)
+                if pack is not None:
+                    lane_geographies.extend([*pack.countries, *pack.ports])
+            lane_geographies_tuple = tuple(dict.fromkeys(lane_geographies))
+            lane_include_domains = list(
+                dict.fromkeys(
+                    [
+                        *topic.include_domains,
+                        *[
+                            domain
+                            for pack_name in LANE_REGION_PACKS.get(lane.name, ())
+                            if (pack := topic.region_packs.get(pack_name)) is not None
+                            for domain in pack.authority_domains
+                        ],
+                    ]
+                )
+            )
+            discovery_budget = max(
+                0,
+                self.max_llm_input_chars - DISCOVERY_INPUT_BUDGET_RESERVE,
+            )
+            discovery_input = min(
+                sum(len(query) for query in configured_queries),
+                discovery_budget // MAX_PARALLEL_LANES,
+            )
+            if not self._reserve_llm_call(discovery_input):
                 raise ProviderError("discovery: llm budget exceeded")
             result = await self.llm.discover_lane(
                 lane.name,
                 configured_queries,
-                lane.geographies,
+                lane_geographies_tuple,
                 since=since,
                 until=request.as_of,
-                include_domains=topic.include_domains,
+                include_domains=lane_include_domains,
                 exclude_domains=topic.exclude_domains,
                 max_results=max(1, request.max_sources // 5),
                 tavily=self.tavily,
@@ -605,8 +713,9 @@ class ResearchWorkflow:
                     lane,
                     since,
                     request.as_of,
-                    topic.include_domains,
+                    lane_include_domains,
                     topic.exclude_domains,
+                    lane_geographies_tuple,
                 )
                 for source in result.sources
             ]
@@ -616,6 +725,14 @@ class ResearchWorkflow:
                         "topics": sorted(set(source.topics + [request.topic_set, lane.name])),
                         "geographies": sorted(set(source.geographies)),
                         "lane": lane.name,
+                        "region": self._source_region(source, lane.name),
+                        **self._catalog_metadata(source),
+                        "freshness_status": classify_freshness(
+                            source, request.as_of
+                        ).freshness_status,
+                        "freshness_days": classify_freshness(
+                            source, request.as_of
+                        ).freshness_days,
                     }
                 )
                 for source in validated_sources
@@ -683,6 +800,16 @@ class ResearchWorkflow:
             lane_statuses[lane_name] = "failed" if error else "succeeded"
             if error:
                 lane_errors.append(f"{lane_name}: {error}")
+            raw_attempts = metadata.get("attempts")
+            attempts = raw_attempts if isinstance(raw_attempts, list) else []
+            attempt_error_code = next(
+                (
+                    str(attempt.get("error_code"))
+                    for attempt in reversed(attempts)
+                    if isinstance(attempt, dict) and attempt.get("error_code")
+                ),
+                None,
+            )
             step_metadata = {"source_count": len(sources), "error": error, **metadata}
             if "agent_call" in metadata:
                 step_metadata["call"] = metadata["agent_call"]
@@ -695,7 +822,7 @@ class ResearchWorkflow:
                 duration_ms=duration_ms,
                 input_payload={"topic_set": request.topic_set, "lane": lane_name},
                 output_payload=[source.url for source in sources],
-                error_code="provider" if error else None,
+                error_code=attempt_error_code or ("provider" if error else None),
             )
 
         seed_urls = [*request.seed_urls]
@@ -834,12 +961,23 @@ class ResearchWorkflow:
                     "extraction missing content for: " + ", ".join(missing_content)
                 )
             source_hashes: list[str] = []
+            updated_sources: list[SourceCandidate] = []
             for source in extractable_sources:
                 normalized_url = normalize_url(source.url)
                 body = content[normalized_url]
                 if body.strip():
                     self.repository.record_snapshot(state["run_id"], source, body)
                     source_hashes.append(content_hash(body))
+                    updated_sources.append(
+                        self.repository.record_source(
+                            source.model_copy(
+                                update={
+                                    "extraction_status": ExtractionStatus.SUCCEEDED,
+                                    "extraction_error_code": None,
+                                }
+                            )
+                        )
+                    )
             self._record_step(
                 state["run_id"],
                 "extraction",
@@ -856,9 +994,22 @@ class ResearchWorkflow:
             return {
                 "content": content,
                 "source_hashes": source_hashes,
+                "sources": [
+                    *[source for source in sources if source.is_seed],
+                    *updated_sources,
+                ],
                 "partial_reasons": list(state.get("partial_reasons", [])),
             }
         except ProviderError as provider_error:
+            for source in missing:
+                self.repository.record_source(
+                    source.model_copy(
+                        update={
+                            "extraction_status": ExtractionStatus.FAILED,
+                            "extraction_error_code": "missing_content",
+                        }
+                    )
+                )
             self._record_step(
                 state["run_id"],
                 "extraction",
@@ -910,7 +1061,7 @@ class ResearchWorkflow:
                 distillation = await self.llm.distill(
                     source,
                     body,
-                    prompt_version="distill-v4",
+                    prompt_version=DISTILL_PROMPT_VERSION,
                 )
                 validate_claim_citations(distillation.claims, {source.url}, as_of)
                 return distillation, None, annotate(self._llm_metadata())
@@ -986,7 +1137,28 @@ class ResearchWorkflow:
             protected_distillations.append(item.model_copy(update={"claims": protected_claims}))
         distillations = protected_distillations
         claims = [claim for item in distillations for claim in item.claims]
+        source_by_url = {normalize_url(source.url): source for source in sources}
         for distillation in distillations:
+            matched_source = source_by_url.get(normalize_url(distillation.source_url))
+            if matched_source is not None:
+                translation_failed = distillation.translation_status.value == "failed"
+                self.repository.record_source(
+                    matched_source.model_copy(
+                        update={
+                            "language_code": distillation.source_language,
+                            "language_confidence": 1.0
+                            if distillation.source_language != "und"
+                            else 0.0,
+                            "extraction_status": ExtractionStatus.SUCCEEDED,
+                            "extraction_error_code": None,
+                            "evidence_status": (
+                                EvidenceStatus.PARTIALLY_SUPPORTED
+                                if translation_failed
+                                else matched_source.evidence_status
+                            ),
+                        }
+                    )
+                )
             self.repository.record_distillation(state["run_id"], distillation)
             self.repository.record_claims(state["run_id"], distillation.claims)
         step_status = "failed" if errors else "succeeded"
@@ -1047,7 +1219,7 @@ class ResearchWorkflow:
                     revised = await self.llm.critic(
                         claims,
                         source_urls,
-                        prompt_version="critic-v4",
+                        prompt_version=CRITIC_PROMPT_VERSION,
                     )
                     validate_claim_citations(revised, source_urls, state["request"].as_of)
                     mode = "openrouter-structured"
@@ -1283,8 +1455,12 @@ class ResearchWorkflow:
             lane_statuses=state.get("lane_statuses", {}),
             source_hashes=state.get("source_hashes", []),
             prompt_version=PROMPT_VERSION,
-            minimum_sources=1 if request.validation_profile == "canary" else 10,
-            minimum_claims=1 if request.validation_profile == "canary" else 5,
+            minimum_sources=(
+                1 if request.validation_profile in {"canary", "global-canary"} else 10
+            ),
+            minimum_claims=(
+                1 if request.validation_profile in {"canary", "global-canary"} else 5
+            ),
             tool_call_count=(
                 sum(
                     1
@@ -1310,6 +1486,23 @@ class ResearchWorkflow:
                 }
                 if isinstance(self.llm, LaneResearchLike)
                 else None
+            ),
+            distillations=self._merge_distillations(
+                state.get("distillations", []), state.get("retained_distillations", [])
+            ),
+            required_geographies=(
+                STRICT_GLOBAL_GEOGRAPHIES
+                if request.validation_profile in {"full", "global-canary"}
+                else set()
+            ),
+            required_regions=(
+                {
+                    region
+                    for region, pack in state["topic"].region_packs.items()
+                    if pack.required
+                }
+                if request.validation_profile in {"full", "global-canary"}
+                else set()
             ),
         )
         self.repository.record_validation(report)

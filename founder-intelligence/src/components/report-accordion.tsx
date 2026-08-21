@@ -7,11 +7,16 @@ import type {
   ResearchSignal,
   ToolCallReceipt,
   WeeklyBrief,
+  WeeklyReportSummary,
 } from "@/lib/research-api";
 import type { ReactNode } from "react";
 
 function dateLabel(value: string): string {
   return new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(value));
+}
+
+function periodLabel(from: string, until: string): string {
+  return `${dateLabel(from)} to ${dateLabel(until)}`;
 }
 
 function isHttpUrl(value: string): boolean {
@@ -58,12 +63,12 @@ function ToolCallList({ calls }: { calls: ToolCallReceipt[] }) {
     <ul className="step-list">
       {calls.map((call, index) => (
         <li key={`${call.agent_name}-${call.attempt}-${call.call_index}-${index}`}>
-          <span>{call.tool_name} · {call.lane ?? "unknown lane"} · attempt {call.attempt ?? "—"}</span>
+          <span>{call.tool_name} / {call.lane ?? "unknown lane"} / attempt {call.attempt ?? "unknown"}</span>
           <span>{call.status}</span>
-          <span>{call.result_count ?? "—"} results · {call.latency_ms ?? "—"} ms</span>
+          <span>{call.result_count ?? "unknown"} results / {call.latency_ms ?? "unknown"} ms</span>
           <span>{call.error_code ?? "no error"}</span>
           <small>Args: {call.sanitized_args ? JSON.stringify(call.sanitized_args) : "none"}</small>
-          <small>Input: {call.input_hash ?? "—"} · Result: {call.result_hash ?? "—"}</small>
+          <small>Input: {call.input_hash ?? "unknown"} / Result: {call.result_hash ?? "unknown"}</small>
         </li>
       ))}
     </ul>
@@ -74,7 +79,7 @@ function SourceEvidence({ report }: { report: ReportPayload }) {
   return (
     <>
       <p>
-        {report.sources.length} persisted sources · {report.distillations.length} distillations · {report.claims.length} claims · {report.signals.length} signals.
+        {report.sources.length} persisted sources, {report.distillations.length} distillations, {report.claims.length} claims, {report.signals.length} signals.
         Citation coverage: {Math.round((report.validation?.citation_coverage ?? 0) * 100)}%.
       </p>
       {report.sources.length > 0 && (
@@ -84,7 +89,7 @@ function SourceEvidence({ report }: { report: ReportPayload }) {
             {report.sources.map((source) => (
               <li key={source.url}>
                 <a href={source.url} target="_blank" rel="noreferrer">{source.title}</a>
-                <span className="bullet-meta">{source.publisher} · {source.lane} · {source.evidence_status}</span>
+                <span className="bullet-meta">{source.publisher} / {source.region ?? "global"} / {source.language_code ?? "und"} / {source.lane} / {source.evidence_status} / {source.extraction_status ?? "unknown"}</span>
               </li>
             ))}
           </ul>
@@ -97,9 +102,10 @@ function SourceEvidence({ report }: { report: ReportPayload }) {
             {report.distillations.map((distillation) => (
               <article className="evidence-card" key={distillation.source_url}>
                 <p>{distillation.summary}</p>
+                {distillation.summary_original && distillation.summary_original !== distillation.summary ? <p className="muted">Original: {distillation.summary_original}</p> : null}
                 {distillation.key_points.length > 0 && <ul>{distillation.key_points.map((point) => <li key={point}>{point}</li>)}</ul>}
-                <p className="muted">{distillation.model_id} · {distillation.prompt_version} · {distillation.evidence_status}</p>
-                <code>Hash: {distillation.content_hash ?? "—"}</code>
+                <p className="muted">{distillation.model_id} / {distillation.prompt_version} / {distillation.evidence_status} / language {distillation.source_language ?? "und"} / translation {distillation.translation_status ?? "unknown"}</p>
+                <code>Hash: {distillation.content_hash ?? "unknown"}</code>
                 {distillation.claims.length > 0 && <ul>{distillation.claims.map((claim) => <ClaimRow key={claim.claim} claim={claim} />)}</ul>}
               </article>
             ))}
@@ -118,7 +124,7 @@ function SourceEvidence({ report }: { report: ReportPayload }) {
           <ul className="source-list">{report.signals.map((signal) => <SignalRow key={signal.event_id} signal={signal} />)}</ul>
         </>
       )}
-      <p className="muted">Source snapshot hashes: {report.source_hashes.length ? report.source_hashes.join(" · ") : "none recorded"}</p>
+      <p className="muted">Source snapshot hashes: {report.source_hashes.length ? report.source_hashes.join(", ") : "none recorded"}</p>
       <ul className="source-list">
         {briefSourceUrls(report.brief).map((url) => <li key={url}><a href={url} target="_blank" rel="noreferrer">{url}</a></li>)}
       </ul>
@@ -134,7 +140,7 @@ function briefSourceUrls(brief: WeeklyBrief): string[] {
 function ClaimRow({ claim }: { claim: ResearchClaim }) {
   return (
     <li>
-      <span>{claim.claim}</span>
+      <span>{claim.claim}{claim.evidence_excerpt ? `: ${claim.evidence_excerpt}` : ""}</span>
       <span className="bullet-meta"><span className={`evidence-badge evidence-${claim.evidence_status}`}>{claim.evidence_status}</span><CitationLinks urls={claim.source_urls} /></span>
     </li>
   );
@@ -155,11 +161,11 @@ function AgentStepList({ steps }: { steps: AgentStep[] }) {
     <ul className="step-list">
       {steps.map((step) => (
         <li key={`${step.agent_name}-${step.attempt}`}>
-          <strong>{step.agent_name} · {step.lane} · attempt {step.attempt}</strong>
-          <span>{step.status} · {step.duration_ms ?? "—"} ms</span>
-          <span>{step.requested_model ?? "—"} → {step.resolved_model ?? "—"}</span>
-          <span>{step.prompt_version ?? "—"} · {step.total_tokens ?? "—"} tokens</span>
-          <small>Input: {step.input_hash ?? "—"} · Output: {step.output_hash ?? "—"} · Error: {step.error_code ?? "none"}</small>
+          <strong>{step.agent_name} / {step.lane} / attempt {step.attempt}</strong>
+          <span>{step.status} / {step.duration_ms ?? "unknown"} ms</span>
+          <span>{step.requested_model ?? "unknown"} to {step.resolved_model ?? "unknown"}</span>
+          <span>{step.prompt_version ?? "unknown"} / {step.total_tokens ?? "unknown"} tokens</span>
+          <small>Input: {step.input_hash ?? "unknown"} / Output: {step.output_hash ?? "unknown"} / Error: {step.error_code ?? "none"}</small>
         </li>
       ))}
     </ul>
@@ -180,9 +186,9 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
     <div className="report-stack">
       <div className="report-heading">
         <div>
-          <p className="eyebrow">Weekly intelligence · Draft</p>
+          <p className="eyebrow">Weekly intelligence / draft</p>
           <h1>{brief.title}</h1>
-          <p className="report-period">{dateLabel(brief.covered_from)} – {dateLabel(brief.covered_until)}</p>
+          <p className="report-period">{periodLabel(brief.covered_from, brief.covered_until)}</p>
         </div>
         <div className="status-cluster">
           <span className={`status-badge status-${report.run?.status ?? "unknown"}`}>{report.run?.status ?? "unknown"}</span>
@@ -193,7 +199,7 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
       {blocked && (
         <div className="unavailable" role="alert">
           <strong>Report is blocked, failed, or partial.</strong>
-          <p>Run status: {runStatus} · Validation status: {validationStatus}. {report.run?.error ?? "This report is not decision-ready."}</p>
+          <p>Run status: {runStatus}. Validation status: {validationStatus}. {report.run?.error ?? "This report is not decision-ready."}</p>
         </div>
       )}
 
@@ -203,7 +209,7 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
       </Section>
       <Section title="2. Developments by lane and geography">
         <BulletList bullets={brief.developments} />
-        <p className="lane-line">Coverage: {report.lane_coverage.join(" · ") || "none recorded"}</p>
+        <p className="lane-line">Coverage: {report.lane_coverage.join(", ") || "none recorded"}</p>
       </Section>
       <Section title="3. Risks"><BulletList bullets={brief.risks} /></Section>
       <Section title="4. Opportunities"><BulletList bullets={brief.opportunities} /></Section>
@@ -242,6 +248,18 @@ export function UnavailableState({ error }: { error: string }) {
   return <div className="unavailable" role="alert"><h1>Research API unavailable</h1><p>{error}. Start the local FastAPI dashboard and reload. No stale report data is shown.</p></div>;
 }
 
-export function ReportLink({ runId, title, period }: { runId: string; title: string; period: string }) {
-  return <Link className="report-card" href={`/reports/${encodeURIComponent(runId)}`}><span className="eyebrow">Weekly draft</span><h2>{title}</h2><p>{period}</p><span className="card-arrow">Open report →</span></Link>;
+export function ReportLink({ runId, summary }: { runId: string; summary: WeeklyReportSummary }) {
+  return (
+    <Link className="report-card" href={`/reports/${encodeURIComponent(runId)}`}>
+      <span className="eyebrow">{summary.validation_status} / {summary.review_state}</span>
+      <h2>{summary.title}</h2>
+      <p>{periodLabel(summary.covered_from, summary.covered_until)}</p>
+      <p className="card-meta">
+        <span>{summary.source_count} sources</span>
+        <span>{summary.claim_count} claims</span>
+        <span>{summary.regions.join(", ") || "No regions"}</span>
+      </p>
+      <span className="card-arrow">Open report</span>
+    </Link>
+  );
 }

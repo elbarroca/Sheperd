@@ -34,5 +34,5 @@ server-only delivery values in `DEPLOYMENT.md` are complete.
 Deploy this directory as its own public Vercel project with Root Directory
 `website`. Publication was explicitly authorized on 2026-07-15. The unresolved
 legal, claims, privacy, contact, and ownership risks remain recorded in
-`docs/FACTS-AND-CONSTRAINTS.md`. See `DEPLOYMENT.md` and `../VERCEL.md` for the
+`docs/FACTS-AND-CONSTRAINTS.md`. See `DEPLOYMENT.md` and `../obsidian/VERCEL.md` for the
 exact settings.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 from html import escape
 
@@ -228,16 +229,37 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
-        reports = [
-            report_payload(brief.run_id, brief=brief)
-            for brief in repository.list_briefs(
-                since=since,
-                until=until,
-                limit=limit,
-                offset=offset,
-            )
-        ]
+        reports = repository.list_brief_summaries(
+            since=since,
+            until=until,
+            limit=limit,
+            offset=offset,
+        )
         return JSONResponse(jsonable_encoder({"reports": reports, "count": len(reports)}))
+
+    @app.get("/api/reports/daily", response_class=JSONResponse)
+    def api_daily_reports(
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int = Query(default=20, ge=1, le=100),
+        offset: int = Query(default=0, ge=0, le=10000),
+    ) -> JSONResponse:
+        reports = repository.list_brief_summaries(
+            cadence="daily",
+            since=since,
+            until=until,
+            limit=limit,
+            offset=offset,
+        )
+        return JSONResponse(jsonable_encoder({"reports": reports, "count": len(reports)}))
+
+    @app.get("/api/regions", response_class=JSONResponse)
+    def api_regions() -> JSONResponse:
+        return JSONResponse(
+            jsonable_encoder(
+                {"regions": repository.list_regions(), "counts": repository.region_counts()}
+            )
+        )
 
     @app.get("/api/reports/weekly/{run_id}", response_class=JSONResponse)
     def api_weekly_report(run_id: str) -> JSONResponse:
@@ -253,6 +275,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         until: datetime | None = None,
         limit: int = Query(default=100, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
+        region: str | None = Query(default=None, max_length=80),
+        language: str | None = Query(default=None, max_length=12),
+        evidence: str | None = Query(default=None, max_length=40),
     ) -> JSONResponse:
         return JSONResponse(
             jsonable_encoder(
@@ -262,6 +287,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                         until=until,
                         limit=limit,
                         offset=offset,
+                        region=region,
+                        language=language,
+                        evidence=evidence,
                     ),
                     "limit": limit,
                     "offset": offset,
@@ -334,6 +362,11 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         geography: str | None = Query(default=None, max_length=80),
         lane: str | None = Query(default=None, max_length=80),
         evidence: str | None = Query(default=None, max_length=40),
+        region: str | None = Query(default=None, max_length=80),
+        language: str | None = Query(default=None, max_length=12),
+        freshness: str | None = Query(default=None, max_length=20),
+        authority_tier: str | None = Query(default=None, max_length=40),
+        source_type: str | None = Query(default=None, max_length=40),
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int = Query(default=100, ge=1, le=1000),
@@ -349,6 +382,11 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                 geography=geography,
                 lane=lane,
                 evidence_status=evidence,
+                region=region,
+                language=language,
+                freshness=freshness,
+                authority_tier=authority_tier,
+                source_type=source_type,
                 since=since,
                 until=until,
                 limit=limit,
@@ -424,6 +462,11 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         geography: str | None = Query(default=None, max_length=80),
         lane: str | None = Query(default=None, max_length=80),
         evidence: str | None = Query(default=None, max_length=40),
+        region: str | None = Query(default=None, max_length=80),
+        language: str | None = Query(default=None, max_length=12),
+        freshness: str | None = Query(default=None, max_length=20),
+        authority_tier: str | None = Query(default=None, max_length=40),
+        source_type: str | None = Query(default=None, max_length=40),
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int = Query(default=100, ge=1, le=1000),
@@ -437,6 +480,11 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                         geography=geography,
                         lane=lane,
                         evidence_status=evidence,
+                        region=region,
+                        language=language,
+                        freshness=freshness,
+                        authority_tier=authority_tier,
+                        source_type=source_type,
                         since=since,
                         until=until,
                         limit=limit,
@@ -453,6 +501,8 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         evidence: str | None = Query(default=None, max_length=40),
         lane: str | None = Query(default=None, max_length=80),
         geography: str | None = Query(default=None, max_length=80),
+        region: str | None = Query(default=None, max_length=80),
+        language: str | None = Query(default=None, max_length=12),
         limit: int = Query(default=100, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
@@ -465,6 +515,8 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                         evidence_status=evidence,
                         lane=lane,
                         geography=geography,
+                        region=region,
+                        language=language,
                         limit=limit,
                         offset=offset,
                     )
@@ -477,6 +529,8 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         run_id: str | None = Query(default=None, max_length=120),
         query: str = Query(default="", max_length=160),
         evidence: str | None = Query(default=None, max_length=40),
+        verification_basis: str | None = Query(default=None, max_length=80),
+        independent_source_min: int | None = Query(default=None, ge=0, le=100),
         limit: int = Query(default=100, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
@@ -487,6 +541,8 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                         run_id=run_id,
                         query=query,
                         evidence_status=evidence,
+                        verification_basis=verification_basis,
+                        independent_source_min=independent_source_min,
                         limit=limit,
                         offset=offset,
                     )
@@ -500,6 +556,8 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         geography: str | None = Query(default=None, max_length=80),
         event_type: str | None = Query(default=None, max_length=80),
         evidence: str | None = Query(default=None, max_length=40),
+        region: str | None = Query(default=None, max_length=80),
+        language: str | None = Query(default=None, max_length=12),
         limit: int = Query(default=100, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
@@ -511,6 +569,8 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                         geography=geography,
                         event_type=event_type,
                         evidence_status=evidence,
+                        region=region,
+                        language=language,
                         limit=limit,
                         offset=offset,
                     )
@@ -576,6 +636,29 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         claims = repository.get_run_claims(run_id)
         signals = repository.get_run_signal_events(run_id)
         source_hashes = repository.get_run_snapshot_hashes(run_id)
+        validation_report = repository.get_validation(run_id)
+        sources_by_region = Counter(source.region for source in sources)
+        sources_by_language = Counter(source.language_code for source in sources)
+        freshness = Counter(source.freshness_status.value for source in sources)
+        extraction = Counter(source.extraction_status.value for source in sources)
+        translations = Counter(
+            item.translation_status.value for item in distillations
+        )
+        claims_by_evidence = Counter(item.evidence_status.value for item in claims)
+        independent_sources = Counter(
+            str(item.independent_source_count) for item in claims
+        )
+        extraction_success_rate = (
+            extraction.get("succeeded", 0) / len(sources) if sources else 0.0
+        )
+        distillation_success_rate = (
+            len(distillations) / len(sources) if sources else 0.0
+        )
+        translation_success_rate = (
+            translations.get("succeeded", 0) / len(distillations)
+            if distillations
+            else 0.0
+        )
         return JSONResponse(
             jsonable_encoder(
                 {
@@ -589,7 +672,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                     "distillations": distillations,
                     "claims": claims,
                     "signals": signals,
-                    "metrics": {
+                        "metrics": {
                         "step_count": len(steps),
                         "tool_call_count": len(tool_calls),
                         "fallback_count": sum(
@@ -599,8 +682,28 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                         "source_hash_count": len(source_hashes),
                         "distillation_count": len(distillations),
                         "claim_count": len(claims),
-                        "signal_count": len(signals),
-                    },
+                            "signal_count": len(signals),
+                            "sources_by_region": dict(sorted(sources_by_region.items())),
+                            "sources_by_language": dict(sorted(sources_by_language.items())),
+                            "freshness": dict(sorted(freshness.items())),
+                            "extraction": dict(sorted(extraction.items())),
+                            "translations": dict(sorted(translations.items())),
+                            "claims_by_evidence": dict(sorted(claims_by_evidence.items())),
+                            "independent_source_distribution": dict(
+                                sorted(independent_sources.items(), key=lambda item: int(item[0]))
+                            ),
+                            "extraction_success_rate": round(extraction_success_rate, 6),
+                            "distillation_success_rate": round(distillation_success_rate, 6),
+                            "translation_success_rate": round(translation_success_rate, 6),
+                            "citation_coverage": (
+                                validation_report.citation_coverage
+                                if validation_report is not None
+                                else 0.0
+                            ),
+                            "regions": sorted({source.region for source in sources}),
+                            "languages": sorted({source.language_code for source in sources}),
+                            "lanes": sorted({source.lane for source in sources}),
+                        },
                 }
             )
         )

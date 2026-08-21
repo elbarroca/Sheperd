@@ -9,7 +9,12 @@ from .providers.errors import ProviderError
 from .providers.neon import NeonApiClient
 from .providers.openrouter import OpenRouterProvider
 from .providers.tavily import TavilyProvider
-from .settings import STRICT_OPENROUTER_MODEL, Settings
+from .settings import (
+    STRICT_OPENROUTER_MODEL,
+    Settings,
+    free_openrouter_policy_error,
+    strict_openrouter_policy_error,
+)
 
 FMC_SMOKE_URL = "https://www.fmc.gov/articles/final-rule-on-demurrage-detention-cleared-to-take-full-effect-may-28"
 
@@ -68,13 +73,30 @@ def _env_check(settings: Settings) -> dict[str, object]:
     }
 
 
-def _model_check(settings: Settings) -> dict[str, object]:
-    policy_error = settings.strict_openrouter_policy_error
+def _model_check(
+    settings: Settings, *, allow_free_fallbacks: bool = False
+) -> dict[str, object]:
+    model_chain = settings.model_chain(allow_free_fallbacks=allow_free_fallbacks)
+    fallback_models = model_chain[1:]
+    policy_error = (
+        free_openrouter_policy_error(
+            settings.openrouter_model,
+            fallback_models,
+            raw_fallback_config=settings.openrouter_fallback_models,
+        )
+        if allow_free_fallbacks
+        else strict_openrouter_policy_error(
+            settings.openrouter_model,
+            settings.openrouter_fallback_model_list,
+            raw_fallback_config=settings.openrouter_fallback_models,
+        )
+    )
     return _status(
         policy_error is None,
-        "strict OpenRouter model policy",
-        requested_models=list(settings.openrouter_model_chain),
+        "free OpenRouter model policy",
+        requested_models=list(model_chain),
         required_model=STRICT_OPENROUTER_MODEL,
+        allow_free_fallbacks=allow_free_fallbacks,
         policy_error=policy_error,
     )
 
@@ -113,7 +135,9 @@ def _database_check(url: str | None, *, pooled: bool, label: str) -> dict[str, o
         return _status(False, f"{label} connection failed: {error.__class__.__name__}")
 
 
-async def _provider_check(settings: Settings) -> dict[str, object]:
+async def _provider_check(
+    settings: Settings, *, allow_free_fallbacks: bool = False
+) -> dict[str, object]:
     checks: dict[str, object] = {}
     if settings.tavily_api_key:
         try:
@@ -140,11 +164,30 @@ async def _provider_check(settings: Settings) -> dict[str, object]:
     else:
         checks["tavily"] = _status(False, "TAVILY_API_KEY is not configured")
 
-    if settings.openrouter_api_key and settings.strict_openrouter_policy_error is None:
+    if settings.openrouter_api_key:
         try:
+            model_chain = settings.model_chain(
+                allow_free_fallbacks=allow_free_fallbacks
+            )
+            fallback_models = model_chain[1:]
+            policy_error = (
+                free_openrouter_policy_error(
+                    settings.openrouter_model,
+                    fallback_models,
+                    raw_fallback_config=settings.openrouter_fallback_models,
+                )
+                if allow_free_fallbacks
+                else strict_openrouter_policy_error(
+                    settings.openrouter_model,
+                    settings.openrouter_fallback_model_list,
+                    raw_fallback_config=settings.openrouter_fallback_models,
+                )
+            )
+            if policy_error is not None:
+                raise ProviderError(policy_error)
             capabilities = await resolve_capabilities(
                 settings.openrouter_api_key.get_secret_value(),
-                settings.openrouter_model_chain,
+                model_chain,
                 settings.openrouter_capabilities_cache,
                 require_tools=True,
                 allow_cached=False,
@@ -156,6 +199,8 @@ async def _provider_check(settings: Settings) -> dict[str, object]:
             provider = OpenRouterProvider(
                 settings.openrouter_api_key.get_secret_value(),
                 settings.openrouter_model,
+                fallback_models=fallback_models,
+                allow_free_fallbacks=allow_free_fallbacks,
                 capability_report=capabilities,
             )
             model = await provider.health_check()
@@ -170,8 +215,7 @@ async def _provider_check(settings: Settings) -> dict[str, object]:
     else:
         checks["openrouter"] = _status(
             False,
-            settings.strict_openrouter_policy_error
-            or "OpenRouter key or strict model is not configured",
+            "OpenRouter key is not configured",
         )
     return checks
 
@@ -206,11 +250,17 @@ def _neon_check(settings: Settings) -> dict[str, object]:
         client.close()
 
 
-async def run_doctor(settings: Settings) -> dict[str, object]:
-    provider_checks = await _provider_check(settings)
+async def run_doctor(
+    settings: Settings, *, allow_free_fallbacks: bool = False
+) -> dict[str, object]:
+    provider_checks = await _provider_check(
+        settings, allow_free_fallbacks=allow_free_fallbacks
+    )
     checks: dict[str, object] = {
         "environment": _env_check(settings),
-        "model_policy": _model_check(settings),
+        "model_policy": _model_check(
+            settings, allow_free_fallbacks=allow_free_fallbacks
+        ),
         "providers": provider_checks,
         "neon_management": _neon_check(settings),
         "database_pooled": _database_check(
@@ -238,8 +288,10 @@ async def run_doctor(settings: Settings) -> dict[str, object]:
     return {"status": overall, "root": str(settings.repo_root), "checks": checks}
 
 
-async def run_model_check(settings: Settings) -> dict[str, object]:
-    policy = _model_check(settings)
+async def run_model_check(
+    settings: Settings, *, allow_free_fallbacks: bool = False
+) -> dict[str, object]:
+    policy = _model_check(settings, allow_free_fallbacks=allow_free_fallbacks)
     if policy.get("status") != "pass":
         return {"status": "blocked", "policy": policy}
     if not settings.openrouter_api_key:
@@ -248,10 +300,15 @@ async def run_model_check(settings: Settings) -> dict[str, object]:
             "policy": policy,
             "message": "OPENROUTER_API_KEY is not configured",
         }
+    capabilities = None
+    provider = None
     try:
+        model_chain = settings.model_chain(
+            allow_free_fallbacks=allow_free_fallbacks
+        )
         capabilities = await resolve_capabilities(
             settings.openrouter_api_key.get_secret_value(),
-            settings.openrouter_model_chain,
+            model_chain,
             settings.openrouter_capabilities_cache,
             require_tools=True,
             allow_cached=False,
@@ -266,13 +323,15 @@ async def run_model_check(settings: Settings) -> dict[str, object]:
         provider = OpenRouterProvider(
             settings.openrouter_api_key.get_secret_value(),
             settings.openrouter_model,
+            fallback_models=model_chain[1:],
+            allow_free_fallbacks=allow_free_fallbacks,
             capability_report=capabilities,
         )
         resolved_model = await provider.health_check()
         return {
             "status": "pass",
             "policy": policy,
-            "requested_models": list(settings.openrouter_model_chain),
+            "requested_models": list(model_chain),
             "capabilities": capabilities.as_dict(),
             "resolved_model": resolved_model,
             "attempts": provider.call_history,
@@ -281,8 +340,10 @@ async def run_model_check(settings: Settings) -> dict[str, object]:
         return {
             "status": "blocked",
             "policy": policy,
-            "requested_models": list(settings.openrouter_model_chain),
+            "requested_models": list(model_chain),
             "message": str(error),
+            "capabilities": capabilities.as_dict() if capabilities else None,
+            "attempts": provider.call_history if provider else [],
         }
 
 

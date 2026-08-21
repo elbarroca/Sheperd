@@ -13,18 +13,22 @@ from .contracts import (
     ArticleDistillation,
     ClaimDraft,
     EvidenceStatus,
+    ExtractionStatus,
+    FreshnessStatus,
     ReportBullet,
     ResearchRunRequest,
     ReviewState,
     RunStatus,
     SignalEvent,
     SourceCandidate,
+    TranslationStatus,
     ValidationReport,
+    ValidationStatus,
     WeeklyBrief,
 )
 from .validators import content_hash, normalize_url
 
-MIGRATION_VERSION = "0009_strict_gemma_policy"
+MIGRATION_VERSION = "0010_multilingual_evidence_quality"
 _AUDIT_TEXT_LIMIT = 400
 _AUDIT_LIST_LIMIT = 100
 _AUDIT_SENSITIVE_MARKERS = (
@@ -201,6 +205,16 @@ def _safe_audit_int(value: object) -> int | None:
 
 def _safe_audit_float(value: object) -> float | None:
     return value if isinstance(value, float) and not isinstance(value, bool) else None
+
+
+def _row_float(value: object) -> float:
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
+
+def _row_strings(value: object) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 def _safe_audit_string_list(value: object) -> list[str]:
@@ -476,6 +490,8 @@ class RepositoryProtocol(Protocol):
         evidence_status: EvidenceStatus | str | None = None,
         lane: str | None = None,
         geography: str | None = None,
+        region: str | None = None,
+        language: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[ArticleDistillation]: ...
@@ -486,6 +502,8 @@ class RepositoryProtocol(Protocol):
         run_id: str | None = None,
         query: str = "",
         evidence_status: EvidenceStatus | str | None = None,
+        verification_basis: str | None = None,
+        independent_source_min: int | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[ClaimDraft]: ...
@@ -497,6 +515,8 @@ class RepositoryProtocol(Protocol):
         geography: str | None = None,
         event_type: str | None = None,
         evidence_status: EvidenceStatus | str | None = None,
+        region: str | None = None,
+        language: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[SignalEvent]: ...
@@ -530,6 +550,8 @@ class RepositoryProtocol(Protocol):
     def get_run_claims(self, run_id: str) -> list[ClaimDraft]: ...
 
     def get_run_snapshot_hashes(self, run_id: str) -> list[str]: ...
+
+    def get_run_source_hashes(self, run_id: str) -> dict[str, str]: ...
 
     def get_run_lane_statuses(self, run_id: str) -> dict[str, str]: ...
 
@@ -566,6 +588,11 @@ class RepositoryProtocol(Protocol):
         geography: str | None = None,
         lane: str | None = None,
         evidence_status: EvidenceStatus | str | None = None,
+        region: str | None = None,
+        language: str | None = None,
+        freshness: FreshnessStatus | str | None = None,
+        authority_tier: str | None = None,
+        source_type: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int = 100,
@@ -577,11 +604,28 @@ class RepositoryProtocol(Protocol):
         query: str = "",
         *,
         review_state: ReviewState | str | None = None,
+        cadence: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> list[WeeklyBrief]: ...
+
+    def list_brief_summaries(
+        self,
+        query: str = "",
+        *,
+        review_state: ReviewState | str | None = None,
+        cadence: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, object]]: ...
+
+    def list_regions(self) -> list[str]: ...
+
+    def region_counts(self, run_id: str | None = None) -> list[dict[str, object]]: ...
 
     def monthly_rollup(
         self,
@@ -590,6 +634,9 @@ class RepositoryProtocol(Protocol):
         until: datetime | None = None,
         limit: int = 100,
         offset: int = 0,
+        region: str | None = None,
+        language: str | None = None,
+        evidence: EvidenceStatus | str | None = None,
     ) -> list[dict[str, object]]: ...
 
     def health(self) -> dict[str, object]: ...
@@ -704,6 +751,23 @@ class InMemoryRepository:
                     "evidence_status": EvidenceStatus.UNVERIFIED,
                 }
             )
+        else:
+            self.sources[normalized] = existing.model_copy(
+                update={
+                    "region": stored.region,
+                    "language_code": stored.language_code,
+                    "language_confidence": stored.language_confidence,
+                    "authority_tier": stored.authority_tier,
+                    "catalog_source_id": stored.catalog_source_id,
+                    "source_type": stored.source_type,
+                    "freshness_status": stored.freshness_status,
+                    "freshness_days": stored.freshness_days,
+                    "extraction_status": stored.extraction_status,
+                    "extraction_error_code": stored.extraction_error_code,
+                    "normalized_title_en": stored.normalized_title_en,
+                    "normalized_snippet_en": stored.normalized_snippet_en,
+                }
+            )
         return self.sources[normalized]
 
     def record_tool_calls(
@@ -756,6 +820,8 @@ class InMemoryRepository:
         evidence_status: EvidenceStatus | str | None = None,
         lane: str | None = None,
         geography: str | None = None,
+        region: str | None = None,
+        language: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[ArticleDistillation]:
@@ -788,6 +854,17 @@ class InMemoryRepository:
                 ) is not None
                 and geography in source.geographies
             )
+            and (
+                region is None
+                or (
+                    source := self.sources.get(normalize_url(item.source_url))
+                ) is not None
+                and source.region == region
+            )
+            and (
+                language is None
+                or item.source_language == language
+            )
         ]
         bounded_limit = max(1, min(limit, 1000))
         return values[max(0, offset) : max(0, offset) + bounded_limit]
@@ -798,6 +875,8 @@ class InMemoryRepository:
         run_id: str | None = None,
         query: str = "",
         evidence_status: EvidenceStatus | str | None = None,
+        verification_basis: str | None = None,
+        independent_source_min: int | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[ClaimDraft]:
@@ -809,6 +888,14 @@ class InMemoryRepository:
             if (run_id is None or current_run == run_id)
             and (not needle or needle in claim.claim.lower())
             and (expected is None or claim.evidence_status.value == expected)
+            and (
+                verification_basis is None
+                or claim.verification_basis == verification_basis
+            )
+            and (
+                independent_source_min is None
+                or claim.independent_source_count >= independent_source_min
+            )
         ]
         bounded_limit = max(1, min(limit, 1000))
         return values[max(0, offset) : max(0, offset) + bounded_limit]
@@ -820,6 +907,8 @@ class InMemoryRepository:
         geography: str | None = None,
         event_type: str | None = None,
         evidence_status: EvidenceStatus | str | None = None,
+        region: str | None = None,
+        language: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[SignalEvent]:
@@ -831,6 +920,22 @@ class InMemoryRepository:
             and (geography is None or geography in event.geographies)
             and (event_type is None or event.event_type == event_type)
             and (expected is None or event.evidence_status.value == expected)
+            and (
+                region is None
+                or any(
+                    self.sources.get(normalize_url(url), SourceCandidate(url=url)).region
+                    == region
+                    for url in event.source_urls
+                )
+            )
+            and (
+                language is None
+                or any(
+                    self.sources.get(normalize_url(url), SourceCandidate(url=url)).language_code
+                    == language
+                    for url in event.source_urls
+                )
+            )
         ]
         bounded_limit = max(1, min(limit, 1000))
         return values[max(0, offset) : max(0, offset) + bounded_limit]
@@ -909,6 +1014,13 @@ class InMemoryRepository:
             for (current_run, _), snapshot in self.source_snapshots.items()
             if current_run == run_id
         ]
+
+    def get_run_source_hashes(self, run_id: str) -> dict[str, str]:
+        return {
+            url: str(snapshot["content_hash"])
+            for (current_run, url), snapshot in self.source_snapshots.items()
+            if current_run == run_id
+        }
 
     def get_run_lane_statuses(self, run_id: str) -> dict[str, str]:
         return {
@@ -1025,6 +1137,11 @@ class InMemoryRepository:
         geography: str | None = None,
         lane: str | None = None,
         evidence_status: EvidenceStatus | str | None = None,
+        region: str | None = None,
+        language: str | None = None,
+        freshness: FreshnessStatus | str | None = None,
+        authority_tier: str | None = None,
+        source_type: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int = 100,
@@ -1045,6 +1162,15 @@ class InMemoryRepository:
             for source in values
             if (geography is None or geography in source.geographies)
             and (lane is None or source.lane == lane)
+            and (region is None or source.region == region)
+            and (language is None or source.language_code == language)
+            and (
+                freshness is None
+                or source.freshness_status.value
+                == getattr(freshness, "value", freshness)
+            )
+            and (authority_tier is None or source.authority_tier == authority_tier)
+            and (source_type is None or source.source_type == source_type)
             and (
                 expected_evidence is None
                 or source.evidence_status.value == expected_evidence
@@ -1060,6 +1186,7 @@ class InMemoryRepository:
         query: str = "",
         *,
         review_state: ReviewState | str | None = None,
+        cadence: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int = 20,
@@ -1072,11 +1199,105 @@ class InMemoryRepository:
             for brief in self.briefs.values()
             if (not needle or needle in f"{brief.title} {brief.summary}".lower())
             and (expected_review is None or brief.review_state.value == expected_review)
+            and (
+                cadence is None
+                or getattr(self.runs.get(brief.run_id, {}).get("request"), "cadence", None)
+                == cadence
+            )
             and (since is None or brief.covered_until >= since)
             and (until is None or brief.covered_until <= until)
         ]
         bounded_limit = max(1, min(limit, 1000))
         return values[max(0, offset) : max(0, offset) + bounded_limit]
+
+    def list_brief_summaries(
+        self,
+        query: str = "",
+        *,
+        review_state: ReviewState | str | None = None,
+        cadence: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, object]]:
+        briefs = self.list_briefs(
+            query,
+            review_state=review_state,
+            cadence=cadence,
+            since=since,
+            until=until,
+            limit=limit,
+            offset=offset,
+        )
+        return [
+            {
+                "run_id": brief.run_id,
+                "title": brief.title,
+                "covered_from": brief.covered_from,
+                "covered_until": brief.covered_until,
+                "review_state": brief.review_state.value,
+                "run_status": self.runs.get(brief.run_id, {}).get("status"),
+                "validation_status": getattr(
+                    self.validations.get(brief.run_id), "status", ValidationStatus.BLOCKED
+                ).value,
+                "source_count": len(self.get_run_sources(brief.run_id)),
+                "distillation_count": len(self.get_run_distillations(brief.run_id)),
+                "claim_count": len(self.get_run_claims(brief.run_id)),
+                "signal_count": len(self.get_run_signal_events(brief.run_id)),
+                "regions": sorted(
+                    {source.region for source in self.get_run_sources(brief.run_id)}
+                ),
+                "languages": sorted(
+                    {source.language_code for source in self.get_run_sources(brief.run_id)}
+                ),
+                "lane_coverage": sorted(self.get_run_lane_statuses(brief.run_id)),
+                "models": sorted(
+                    {
+                        item.model_id
+                        for item in self.get_run_distillations(brief.run_id)
+                        if item.model_id
+                    }
+                    | {brief.model_id},
+                ),
+                "as_of": self.runs.get(brief.run_id, {}).get("as_of"),
+                # Test/local repository compatibility: production uses the SQL
+                # summary query and does not hydrate these detail fields.
+                "brief": brief,
+                "run": {
+                    key: value
+                    for key, value in self.runs.get(brief.run_id, {}).items()
+                    if key != "request"
+                },
+                "validation": self.validations.get(brief.run_id),
+                "steps": self.get_run_steps(brief.run_id),
+                "tool_calls": self.get_run_tool_calls(brief.run_id),
+                "sources": self.get_run_sources(brief.run_id),
+                "source_hashes": self.get_run_snapshot_hashes(brief.run_id),
+                "distillations": self.get_run_distillations(brief.run_id),
+                "claims": self.get_run_claims(brief.run_id),
+                "signals": self.get_run_signal_events(brief.run_id),
+            }
+            for brief in briefs
+        ]
+
+    def list_regions(self) -> list[str]:
+        return sorted({source.region for source in self.sources.values()})
+
+    def region_counts(self, run_id: str | None = None) -> list[dict[str, object]]:
+        sources = (
+            self.get_run_sources(run_id)
+            if run_id is not None
+            else list(self.sources.values())
+        )
+        counts: dict[str, dict[str, int]] = {}
+        for source in sources:
+            bucket = counts.setdefault(source.region, {"sources": 0, "languages": 0})
+            bucket["sources"] += 1
+        return [
+            {"region": region, **values}
+            for region, values in sorted(counts.items())
+        ]
 
     def monthly_rollup(
         self,
@@ -1085,6 +1306,9 @@ class InMemoryRepository:
         until: datetime | None = None,
         limit: int = 100,
         offset: int = 0,
+        region: str | None = None,
+        language: str | None = None,
+        evidence: EvidenceStatus | str | None = None,
     ) -> list[dict[str, object]]:
         buckets: dict[
             tuple[str, str, str, str, str, str, str], dict[str, set[str]]
@@ -1105,6 +1329,18 @@ class InMemoryRepository:
             ]
             if not source_matches:
                 source_matches = [None]
+            expected_evidence = getattr(evidence, "value", evidence)
+            if region is not None and not any(
+                source is not None and source.region == region for source in source_matches
+            ):
+                continue
+            if language is not None and not any(
+                source is not None and source.language_code == language
+                for source in source_matches
+            ):
+                continue
+            if expected_evidence is not None and event.evidence_status.value != expected_evidence:
+                continue
             groups: set[tuple[str, str, str, str, str, str]] = set()
             for source in source_matches:
                 lane = source.lane if source is not None else "unknown"
@@ -1419,9 +1655,13 @@ class PostgresRepository:
             """
             INSERT INTO sources (
                 normalized_url, url, title, publisher, published_at, retrieved_at,
-                source_kind, snippet, topics, geographies, lane, is_seed, evidence_status
+                source_kind, snippet, topics, geographies, lane, is_seed, evidence_status,
+                region, language_code, language_confidence, authority_tier, catalog_source_id,
+                source_type, freshness_status, freshness_days, extraction_status,
+                extraction_error_code, normalized_title_en, normalized_snippet_en
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (normalized_url) DO UPDATE SET
                 title = EXCLUDED.title,
                 publisher = EXCLUDED.publisher,
@@ -1430,6 +1670,18 @@ class PostgresRepository:
                 snippet = EXCLUDED.snippet,
                 topics = EXCLUDED.topics,
                 geographies = EXCLUDED.geographies,
+                region = EXCLUDED.region,
+                language_code = EXCLUDED.language_code,
+                language_confidence = EXCLUDED.language_confidence,
+                authority_tier = EXCLUDED.authority_tier,
+                catalog_source_id = EXCLUDED.catalog_source_id,
+                source_type = EXCLUDED.source_type,
+                freshness_status = EXCLUDED.freshness_status,
+                freshness_days = EXCLUDED.freshness_days,
+                extraction_status = EXCLUDED.extraction_status,
+                extraction_error_code = EXCLUDED.extraction_error_code,
+                normalized_title_en = EXCLUDED.normalized_title_en,
+                normalized_snippet_en = EXCLUDED.normalized_snippet_en,
                 lane = CASE
                     WHEN sources.lane = 'unassigned' THEN EXCLUDED.lane
                     ELSE sources.lane
@@ -1459,6 +1711,18 @@ class PostgresRepository:
                 stored.lane,
                 stored.is_seed,
                 stored.evidence_status,
+                stored.region,
+                stored.language_code,
+                stored.language_confidence,
+                stored.authority_tier,
+                stored.catalog_source_id,
+                stored.source_type,
+                stored.freshness_status,
+                stored.freshness_days,
+                stored.extraction_status,
+                stored.extraction_error_code,
+                stored.normalized_title_en,
+                stored.normalized_snippet_en,
             ),
         )
         if not rows:
@@ -1499,6 +1763,11 @@ class PostgresRepository:
                     "entities": distillation.entities,
                     "signals": distillation.signals,
                     "limitations": distillation.limitations,
+                    "source_language": distillation.source_language,
+                    "summary_original": distillation.summary_original,
+                    "key_points_original": distillation.key_points_original,
+                    "evidence_excerpts": distillation.evidence_excerpts,
+                    "evidence_locators": distillation.evidence_locators,
                 },
                 sort_keys=True,
             )
@@ -1507,9 +1776,12 @@ class PostgresRepository:
             """
             INSERT INTO article_distillations (
                 run_id, normalized_url, summary, key_points, entities, signals, limitations,
-                model_id, prompt_version, content_hash, evidence_status
+                model_id, prompt_version, content_hash, evidence_status, source_language,
+                summary_original, key_points_original, translation_status, evidence_excerpts,
+                evidence_locators
             )
-            VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s,
+                    %s, %s, %s::jsonb, %s, %s::jsonb, %s::jsonb)
             ON CONFLICT (run_id, normalized_url) DO UPDATE SET
                 summary = EXCLUDED.summary,
                 key_points = EXCLUDED.key_points,
@@ -1519,7 +1791,13 @@ class PostgresRepository:
                 model_id = EXCLUDED.model_id,
                 prompt_version = EXCLUDED.prompt_version,
                 content_hash = EXCLUDED.content_hash,
-                evidence_status = EXCLUDED.evidence_status
+                evidence_status = EXCLUDED.evidence_status,
+                source_language = EXCLUDED.source_language,
+                summary_original = EXCLUDED.summary_original,
+                key_points_original = EXCLUDED.key_points_original,
+                translation_status = EXCLUDED.translation_status,
+                evidence_excerpts = EXCLUDED.evidence_excerpts,
+                evidence_locators = EXCLUDED.evidence_locators
             """,
             (
                 run_id,
@@ -1533,6 +1811,12 @@ class PostgresRepository:
                 distillation.prompt_version,
                 distillation_hash,
                 distillation.evidence_status,
+                distillation.source_language,
+                distillation.summary_original,
+                json.dumps(distillation.key_points_original),
+                distillation.translation_status,
+                json.dumps(distillation.evidence_excerpts),
+                json.dumps(distillation.evidence_locators),
             ),
         )
 
@@ -1546,9 +1830,10 @@ class PostgresRepository:
                 """
                 INSERT INTO claims (
                     run_id, claim_hash, claim_text, evidence_status, confidence,
-                    source_urls, support_locator, conflicts
+                    source_urls, support_locator, conflicts, original_claim, evidence_excerpt,
+                    independent_source_count, citation_status, verification_basis
                 )
-                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb)
+                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb, %s, %s, %s, %s, %s)
                 ON CONFLICT (run_id, claim_hash) DO NOTHING
                 """,
                 (
@@ -1560,6 +1845,21 @@ class PostgresRepository:
                     json.dumps([normalize_url(url) for url in claim.source_urls]),
                     claim.support_locator,
                     json.dumps(claim.conflicts),
+                    claim.original_claim,
+                    claim.evidence_excerpt,
+                    claim.independent_source_count
+                    or len(
+                        {
+                            (urlsplit(normalize_url(url)).hostname or "")
+                            .lower()
+                            .removeprefix("www.")
+                            for url in claim.source_urls
+                        }
+                    ),
+                    claim.citation_status
+                    if claim.citation_status != "uncited" or not claim.source_urls
+                    else "cited",
+                    claim.verification_basis,
                 ),
             )
 
@@ -1802,7 +2102,11 @@ class PostgresRepository:
             """
             SELECT s.url, s.title, s.publisher, s.published_at, s.retrieved_at,
                    s.source_kind, s.snippet, s.topics, s.geographies, s.lane,
-                   s.is_seed, s.evidence_status
+                   s.is_seed, s.evidence_status, s.region, s.language_code,
+                   s.language_confidence, s.authority_tier, s.catalog_source_id,
+                   s.source_type, s.freshness_status, s.freshness_days,
+                   s.extraction_status, s.extraction_error_code,
+                   s.normalized_title_en, s.normalized_snippet_en
             FROM sources s
             JOIN source_snapshots ss ON ss.normalized_url = s.normalized_url
             WHERE ss.run_id = %s
@@ -1815,6 +2119,7 @@ class PostgresRepository:
             url = _safe_public_url(row[0])
             if url is None:
                 continue
+            quality = row[12:] if len(row) >= 24 else ()
             sources.append(
                 SourceCandidate(
                     url=url,
@@ -1829,6 +2134,26 @@ class PostgresRepository:
                     lane=cast(str, row[9]),
                     is_seed=cast(bool, row[10]),
                     evidence_status=EvidenceStatus(cast(str, row[11])),
+                    region=cast(str, quality[0]) if quality else "global",
+                    language_code=cast(str, quality[1]) if quality else "und",
+                    language_confidence=_row_float(quality[2]) if quality else 0.0,
+                    authority_tier=cast(str, quality[3]) if quality else "unknown",
+                    catalog_source_id=cast(str | None, quality[4]) if quality else None,
+                    source_type=cast(str, quality[5]) if quality else "unknown",
+                    freshness_status=(
+                        FreshnessStatus(cast(str, quality[6]))
+                        if quality
+                        else FreshnessStatus.UNKNOWN
+                    ),
+                    freshness_days=cast(int | None, quality[7]) if quality else None,
+                    extraction_status=(
+                        ExtractionStatus(cast(str, quality[8]))
+                        if quality
+                        else ExtractionStatus.NOT_ATTEMPTED
+                    ),
+                    extraction_error_code=cast(str | None, quality[9]) if quality else None,
+                    normalized_title_en=cast(str | None, quality[10]) if quality else None,
+                    normalized_snippet_en=cast(str | None, quality[11]) if quality else None,
                 )
             )
         return sources
@@ -1837,7 +2162,8 @@ class PostgresRepository:
         rows = self._execute(
             """
             SELECT claim_text, evidence_status, confidence, source_urls,
-                   support_locator, conflicts
+                   support_locator, conflicts, original_claim, evidence_excerpt,
+                   independent_source_count, citation_status, verification_basis
             FROM claims WHERE run_id = %s ORDER BY created_at, claim_id
             """,
             (run_id,),
@@ -1850,6 +2176,11 @@ class PostgresRepository:
                 source_urls=_safe_public_urls(row[3] or []),
                 support_locator=cast(str | None, row[4]),
                 conflicts=cast(list[str], row[5] or []),
+                original_claim=cast(str | None, row[6]),
+                evidence_excerpt=cast(str | None, row[7]),
+                independent_source_count=cast(int, row[8] or 0),
+                citation_status=cast(str, row[9]),
+                verification_basis=cast(str | None, row[10]),
             )
             for row in rows
         ]
@@ -1860,6 +2191,14 @@ class PostgresRepository:
             (run_id,),
         )
         return [cast(str, row[0]) for row in rows]
+
+    def get_run_source_hashes(self, run_id: str) -> dict[str, str]:
+        rows = self._execute(
+            "SELECT normalized_url, content_hash FROM source_snapshots "
+            "WHERE run_id = %s ORDER BY snapshot_id",
+            (run_id,),
+        )
+        return {cast(str, row[0]): cast(str, row[1]) for row in rows}
 
     def get_run_lane_statuses(self, run_id: str) -> dict[str, str]:
         rows = self._execute(
@@ -1915,7 +2254,9 @@ class PostgresRepository:
             """
             SELECT ad.normalized_url, ad.summary, ad.key_points, ad.entities, ad.signals,
                    ad.limitations, s.published_at, ad.model_id, ad.prompt_version,
-                   ad.evidence_status, ad.content_hash
+                   ad.evidence_status, ad.content_hash, ad.source_language,
+                   ad.summary_original, ad.key_points_original, ad.translation_status,
+                   ad.evidence_excerpts, ad.evidence_locators
             FROM article_distillations ad
             JOIN sources s ON s.normalized_url = ad.normalized_url
             WHERE ad.run_id = %s ORDER BY ad.distillation_id
@@ -1940,6 +2281,12 @@ class PostgresRepository:
                 prompt_version=cast(str, row[8]),
                 evidence_status=EvidenceStatus(cast(str, row[9])),
                 content_hash=cast(str | None, row[10]),
+                source_language=cast(str, row[11]),
+                summary_original=cast(str, row[12]),
+                key_points_original=cast(list[str], row[13] or []),
+                translation_status=TranslationStatus(cast(str, row[14])),
+                evidence_excerpts=cast(list[str], row[15] or []),
+                evidence_locators=cast(list[str], row[16] or []),
             )
             for row in rows
         ]
@@ -1984,7 +2331,13 @@ class PostgresRepository:
                    s.retrieved_at, s.source_kind, s.snippet, s.topics, s.geographies,
                    s.lane, s.is_seed, s.evidence_status, ad.summary, ad.key_points,
                    ad.entities, ad.signals, ad.limitations, ad.model_id,
-                   ad.prompt_version, ad.evidence_status, ad.content_hash
+                   ad.prompt_version, ad.evidence_status, ad.content_hash,
+                   s.region, s.language_code, s.language_confidence, s.authority_tier,
+                   s.catalog_source_id, s.source_type, s.freshness_status, s.freshness_days,
+                   s.extraction_status, s.extraction_error_code, s.normalized_title_en,
+                   s.normalized_snippet_en, ad.source_language, ad.summary_original,
+                   ad.key_points_original, ad.translation_status, ad.evidence_excerpts,
+                   ad.evidence_locators
             FROM article_distillations ad
             JOIN sources s ON s.normalized_url = ad.normalized_url
             JOIN research_runs rr ON rr.run_id = ad.run_id
@@ -2025,6 +2378,18 @@ class PostgresRepository:
                 lane=cast(str, row[10]),
                 is_seed=cast(bool, row[11]),
                 evidence_status=EvidenceStatus(cast(str, row[12])),
+                region=cast(str, row[22]),
+                language_code=cast(str, row[23]),
+                language_confidence=_row_float(row[24]),
+                authority_tier=cast(str, row[25]),
+                catalog_source_id=cast(str | None, row[26]),
+                source_type=cast(str, row[27]),
+                freshness_status=FreshnessStatus(cast(str, row[28])),
+                freshness_days=cast(int | None, row[29]),
+                extraction_status=ExtractionStatus(cast(str, row[30])),
+                extraction_error_code=cast(str | None, row[31]),
+                normalized_title_en=cast(str | None, row[32]),
+                normalized_snippet_en=cast(str | None, row[33]),
             )
             sources.append(source)
             distillations.append(
@@ -2041,6 +2406,12 @@ class PostgresRepository:
                     prompt_version=cast(str, row[19]),
                     evidence_status=EvidenceStatus(cast(str, row[20])),
                     content_hash=cast(str | None, row[21]),
+                    source_language=cast(str, row[34]),
+                    summary_original=cast(str, row[35]),
+                    key_points_original=cast(list[str], row[36] or []),
+                    translation_status=TranslationStatus(cast(str, row[37])),
+                    evidence_excerpts=cast(list[str], row[38] or []),
+                    evidence_locators=cast(list[str], row[39] or []),
                 )
             )
         return sources, distillations
@@ -2053,6 +2424,8 @@ class PostgresRepository:
         evidence_status: EvidenceStatus | str | None = None,
         lane: str | None = None,
         geography: str | None = None,
+        region: str | None = None,
+        language: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[ArticleDistillation]:
@@ -2075,12 +2448,20 @@ class PostgresRepository:
         if geography is not None:
             clauses.append("%s = ANY(s.geographies)")
             params.append(geography)
+        if region is not None:
+            clauses.append("s.region = %s")
+            params.append(region)
+        if language is not None:
+            clauses.append("ad.source_language = %s")
+            params.append(language)
         params.extend((max(1, min(limit, 1000)), max(0, offset)))
         rows = self._execute(
             """
             SELECT ad.normalized_url, ad.summary, ad.key_points, ad.entities, ad.signals,
                    ad.limitations, s.published_at, ad.model_id, ad.prompt_version,
-                   ad.evidence_status, ad.content_hash
+                   ad.evidence_status, ad.content_hash, ad.source_language,
+                   ad.summary_original, ad.key_points_original, ad.translation_status,
+                   ad.evidence_excerpts, ad.evidence_locators
             FROM article_distillations ad
             JOIN sources s ON s.normalized_url = ad.normalized_url
             WHERE """
@@ -2101,6 +2482,12 @@ class PostgresRepository:
                 prompt_version=cast(str, row[8]),
                 evidence_status=EvidenceStatus(cast(str, row[9])),
                 content_hash=cast(str | None, row[10]),
+                source_language=cast(str, row[11]),
+                summary_original=cast(str, row[12]),
+                key_points_original=cast(list[str], row[13] or []),
+                translation_status=TranslationStatus(cast(str, row[14])),
+                evidence_excerpts=cast(list[str], row[15] or []),
+                evidence_locators=cast(list[str], row[16] or []),
             )
             for row in rows
         ]
@@ -2111,6 +2498,8 @@ class PostgresRepository:
         run_id: str | None = None,
         query: str = "",
         evidence_status: EvidenceStatus | str | None = None,
+        verification_basis: str | None = None,
+        independent_source_min: int | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[ClaimDraft]:
@@ -2126,10 +2515,17 @@ class PostgresRepository:
         if expected is not None:
             clauses.append("evidence_status = %s")
             params.append(expected)
+        if verification_basis is not None:
+            clauses.append("verification_basis = %s")
+            params.append(verification_basis)
+        if independent_source_min is not None:
+            clauses.append("independent_source_count >= %s")
+            params.append(independent_source_min)
         params.extend((max(1, min(limit, 1000)), max(0, offset)))
         rows = self._execute(
             "SELECT claim_text, evidence_status, confidence, source_urls, "
-            "support_locator, conflicts FROM claims WHERE "
+            "support_locator, conflicts, original_claim, evidence_excerpt, "
+            "independent_source_count, citation_status, verification_basis FROM claims WHERE "
             + " AND ".join(clauses)
             + " ORDER BY created_at, claim_id LIMIT %s OFFSET %s",
             tuple(params),
@@ -2142,6 +2538,11 @@ class PostgresRepository:
                 source_urls=_safe_public_urls(row[3] or []),
                 support_locator=cast(str | None, row[4]),
                 conflicts=cast(list[str], row[5] or []),
+                original_claim=cast(str | None, row[6]),
+                evidence_excerpt=cast(str | None, row[7]),
+                independent_source_count=cast(int, row[8] or 0),
+                citation_status=cast(str, row[9]),
+                verification_basis=cast(str | None, row[10]),
             )
             for row in rows
         ]
@@ -2153,6 +2554,8 @@ class PostgresRepository:
         geography: str | None = None,
         event_type: str | None = None,
         evidence_status: EvidenceStatus | str | None = None,
+        region: str | None = None,
+        language: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[SignalEvent]:
@@ -2171,6 +2574,20 @@ class PostgresRepository:
         if evidence_value is not None:
             clauses.append("evidence_status = %s")
             params.append(evidence_value)
+        if region is not None:
+            clauses.append(
+                "EXISTS (SELECT 1 FROM jsonb_array_elements_text(source_urls) u "
+                "JOIN sources s ON s.normalized_url = u "
+                "WHERE s.region = %s)"
+            )
+            params.append(region)
+        if language is not None:
+            clauses.append(
+                "EXISTS (SELECT 1 FROM jsonb_array_elements_text(source_urls) u "
+                "JOIN sources s ON s.normalized_url = u "
+                "WHERE s.language_code = %s)"
+            )
+            params.append(language)
         params.extend((max(1, min(limit, 1000)), max(0, offset)))
         rows = self._execute(
             "SELECT event_id, run_id, event_type, summary, geographies, ports, carriers, "
@@ -2248,6 +2665,11 @@ class PostgresRepository:
         geography: str | None = None,
         lane: str | None = None,
         evidence_status: EvidenceStatus | str | None = None,
+        region: str | None = None,
+        language: str | None = None,
+        freshness: FreshnessStatus | str | None = None,
+        authority_tier: str | None = None,
+        source_type: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int = 100,
@@ -2264,6 +2686,21 @@ class PostgresRepository:
         if lane is not None:
             clauses.append("lane = %s")
             params.append(lane)
+        if region is not None:
+            clauses.append("region = %s")
+            params.append(region)
+        if language is not None:
+            clauses.append("language_code = %s")
+            params.append(language)
+        if freshness is not None:
+            clauses.append("freshness_status = %s")
+            params.append(getattr(freshness, "value", freshness))
+        if authority_tier is not None:
+            clauses.append("authority_tier = %s")
+            params.append(authority_tier)
+        if source_type is not None:
+            clauses.append("source_type = %s")
+            params.append(source_type)
         evidence_value = getattr(evidence_status, "value", evidence_status)
         if evidence_value is not None:
             clauses.append("evidence_status = %s")
@@ -2278,7 +2715,10 @@ class PostgresRepository:
         params.append(max(0, offset))
         rows = self._execute(
             "SELECT url, title, publisher, published_at, retrieved_at, source_kind, snippet, "
-            "topics, geographies, lane, is_seed, evidence_status FROM sources "
+            "topics, geographies, lane, is_seed, evidence_status, region, language_code, "
+            "language_confidence, authority_tier, catalog_source_id, source_type, "
+            "freshness_status, freshness_days, extraction_status, extraction_error_code, "
+            "normalized_title_en, normalized_snippet_en FROM sources "
             f"WHERE {' AND '.join(clauses)} ORDER BY retrieved_at DESC LIMIT %s OFFSET %s",
             tuple(params),
         )
@@ -2287,6 +2727,7 @@ class PostgresRepository:
             url = _safe_public_url(row[0])
             if url is None:
                 continue
+            quality = row[12:] if len(row) >= 24 else ()
             sources.append(
                 SourceCandidate(
                     url=url,
@@ -2301,6 +2742,26 @@ class PostgresRepository:
                     lane=cast(str, row[9]),
                     is_seed=cast(bool, row[10]),
                     evidence_status=EvidenceStatus(cast(str, row[11])),
+                    region=cast(str, quality[0]) if quality else "global",
+                    language_code=cast(str, quality[1]) if quality else "und",
+                    language_confidence=_row_float(quality[2]) if quality else 0.0,
+                    authority_tier=cast(str, quality[3]) if quality else "unknown",
+                    catalog_source_id=cast(str | None, quality[4]) if quality else None,
+                    source_type=cast(str, quality[5]) if quality else "unknown",
+                    freshness_status=(
+                        FreshnessStatus(cast(str, quality[6]))
+                        if quality
+                        else FreshnessStatus.UNKNOWN
+                    ),
+                    freshness_days=cast(int | None, quality[7]) if quality else None,
+                    extraction_status=(
+                        ExtractionStatus(cast(str, quality[8]))
+                        if quality
+                        else ExtractionStatus.NOT_ATTEMPTED
+                    ),
+                    extraction_error_code=cast(str | None, quality[9]) if quality else None,
+                    normalized_title_en=cast(str | None, quality[10]) if quality else None,
+                    normalized_snippet_en=cast(str | None, quality[11]) if quality else None,
                 )
             )
         return sources
@@ -2310,6 +2771,7 @@ class PostgresRepository:
         query: str = "",
         *,
         review_state: ReviewState | str | None = None,
+        cadence: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int = 20,
@@ -2324,6 +2786,11 @@ class PostgresRepository:
         if review_value is not None:
             clauses.append("review_state = %s")
             params.append(review_value)
+        if cadence is not None:
+            clauses.append(
+                "run_id IN (SELECT run_id FROM research_runs WHERE request ->> 'cadence' = %s)"
+            )
+            params.append(cadence)
         if since is not None:
             clauses.append("covered_until >= %s")
             params.append(since)
@@ -2343,6 +2810,101 @@ class PostgresRepository:
             if (brief := self.get_brief(cast(str, row[0]))) is not None
         ]
 
+    def list_brief_summaries(
+        self,
+        query: str = "",
+        *,
+        review_state: ReviewState | str | None = None,
+        cadence: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, object]]:
+        clauses = ["TRUE"]
+        params: list[object] = []
+        if query.strip():
+            clauses.append("wb.search_vector @@ plainto_tsquery('english', %s)")
+            params.append(query.strip())
+        review_value = getattr(review_state, "value", review_state)
+        if review_value is not None:
+            clauses.append("wb.review_state = %s")
+            params.append(review_value)
+        if cadence is not None:
+            clauses.append("rr.request ->> 'cadence' = %s")
+            params.append(cadence)
+        if since is not None:
+            clauses.append("wb.covered_until >= %s")
+            params.append(since)
+        if until is not None:
+            clauses.append("wb.covered_until <= %s")
+            params.append(until)
+        params.extend((max(1, min(limit, 1000)), max(0, offset)))
+        rows = self._execute(
+            """
+            SELECT wb.run_id, wb.title, wb.covered_from, wb.covered_until,
+                   wb.review_state, rr.status, COALESCE(vc.status, 'blocked'),
+                   count(DISTINCT ss.normalized_url), count(DISTINCT ad.distillation_id),
+                   count(DISTINCT c.claim_id), count(DISTINCT se.event_id),
+                   COALESCE(array_agg(DISTINCT s.region) FILTER (WHERE s.region IS NOT NULL), '{}'),
+                   COALESCE(
+                       array_agg(DISTINCT s.language_code)
+                       FILTER (WHERE s.language_code IS NOT NULL), '{}'
+                   ),
+                   COALESCE(array_agg(DISTINCT s.lane) FILTER (WHERE s.lane IS NOT NULL), '{}'),
+                   COALESCE(
+                       array_agg(DISTINCT ad.model_id)
+                       FILTER (WHERE ad.model_id IS NOT NULL), '{}'
+                   ) || ARRAY[wb.model_id],
+                   rr.as_of
+            FROM weekly_briefs wb
+            JOIN research_runs rr ON rr.run_id = wb.run_id
+            LEFT JOIN validation_checks vc ON vc.run_id = wb.run_id
+            LEFT JOIN source_snapshots ss ON ss.run_id = wb.run_id
+            LEFT JOIN sources s ON s.normalized_url = ss.normalized_url
+            LEFT JOIN article_distillations ad ON ad.run_id = wb.run_id
+            LEFT JOIN claims c ON c.run_id = wb.run_id
+            LEFT JOIN signal_events se ON se.run_id = wb.run_id
+            WHERE """
+            + " AND ".join(clauses)
+            + " GROUP BY wb.run_id, wb.title, wb.covered_from, wb.covered_until, "
+            "wb.review_state, rr.status, vc.status, rr.as_of, wb.model_id "
+            "ORDER BY wb.covered_until DESC LIMIT %s OFFSET %s",
+            tuple(params),
+        )
+        fields = (
+            "run_id", "title", "covered_from", "covered_until", "review_state",
+            "run_status", "validation_status", "source_count", "distillation_count",
+            "claim_count", "signal_count", "regions", "languages", "lane_coverage",
+            "models", "as_of",
+        )
+        return [
+            {
+                **dict(zip(fields, row, strict=True)),
+                "regions": sorted(set(_row_strings(row[11]))),
+                "languages": sorted(set(_row_strings(row[12]))),
+                "lane_coverage": sorted(set(_row_strings(row[13]))),
+                "models": sorted(set(_row_strings(row[14]))),
+            }
+            for row in rows
+        ]
+
+    def list_regions(self) -> list[str]:
+        rows = self._execute("SELECT DISTINCT region FROM sources ORDER BY region")
+        return [cast(str, row[0]) for row in rows]
+
+    def region_counts(self, run_id: str | None = None) -> list[dict[str, object]]:
+        params: tuple[object, ...] = (run_id,) if run_id is not None else ()
+        where = "WHERE ss.run_id = %s" if run_id is not None else ""
+        rows = self._execute(
+            "SELECT s.region, count(DISTINCT s.normalized_url) "
+            "FROM sources s "
+            "LEFT JOIN source_snapshots ss ON ss.normalized_url = s.normalized_url "
+            f"{where} GROUP BY s.region ORDER BY s.region",
+            params,
+        )
+        return [{"region": row[0], "sources": row[1]} for row in rows]
+
     def monthly_rollup(
         self,
         *,
@@ -2350,6 +2912,9 @@ class PostgresRepository:
         until: datetime | None = None,
         limit: int = 100,
         offset: int = 0,
+        region: str | None = None,
+        language: str | None = None,
+        evidence: EvidenceStatus | str | None = None,
     ) -> list[dict[str, object]]:
         clauses = ["TRUE"]
         params: list[object] = []
@@ -2359,6 +2924,15 @@ class PostgresRepository:
         if until is not None:
             clauses.append("event_rows.event_timestamp <= %s")
             params.append(until)
+        if region is not None:
+            clauses.append("event_rows.region = %s")
+            params.append(region)
+        if language is not None:
+            clauses.append("event_rows.language = %s")
+            params.append(language)
+        if evidence is not None:
+            clauses.append("event_rows.evidence_status = %s")
+            params.append(getattr(evidence, "value", evidence))
         params.extend((max(1, min(limit, 1000)), max(0, offset)))
         rows = self._execute(
             "WITH event_rows AS ("
@@ -2367,6 +2941,8 @@ class PostgresRepository:
             "coalesce(se.event_at, se.created_at) AT TIME ZONE 'UTC' AS event_date, "
             "coalesce(nullif(s.lane, ''), 'unknown') AS lane, "
             "coalesce(nullif(s.publisher, ''), 'unknown') AS authority, "
+            "coalesce(nullif(s.region, ''), 'unknown') AS region, "
+            "coalesce(nullif(s.language_code, ''), 'und') AS language, "
             "CASE WHEN cardinality(se.geographies) > 0 THEN se.geographies "
             "WHEN s.geographies IS NOT NULL THEN s.geographies "
             "ELSE ARRAY['unknown']::text[] END AS geographies "
@@ -2376,13 +2952,14 @@ class PostgresRepository:
             "LEFT JOIN sources s ON s.normalized_url = source_url.value"
             ") SELECT date_trunc('month', event_rows.event_date)::date, "
             "event_rows.event_date::date, event_rows.lane, geography.value, "
-            "event_rows.authority, event_rows.event_type, event_rows.evidence_status, "
+            "event_rows.authority, event_rows.region, event_rows.language, "
+            "event_rows.event_type, event_rows.evidence_status, "
             "count(DISTINCT event_rows.event_id), count(DISTINCT event_rows.run_id) "
             "FROM event_rows "
             "LEFT JOIN LATERAL unnest(event_rows.geographies) AS geography(value) ON TRUE "
             f"WHERE {' AND '.join(clauses)} "
-            "GROUP BY 1, 2, 3, 4, 5, 6, 7 "
-            "ORDER BY 2 DESC, 3, 4, 5, 6, 7 LIMIT %s OFFSET %s",
+            "GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9 "
+            "ORDER BY 2 DESC, 3, 4, 5, 6, 7, 8, 9 LIMIT %s OFFSET %s",
             tuple(params),
         )
         return [
@@ -2392,10 +2969,12 @@ class PostgresRepository:
                 "lane": row[2],
                 "geography": row[3] or "unknown",
                 "authority": row[4],
-                "signal": row[5],
-                "evidence": row[6],
-                "signals": row[7],
-                "runs": row[8],
+                "region": row[5],
+                "language": row[6],
+                "signal": row[7],
+                "evidence": row[8],
+                "signals": row[9],
+                "runs": row[10],
             }
             for row in rows
         ]

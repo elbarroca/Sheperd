@@ -317,6 +317,175 @@ sources:
     required: false
     refresh_cadence: weekly
 
+  - source_id: ca-transport
+    region: canada
+    jurisdiction: canada-federal
+    authority_tier: primary
+    domain: tc.canada.ca
+    url: https://tc.canada.ca/en/marine-transportation/ports-harbours-anchorages/list-canada-port-authorities
+    source_type: regulator
+    signal_types: [regulatory, port-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: weekly
+
+  - source_id: ca-vancouver
+    region: canada
+    jurisdiction: canada-pacific
+    authority_tier: primary
+    domain: portvancouver.com
+    url: https://www.portvancouver.com/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: ca-prince-rupert
+    region: canada
+    jurisdiction: canada-pacific
+    authority_tier: primary
+    domain: rupertport.com
+    url: https://www.rupertport.com/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: false
+    refresh_cadence: weekly
+
+  - source_id: ca-montreal
+    region: canada
+    jurisdiction: canada-atlantic
+    authority_tier: primary
+    domain: port-montreal.com
+    url: https://www.port-montreal.com/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: ca-halifax
+    region: canada
+    jurisdiction: canada-atlantic
+    authority_tier: primary
+    domain: porthalifax.ca
+    url: https://www.porthalifax.ca/
+    source_type: port-authority
+    signal_types: [port-operations]
+    access: public-html
+    enabled: true
+    required: false
+    refresh_cadence: weekly
+
+  - source_id: br-ports-ministry
+    region: south-america
+    jurisdiction: south-america-federal
+    authority_tier: primary
+    domain: gov.br
+    url: https://www.gov.br/portos-e-aeroportos/pt-br
+    source_type: regulator
+    signal_types: [regulatory, trade-flow]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: weekly
+
+  - source_id: br-antaq
+    region: south-america
+    jurisdiction: south-america-federal
+    authority_tier: primary
+    domain: antaq.gov.br
+    url: https://www.antaq.gov.br/
+    source_type: regulator
+    signal_types: [regulatory, port-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: weekly
+
+  - source_id: br-santos
+    region: south-america
+    jurisdiction: south-america-port
+    authority_tier: primary
+    domain: portodesantos.com.br
+    url: https://www.portodesantos.com.br/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: cl-san-antonio
+    region: south-america
+    jurisdiction: south-america-port
+    authority_tier: primary
+    domain: puertosanantonio.com
+    url: https://www.puertosanantonio.com/
+    source_type: port-authority
+    signal_types: [port-operations, trade-flow]
+    access: public-html
+    enabled: true
+    required: false
+    refresh_cadence: weekly
+
+  - source_id: me-abu-dhabi
+    region: middle-east
+    jurisdiction: middle-east-port
+    authority_tier: primary
+    domain: adports.ae
+    url: https://www.adports.ae/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: daily
+
+  - source_id: me-mawani
+    region: middle-east
+    jurisdiction: middle-east-federal
+    authority_tier: primary
+    domain: ports.gov.sa
+    url: https://www.ports.gov.sa/
+    source_type: regulator
+    signal_types: [regulatory, port-operations]
+    access: public-html
+    enabled: true
+    required: true
+    refresh_cadence: weekly
+
+  - source_id: me-oman-transport
+    region: middle-east
+    jurisdiction: middle-east-federal
+    authority_tier: primary
+    domain: motc.gov.om
+    url: https://www.motc.gov.om/
+    source_type: regulator
+    signal_types: [regulatory, trade-flow]
+    access: public-html
+    enabled: true
+    required: false
+    refresh_cadence: weekly
+
+  - source_id: me-qatar-ports
+    region: middle-east
+    jurisdiction: middle-east-port
+    authority_tier: primary
+    domain: mwani.gov.qa
+    url: https://www.mwani.gov.qa/
+    source_type: port-authority
+    signal_types: [port-operations, terminal-operations]
+    access: public-html
+    enabled: true
+    required: false
+    refresh_cadence: weekly
+
   - source_id: eu-dg-move
     region: europe
     jurisdiction: eu
