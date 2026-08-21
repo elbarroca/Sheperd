@@ -1565,7 +1565,13 @@ class OpenRouterProvider:
             "opportunities, uncertainty, and follow-up questions. Separate facts "
             "from inference and limitations. Do not provide legal advice. Preserve "
             "source-linked signal IDs and never invent citations. Every factual "
-            "bullet must cite one or more supplied URLs. Return structured fields.\n\n"
+            "bullet must cite one or more supplied URLs. Return non-empty structured "
+            "fields for executive_bullets, developments, risks, opportunities, "
+            "uncertainties, and follow_up_questions. If the supplied evidence does "
+            "not support a material item, include an explicit evidence-backed absence "
+            "statement with a supplied citation instead of inventing an item or leaving "
+            "the section empty. Every risks, opportunities, and uncertainties bullet "
+            "must include non-empty why_it_matters and next_step fields.\n\n"
             f"RUN ID: {run_id}\nEVIDENCE:\n{evidence[:30000]}"
         )
         try:

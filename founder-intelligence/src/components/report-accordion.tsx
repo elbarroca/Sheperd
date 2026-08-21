@@ -42,13 +42,15 @@ function CitationLinks({ urls }: { urls: string[] }) {
   ));
 }
 
-function BulletList({ bullets }: { bullets: ReportBullet[] }) {
-  if (bullets.length === 0) return <p className="muted">No observations recorded.</p>;
+function BulletList({ bullets, emptyLabel = "Not recorded in this run." }: { bullets: ReportBullet[]; emptyLabel?: string }) {
+  if (bullets.length === 0) return <p className="muted">{emptyLabel}</p>;
   return (
     <ul className="report-bullets">
       {bullets.map((bullet, index) => (
         <li key={`${bullet.text}-${index}`}>
           <span>{bullet.text}</span>
+          {bullet.why_it_matters ? <span className="bullet-context"><strong>Why it matters:</strong> {bullet.why_it_matters}</span> : null}
+          {bullet.next_step ? <span className="bullet-context"><strong>Next step:</strong> {bullet.next_step}</span> : null}
           <span className="bullet-meta">
             <span className={`evidence-badge evidence-${bullet.evidence_status}`}>{bullet.evidence_status}</span>
             <CitationLinks urls={bullet.source_urls} />
@@ -56,6 +58,68 @@ function BulletList({ bullets }: { bullets: ReportBullet[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+type DecisionItem = {
+  text: string;
+  sourceUrls: string[];
+  evidenceStatus: string;
+};
+
+function nextStepItems(brief: WeeklyBrief): DecisionItem[] {
+  const seen = new Set<string>();
+  return [...brief.risks, ...brief.opportunities, ...brief.uncertainties].flatMap((bullet) => {
+    if (!bullet.next_step || seen.has(bullet.next_step)) return [];
+    seen.add(bullet.next_step);
+    return [{ text: bullet.next_step, sourceUrls: bullet.source_urls, evidenceStatus: bullet.evidence_status }];
+  });
+}
+
+function DecisionList({ items, emptyLabel }: { items: DecisionItem[]; emptyLabel: string }) {
+  if (items.length === 0) return <p className="muted">{emptyLabel}</p>;
+  return (
+    <ol className="decision-list">
+      {items.slice(0, 4).map((item, index) => (
+        <li key={`${item.text}-${index}`}>
+          <span>{item.text}</span>
+          <span className="bullet-meta">
+            <span className={`evidence-badge evidence-${item.evidenceStatus}`}>{item.evidenceStatus}</span>
+            <CitationLinks urls={item.sourceUrls} />
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function DecisionReadout({ brief }: { brief: WeeklyBrief }) {
+  const nextSteps = nextStepItems(brief);
+  const openQuestions = brief.follow_up_questions.slice(0, 4);
+  return (
+    <section className="decision-readout" aria-labelledby="decision-readout-heading">
+      <div className="decision-intro">
+        <p className="eyebrow">Decision readout</p>
+        <h2 id="decision-readout-heading">What this run tells us</h2>
+        <p className="report-summary">{brief.summary}</p>
+      </div>
+      <div className="decision-grid">
+        <article className="decision-block">
+          <p className="decision-label">Next steps</p>
+          <h3>What to do next</h3>
+          <DecisionList items={nextSteps} emptyLabel="No next step was recorded." />
+        </article>
+        <article className="decision-block">
+          <p className="decision-label">Open questions</p>
+          <h3>What still needs checking</h3>
+          {openQuestions.length > 0 ? (
+            <ol className="decision-list">
+              {openQuestions.map((question, index) => <li key={`${question}-${index}`}><span>{question}</span></li>)}
+            </ol>
+          ) : <p className="muted">No follow-up question was recorded.</p>}
+        </article>
+      </div>
+    </section>
   );
 }
 
@@ -141,6 +205,31 @@ function SourceEvidence({ report }: { report: ReportPayload }) {
       </ul>
       {report.brief.limitations.length > 0 && <><h3>Limitations</h3><ul>{report.brief.limitations.map((item) => <li key={item}>{item}</li>)}</ul></>}
     </>
+  );
+}
+
+function ReportQuality({ report, brief }: { report: ReportPayload; brief: WeeklyBrief }) {
+  const sections = [
+    ["Executive", brief.executive_bullets],
+    ["Developments", brief.developments],
+    ["Risks", brief.risks],
+    ["Opportunities", brief.opportunities],
+    ["Uncertainty", brief.uncertainties],
+  ] as const;
+  const completeSections = sections.filter(([, bullets]) => bullets.length > 0).length;
+  const coverage = Math.round((report.validation?.citation_coverage ?? 0) * 100);
+  const sectionCheck = report.validation?.checks.find((check) => check.name === "report_sections");
+  const sectionComplete = completeSections === sections.length && sectionCheck?.status !== "failed";
+  return (
+    <div className="report-quality" aria-label="Report quality">
+      <div><strong>{completeSections}/{sections.length}</strong><span>insight sections</span></div>
+      <div><strong>{coverage}%</strong><span>citation coverage</span></div>
+      <div><strong>{report.sources.length}</strong><span>sources</span></div>
+      <div><strong>{report.distillations.length}</strong><span>distillations</span></div>
+      <div><strong>{report.claims.length}</strong><span>claims</span></div>
+      <div><strong>{sectionCheck?.status ?? "not recorded"}</strong><span>section validator</span></div>
+      <p>{sectionComplete ? "All insight sections are populated." : "Older or incomplete output is visibly marked; this run is not fully mapped."}</p>
+    </div>
   );
 }
 
@@ -269,18 +358,17 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
         </div>
       )}
 
-      <Section title="1. Executive readout" open>
-        <p className="report-summary">{brief.summary}</p>
-        <BulletList bullets={brief.executive_bullets} />
-      </Section>
+      <DecisionReadout brief={brief} />
+      <Section title="1. Executive findings" open><BulletList bullets={brief.executive_bullets} /></Section>
       <Section title="2. Developments by lane and geography">
         <BulletList bullets={brief.developments} />
         <p className="lane-line">Coverage: {report.lane_coverage.join(", ") || "none recorded"}</p>
       </Section>
-      <Section title="3. Risks"><BulletList bullets={brief.risks} /></Section>
-      <Section title="4. Opportunities"><BulletList bullets={brief.opportunities} /></Section>
+      <ReportQuality report={report} brief={brief} />
+      <Section title="3. Risks / exposure and impact"><BulletList bullets={brief.risks} emptyLabel="No evidence-backed risks were recorded by this run." /></Section>
+      <Section title="4. Opportunities / openings and next moves"><BulletList bullets={brief.opportunities} emptyLabel="No evidence-backed opportunities were recorded by this run." /></Section>
       <Section title="5. Uncertainty and follow-up research">
-        <BulletList bullets={brief.uncertainties} />
+        <BulletList bullets={brief.uncertainties} emptyLabel="No uncertainty statement was recorded by this run." />
         {brief.follow_up_questions.length > 0 ? (
           <ol className="follow-up-list">{brief.follow_up_questions.map((question) => <li key={question}>{question}</li>)}</ol>
         ) : <p className="muted">No follow-up questions recorded.</p>}
@@ -324,17 +412,19 @@ export function ReportLink({ runId, summary }: { runId: string; summary: WeeklyR
   return (
     <Link className="report-row" href={href}>
       <span className="report-row-title">
-        <span className="eyebrow">{archived ? "Archived" : ready ? "Decision-ready" : `${summary.run_status} · ${summary.validation_status}`}</span>
+        <span className="eyebrow">{archived ? "Archived" : ready ? "Decision-ready" : `${summary.run_status} / ${summary.validation_status}`}</span>
         <strong>{summary.title}</strong>
       </span>
       <span className="report-row-period">{periodLabel(summary.covered_from, summary.covered_until)}</span>
       <span className="report-row-metrics">
-        {summary.source_count} sources · {summary.distillation_count} distillations · {summary.claim_count} claims
+        <span>{summary.source_count} sources</span>
+        <span>{summary.distillation_count} distillations</span>
+        <span>{summary.claim_count} claims</span>
       </span>
       <span className="report-row-state">
-        {archived ? summary.archive_reason ?? "archived" : `${summary.validation_status} · ${summary.review_state}`}
+        {archived ? summary.archive_reason ?? "archived" : `${summary.validation_status} / ${summary.review_state}`}
       </span>
-      <span className="card-arrow">Open report →</span>
+      <span className="card-arrow">Open report</span>
     </Link>
   );
 }

@@ -40,6 +40,7 @@ and existing run rows; paid or router model identifiers are not permitted.
 
 ```bash
 uv run sheperd-research doctor --json
+uv run sheperd-research model-map --json
 uv run sheperd-research audit --allow-free-fallbacks --json
 uv run sheperd-research model-check --allow-free-fallbacks --strict --json
 uv run sheperd-research mcp-check --json
@@ -83,6 +84,13 @@ may be combined with that flag; it does not enable provider fallback. OpenRouter
 provider fallback remains disabled, every model attempt is recorded, and paid
 models are rejected. Transport timeouts retry once on the same model; rate limits
 move to the next eligible free model or fail the run when the chain is exhausted.
+
+`model-map` fetches the live OpenRouter catalog and lists every explicit `:free`
+variant, its tool and structured-output capabilities, context length, available
+benchmark signals, skipped reason, and a conservative recommended cascade. The
+cascade is a routing heuristic, not proof of quality: every candidate still
+requires a live `agent-check` before production use. Discounted but priced
+models, such as paid Gemini variants, remain excluded by the free-only policy.
 
 Set `TAVILY_API_KEY` as the primary search key and optionally set
 `TAVILY_API_KEY_2` as a secondary. Search and Extract try slot 1 first, then

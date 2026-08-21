@@ -11,11 +11,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 STRICT_OPENROUTER_MODEL = "google/gemma-4-26b-a4b-it:free"
 DEFAULT_FREE_FALLBACK_MODELS = (
-    "nvidia/nemotron-3-super-120b-a12b:free",
-    "nvidia/nemotron-nano-9b-v2:free",
-    "google/gemma-4-31b-it:free",
-    "liquid/lfm-2.5-2.6b:free",
     "z-ai/glm-5.2:free",
+    "google/gemma-4-31b-it:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "openai/gpt-oss-20b:free",
+    "dots-studio/dots-3-note-preview:free",
+    "nvidia/nemotron-nano-9b-v2:free",
+    "liquid/lfm-2.5-2.6b:free",
 )
 _FREE_MODEL_PATTERN = re.compile(
     r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*:free$"

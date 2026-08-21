@@ -34,6 +34,7 @@ from .diagnostics import (
     mcp_check,
     run_doctor,
     run_model_check,
+    run_model_map,
     validate_database_url,
     validate_dev_branch,
 )
@@ -818,6 +819,8 @@ def _validate_command(args: argparse.Namespace, settings: Settings) -> int:
         claims = repository.get_run_claims(args.run_id)
         get_distillations = getattr(repository, "get_run_distillations", None)
         distillations = get_distillations(args.run_id) if callable(get_distillations) else None
+        get_brief = getattr(repository, "get_brief", None)
+        brief = get_brief(args.run_id) if callable(get_brief) else None
         strict_profile = request.validation_profile in {"full", "global-canary"}
         report = build_validation_report(
             args.run_id,
@@ -866,6 +869,7 @@ def _validate_command(args: argparse.Namespace, settings: Settings) -> int:
                 else set()
             ),
             required_regions=(set(REGIONS) - {"global"} if strict_profile else set()),
+            brief=brief,
         )
         repository.record_validation(report)
         _print_json(report.model_dump(mode="json"))
@@ -1117,6 +1121,8 @@ def _parser() -> argparse.ArgumentParser:
     model_check.add_argument("--strict", action="store_true")
     model_check.add_argument("--allow-free-fallbacks", action="store_true")
     model_check.add_argument("--json", action="store_true")
+    model_map = subparsers.add_parser("model-map")
+    model_map.add_argument("--json", action="store_true")
     source_map = subparsers.add_parser("source-map")
     source_map.add_argument("--check", action="store_true")
     source_map.add_argument("--strict", action="store_true")
@@ -1182,6 +1188,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 settings, allow_free_fallbacks=args.allow_free_fallbacks
             )
         )
+        _print_json(result)
+        return 0 if result["status"] == "pass" else 2
+    if args.command == "model-map":
+        result = asyncio.run(run_model_map(settings))
         _print_json(result)
         return 0 if result["status"] == "pass" else 2
     if args.command == "source-map":

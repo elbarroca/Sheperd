@@ -46,6 +46,7 @@ from .validators import (
     normalize_url,
     url_policy_error,
     validate_claim_citations,
+    validate_report_sections,
     validate_source_dates,
     with_draft_prefix,
 )
@@ -1409,14 +1410,7 @@ class ResearchWorkflow:
         claims: list[ClaimDraft],
         known_urls: set[str],
     ) -> WeeklyBrief:
-        fallback = [
-            ReportBullet(
-                text=claim.claim,
-                source_urls=[normalize_url(url) for url in claim.source_urls],
-                evidence_status=claim.evidence_status,
-            )
-            for claim in claims[:3]
-        ]
+        del claims
         updates: dict[str, object] = {}
         for section in (
             "executive_bullets",
@@ -1426,8 +1420,6 @@ class ResearchWorkflow:
             "uncertainties",
         ):
             bullets = list(getattr(brief, section))
-            if not bullets and section in {"executive_bullets", "developments"}:
-                bullets = fallback
             normalized: list[ReportBullet] = []
             for bullet in bullets:
                 urls = [normalize_url(url) for url in bullet.source_urls]
@@ -1435,7 +1427,14 @@ class ResearchWorkflow:
                     raise ValueError(f"{section} contains an uncited or unknown URL")
                 normalized.append(bullet.model_copy(update={"source_urls": urls}))
             updates[section] = normalized
-        return brief.model_copy(update=updates)
+        normalized_brief = brief.model_copy(update=updates)
+        section_issues = validate_report_sections(normalized_brief, known_urls)
+        if section_issues:
+            raise ValueError(
+                "report output is incomplete or insufficiently evidenced: "
+                + "; ".join(section_issues)
+            )
+        return normalized_brief
 
     async def _synthesize(self, state: GraphState) -> dict[str, object]:
         started_at = monotonic()
@@ -1466,9 +1465,7 @@ class ResearchWorkflow:
             )
         }
         validate_claim_citations(claims, source_urls, request.as_of)
-        known_urls = {
-            normalize_url(url) for claim in claims for url in claim.source_urls
-        }
+        known_urls = set(source_urls)
         source_by_url = {
             normalize_url(source.url): source
             for source in self._merge_sources(
@@ -1522,9 +1519,7 @@ class ResearchWorkflow:
                     prompt_version=prompt_version,
                 )
                 synthesis_call = self._llm_metadata()
-                brief = self._validate_report_bullets(brief, claims, {
-                    normalize_url(url) for url in known_urls
-                })
+                brief = self._validate_report_bullets(brief, claims, source_urls)
                 brief = brief.model_copy(
                     update={
                         "summary": with_draft_prefix(brief.summary),
@@ -1654,6 +1649,7 @@ class ResearchWorkflow:
                 if request.validation_profile in {"full", "global-canary"}
                 else set()
             ),
+            brief=brief,
         )
         self.repository.record_validation(report)
         self._emit(

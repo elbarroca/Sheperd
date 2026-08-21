@@ -63,13 +63,14 @@ function SourceCard({ item }: { item: SourceExplorerItem }) {
     <article className="source-row">
       <div className="source-card-heading">
         <div>
-          <p className="eyebrow">{source.region ?? "global"} · {source.language_code ?? "und"} · {source.lane}</p>
+          <p className="eyebrow">{source.region ?? "global"} / {source.language_code ?? "und"} / {source.lane}</p>
           <h2><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a></h2>
-          <p className="muted">{source.publisher || "Unknown publisher"} · {source.authority_tier ?? "unknown authority"} · {source.source_type ?? "unknown type"}</p>
+          {source.normalized_title_en && source.normalized_title_en !== source.title ? <p className="source-normalized-title">English title: {source.normalized_title_en}</p> : null}
+          <p className="muted">{source.publisher || "Unknown publisher"} / {source.authority_tier ?? "unknown authority"} / {source.source_type ?? "unknown type"}</p>
         </div>
         <Status label="Evidence" value={source.evidence_status} />
       </div>
-      <p className="card-meta">Published {dateLabel(source.published_at)} · Retrieved {dateLabel(source.retrieved_at)}</p>
+      <p className="card-meta">Published {dateLabel(source.published_at)} / Retrieved {dateLabel(source.retrieved_at)}</p>
       <div className="status-row">
         <Status label="Freshness" value={source.freshness_status} />
         <Status label="Extraction" value={source.extraction_status} />
@@ -82,14 +83,15 @@ function SourceCard({ item }: { item: SourceExplorerItem }) {
         <div className="report-section-body">
           {distillation ? (
             <>
-              <h3>English summary</h3>
+              <h3>Research summary</h3>
               <p>{distillation.summary}</p>
               <h3>Original-language summary</h3>
               <p className="muted">{distillation.summary_original || "Not recorded."}</p>
               <h3>Key points</h3>
               {distillation.key_points.length > 0 ? <ul>{distillation.key_points.map((point) => <li key={point}>{point}</li>)}</ul> : <p className="muted">None recorded.</p>}
               {distillation.key_points_original?.length ? <><h3>Original key points</h3><ul>{distillation.key_points_original.map((point) => <li key={point}>{point}</li>)}</ul></> : null}
-              <p className="muted">Model {distillation.model_id} · evidence {distillation.evidence_status} · translation {distillation.translation_status ?? "unknown"}</p>
+              {distillation.signals.length > 0 ? <><h3>Signals</h3><ul>{distillation.signals.map((signal) => <li key={signal}>{signal}</li>)}</ul></> : null}
+              <p className="muted">Model {distillation.model_id} / evidence {distillation.evidence_status} / translation {distillation.translation_status ?? "unknown"}</p>
               {distillation.limitations.length > 0 ? <p className="muted">Limitations: {distillation.limitations.join("; ")}</p> : null}
             </>
           ) : <p className="muted">No distillation persisted for this source.</p>}
@@ -175,8 +177,8 @@ export default async function SourcesPage({
         <button type="submit">Apply filters</button>
       </form>
       <div className="explorer-toolbar">
-        <p>{pageData.total} persisted sources · page {pageData.page}</p>
-        <div className="pagination">
+        <p>{pageData.total} persisted sources / page {pageData.page}</p>
+        <div className="pagination" aria-label="Source pages">
           {pageData.page > 1 ? <a href={pageHref(filters, pageData.page - 1)}>Previous</a> : <span className="muted">Previous</span>}
           {pageData.has_more ? <a href={pageHref(filters, pageData.page + 1)}>Next</a> : <span className="muted">Next</span>}
         </div>

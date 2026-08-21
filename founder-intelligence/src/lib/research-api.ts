@@ -12,6 +12,8 @@ export interface ReportBullet {
   text: string;
   source_urls: string[];
   evidence_status: EvidenceStatus;
+  why_it_matters?: string;
+  next_step?: string;
 }
 
 export interface WeeklyBrief {
@@ -356,7 +358,9 @@ function isPrimitive(value: unknown): boolean {
 function isReportBullet(value: unknown): value is ReportBullet {
   return isRecord(value)
     && hasStrings(value, ["text", "evidence_status"])
-    && isStringArray(value.source_urls);
+    && isStringArray(value.source_urls)
+    && isOptional(value, "why_it_matters", isString)
+    && isOptional(value, "next_step", isString);
 }
 
 function isWeeklyBrief(value: unknown): value is WeeklyBrief {

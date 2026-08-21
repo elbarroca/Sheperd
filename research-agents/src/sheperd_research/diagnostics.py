@@ -4,7 +4,7 @@ from urllib.parse import urlsplit
 
 from .contracts import SourceCandidate, ValidationStatus
 from .db import MIGRATION_VERSION
-from .providers.capabilities import resolve_capabilities
+from .providers.capabilities import resolve_capabilities, resolve_free_model_catalog
 from .providers.errors import ProviderError
 from .providers.neon import NeonApiClient
 from .providers.openrouter import OpenRouterProvider
@@ -345,6 +345,8 @@ async def run_model_check(
             "policy": policy,
             "message": "OPENROUTER_API_KEY is not configured",
         }
+
+
     capabilities = None
     provider = None
     try:
@@ -394,6 +396,30 @@ async def run_model_check(
                 if provider
                 else getattr(error, "attempts", [])
             ),
+        }
+
+
+async def run_model_map(settings: Settings) -> dict[str, object]:
+    if not settings.openrouter_api_key:
+        return {
+            "status": "blocked",
+            "message": "OPENROUTER_API_KEY is not configured",
+        }
+    try:
+        catalog = await resolve_free_model_catalog(
+            settings.openrouter_api_key.get_secret_value(),
+            primary_model=settings.openrouter_model,
+        )
+        if not catalog.models:
+            return {
+                "status": "blocked",
+                "message": "OpenRouter returned no explicit :free models",
+            }
+        return {"status": "pass", "catalog": catalog.as_dict()}
+    except ProviderError as error:
+        return {
+            "status": "blocked",
+            "message": str(error),
         }
 
 

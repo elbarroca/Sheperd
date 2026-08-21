@@ -201,6 +201,39 @@ describe("ReportAccordion", () => {
     expect(markup).toContain("Report is blocked, failed, or partial.");
   });
 
+  it("renders structured insight context and section completeness", () => {
+    const detailedReport: ReportPayload = {
+      ...report,
+      brief: {
+        ...report.brief,
+        executive_bullets: [{
+          text: "The source reports a measurable delay.",
+          source_urls: ["https://example.com/source"],
+          evidence_status: "partially-supported",
+          why_it_matters: "The delay can increase importer exposure.",
+          next_step: "Compare the signal with a primary port source.",
+        }],
+        risks: [{
+          text: "The delay may increase importer exposure.",
+          source_urls: ["https://example.com/source"],
+          evidence_status: "partially-supported",
+          why_it_matters: "The timing affects cost exposure.",
+          next_step: "Check the next port update before changing routing.",
+        }],
+        follow_up_questions: ["Which primary source confirms the timing?"],
+      },
+    };
+
+    const markup = renderToStaticMarkup(<ReportAccordion report={detailedReport} />);
+
+    expect(markup).toContain("Why it matters:");
+    expect(markup).toContain("Compare the signal with a primary port source.");
+    expect(markup).toContain("What this run tells us");
+    expect(markup).toContain("Check the next port update before changing routing.");
+    expect(markup).toContain("Which primary source confirms the timing?");
+    expect(markup).toContain("2/5");
+  });
+
   it("blocks every state except succeeded with pass validation", () => {
     const readyReport: ReportPayload = {
       ...report,

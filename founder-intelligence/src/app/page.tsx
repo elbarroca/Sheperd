@@ -3,6 +3,7 @@ import Link from "next/link";
 import {
   getDailyReports,
   getResearchHealth,
+  getWeeklyReport,
   getWeeklyReports,
   type ReportPayload,
   type WeeklyReportSummary,
@@ -62,6 +63,15 @@ function getScope(value: string | undefined): ArchiveScope {
   return value === "archived" || value === "all" ? value : "active";
 }
 
+function nextSteps(report: ReportPayload): string[] {
+  const seen = new Set<string>();
+  return [...report.brief.risks, ...report.brief.opportunities, ...report.brief.uncertainties].flatMap((bullet) => {
+    if (!bullet.next_step || seen.has(bullet.next_step)) return [];
+    seen.add(bullet.next_step);
+    return [bullet.next_step];
+  }).slice(0, 3);
+}
+
 function scopeHref(scope: ArchiveScope): string {
   return scope === "active" ? "/" : `/?scope=${scope}`;
 }
@@ -116,6 +126,8 @@ export default async function HomePage({
   const readyReport = weeklyReports.find(isReady);
   const featured = readyReport ?? (scope === "active" ? undefined : weeklyReports[0]);
   const history = weeklyReports.filter((report) => report.run_id !== featured?.run_id);
+  const featuredDetail = featured ? await getWeeklyReport(featured.run_id, scope) : null;
+  const featuredNextSteps = featuredDetail?.status === "ok" ? nextSteps(featuredDetail.data) : [];
 
   return (
     <div className="dashboard-page">
@@ -153,7 +165,7 @@ export default async function HomePage({
             className="text-action"
             href={`/reports/${encodeURIComponent(featured.run_id)}${featured.archived ? "?archive_scope=archived" : ""}`}
           >
-            Open report →
+            Open report
           </Link>
         </section>
       ) : (
@@ -162,6 +174,26 @@ export default async function HomePage({
           <p>Reports remain drafts until a successful run passes validation and receives human review.</p>
         </div>
       )}
+
+      {featured && featuredDetail?.status === "ok" ? (
+        <section className="featured-readout" aria-labelledby="featured-readout-heading">
+          <div>
+            <p className="eyebrow">Quick read</p>
+            <h2 id="featured-readout-heading">Conclusion</h2>
+            <p>{featuredDetail.data.brief.summary}</p>
+          </div>
+          <div>
+            <p className="eyebrow">Next steps</p>
+            {featuredNextSteps.length > 0 ? (
+              <ol className="decision-list">
+                {featuredNextSteps.map((step, index) => <li key={`${step}-${index}`}><span>{step}</span></li>)}
+              </ol>
+            ) : <p className="muted">No next step was recorded.</p>}
+          </div>
+        </section>
+      ) : featured ? (
+        <p className="inline-note">Report detail is unavailable. Open the report to retry.</p>
+      ) : null}
 
       <nav className="archive-nav" aria-label="Report archive scope">
         {(["active", "archived", "all"] as const).map((item) => (

@@ -4,6 +4,7 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any, cast
 
+import pytest
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -13,6 +14,7 @@ from sheperd_research.contracts import (
     EvidenceStatus,
     LaneDiscoveryPacket,
     LaneDiscoveryResult,
+    ReportBullet,
     ResearchRunRequest,
     SourceCandidate,
     TopicConfig,
@@ -123,6 +125,19 @@ class FakeLLM:
         distillations: list[ArticleDistillation],
         **_: object,
     ) -> WeeklyBrief:
+        source_urls = [item.source_url for item in distillations]
+
+        def bullet(text: str, *, structured: bool = False) -> ReportBullet:
+            fields = (
+                {
+                    "why_it_matters": "This is relevant to the operating picture.",
+                    "next_step": "Monitor the cited evidence.",
+                }
+                if structured
+                else {}
+            )
+            return ReportBullet(text=text, source_urls=source_urls, **fields)
+
         return WeeklyBrief(
             run_id=run_id,
             title="Weekly port intelligence",
@@ -130,8 +145,14 @@ class FakeLLM:
             covered_until=datetime(2026, 8, 19, tzinfo=UTC),
             summary="A cited draft.",
             signal_event_ids=[],
-            source_urls=[item.source_url for item in distillations],
+            source_urls=source_urls,
             model_id="google/gemma-4-26b-a4b-it:free",
+            executive_bullets=[bullet("Executive signal.")],
+            developments=[bullet("Development signal.")],
+            risks=[bullet("Risk signal.", structured=True)],
+            opportunities=[bullet("Opportunity signal.", structured=True)],
+            uncertainties=[bullet("Uncertainty signal.", structured=True)],
+            follow_up_questions=["What should be monitored next?"],
         )
 
 
@@ -212,6 +233,7 @@ class OutOfScopeDiscoveryLLM(FakeLLM):
             max_results=max_results,
             tavily=tavily,
         )
+
         return result.model_copy(
             update={
                 "sources": [
@@ -256,6 +278,86 @@ class UnsafeModelSourceLLM(FakeLLM):
                 "content": {unsafe_url: "paywalled model content"},
             }
         )
+
+
+def test_validate_report_bullets_rejects_empty_sections_instead_of_fallback() -> None:
+    source = SourceCandidate(url="https://example.com/source")
+    brief = WeeklyBrief(
+        run_id="run-1",
+        title="Empty report",
+        covered_from=datetime(2026, 8, 12, tzinfo=UTC),
+        covered_until=datetime(2026, 8, 19, tzinfo=UTC),
+        summary="A report with empty sections.",
+    )
+    claim = ClaimDraft(claim="A cited claim.", source_urls=[source.url])
+
+    with pytest.raises(ValueError, match="report output is incomplete"):
+        ResearchWorkflow._validate_report_bullets(brief, [claim], {source.url})
+
+
+def test_synthesis_accepts_bullets_citing_known_sources_without_claims() -> None:
+    claimed_source = SourceCandidate(url="https://example.com/claimed")
+    source_without_claim = SourceCandidate(url="https://example.com/context")
+    claim = ClaimDraft(claim="A cited claim.", source_urls=[claimed_source.url])
+
+    class SourceContextLLM(FakeLLM):
+        async def synthesize(
+            self,
+            run_id: str,
+            distillations: list[ArticleDistillation],
+            **kwargs: object,
+        ) -> WeeklyBrief:
+            brief = await super().synthesize(run_id, distillations, **kwargs)
+            context_bullet = ReportBullet(
+                text="Context source informs the report.",
+                source_urls=[source_without_claim.url],
+                why_it_matters="It provides relevant context.",
+                next_step="Review it alongside the claim.",
+            )
+            return brief.model_copy(
+                update={
+                    "executive_bullets": [context_bullet],
+                    "developments": [context_bullet],
+                    "risks": [context_bullet],
+                    "opportunities": [context_bullet],
+                    "uncertainties": [context_bullet],
+                }
+            )
+
+    repository = InMemoryRepository()
+    workflow = ResearchWorkflow(repository, FakeTavily(), SourceContextLLM())
+    request = ResearchRunRequest(
+        topic_set="dnd-port",
+        max_sources=1,
+        validation_profile="canary",
+    )
+    result = asyncio.run(
+        workflow._synthesize(
+            {
+                "run_id": "run-1",
+                "request": request,
+                "topic": workflow.topic_configs[request.topic_set],
+                "sources": [claimed_source, source_without_claim],
+                "content": {},
+                "distillations": [
+                    ArticleDistillation(
+                        source_url=claimed_source.url,
+                        summary="Claimed source summary.",
+                        claims=[claim],
+                    ),
+                    ArticleDistillation(
+                        source_url=source_without_claim.url,
+                        summary="Context source summary.",
+                    ),
+                ],
+                "claims": [claim],
+            }
+        )
+    )
+
+    assert cast(WeeklyBrief, result["brief"]).executive_bullets[0].source_urls == [
+        source_without_claim.url
+    ]
 
 
 def test_workflow_records_a_cited_draft_and_is_idempotent() -> None:
