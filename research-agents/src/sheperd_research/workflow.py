@@ -732,10 +732,11 @@ class ResearchWorkflow:
             if self.discovery_query_limit is not None:
                 configured_queries = configured_queries[: self.discovery_query_limit]
             lane_geographies = list(lane.geographies)
-            for pack_name in LANE_REGION_PACKS.get(lane.name, ()):
-                pack = topic.region_packs.get(pack_name)
-                if pack is not None:
-                    lane_geographies.extend([*pack.countries, *pack.ports])
+            if self.discovery_query_limit is None:
+                for pack_name in LANE_REGION_PACKS.get(lane.name, ()):
+                    pack = topic.region_packs.get(pack_name)
+                    if pack is not None:
+                        lane_geographies.extend([*pack.countries, *pack.ports])
             lane_geographies_tuple = tuple(dict.fromkeys(lane_geographies))
             lane_include_domains = list(
                 dict.fromkeys(

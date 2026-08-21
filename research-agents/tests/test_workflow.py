@@ -286,6 +286,7 @@ def test_canary_discovery_query_limit_bounds_each_lane() -> None:
     class RecordingLLM(FakeLLM):
         def __init__(self) -> None:
             self.queries_by_lane: dict[str, list[str]] = {}
+            self.geographies_by_lane: dict[str, tuple[str, ...]] = {}
 
         async def discover_lane(
             self,
@@ -295,6 +296,7 @@ def test_canary_discovery_query_limit_bounds_each_lane() -> None:
             **kwargs: Any,
         ) -> LaneDiscoveryResult:
             self.queries_by_lane[lane] = list(queries)
+            self.geographies_by_lane[lane] = geographies
             return await super().discover_lane(lane, queries, geographies, **kwargs)
 
     llm = RecordingLLM()
@@ -322,6 +324,11 @@ def test_canary_discovery_query_limit_bounds_each_lane() -> None:
 
     assert set(llm.queries_by_lane) == {"regulatory", "us-ports", "mexico"}
     assert all(len(queries) == 1 for queries in llm.queries_by_lane.values())
+    assert llm.geographies_by_lane == {
+        "regulatory": ("Regulatory", "United States"),
+        "us-ports": ("West Coast", "East Coast", "Gulf"),
+        "mexico": ("Mexico", "Europe"),
+    }
 
 
 def test_research_keeps_three_lanes_and_covers_mexico_and_europe() -> None:
