@@ -36,6 +36,9 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/sheperd_research"]
 
+[tool.vercel]
+entrypoint = "src.app:app"
+
 [tool.pytest.ini_options]
 addopts = "-q"
 pythonpath = ["src"]

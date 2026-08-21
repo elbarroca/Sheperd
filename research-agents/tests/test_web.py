@@ -135,7 +135,9 @@ def test_dashboard_exposes_read_only_run_source_and_brief_views() -> None:
     assert "request" not in audit.json()["run"]
     assert "user:secret@example.com" not in audit.text
     assert audit.json()["metrics"]["step_count"] == 1
-    assert client.get("/api/reports/monthly").status_code == 200
+    monthly = client.get("/api/reports/monthly")
+    assert monthly.status_code == 200
+    assert monthly.json()["rollups"][0]["geographies"] == ["West Coast"]
 
     repository.create_run(
         "daily-run",

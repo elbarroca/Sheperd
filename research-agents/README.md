@@ -56,6 +56,15 @@ uv run sheperd-research export --run-id <run-id>
 
 The dashboard listens on `http://127.0.0.1:8787`. It is read-only; use the CLI for review and export decisions. HTML and JSON routes expose runs, step latency and hashes, sources, claims, distillations, signals, validations, and weekly briefs. Search supports full-text queries plus geography, region, language, freshness, authority, lane, evidence, status, and date filters. Regional Markdown indexes under `../obsidian/06_Research/Research Index/` are generated from Neon and contain structured summaries, claims, citations, evidence locators, and hashes only.
 
+### Public read-only API
+
+`src/app.py` is the ASGI entrypoint for the separate Vercel project
+`sheperd-research-api`. Set that project to the FastAPI framework and configure
+only the pooled runtime `DATABASE_URL` plus `NEON_BRANCH_ID` in its server-side
+environment. Never upload `DIRECT_DATABASE_URL`, provider keys, or management
+tokens to the API project. The dashboard's `RESEARCH_API_BASE_URL` must point to
+the API's public HTTPS alias.
+
 `mcp-check` is intentionally host-controlled: run the Tavily and Neon MCP smoke
 checks from the development host. The service itself uses direct Tavily, OpenRouter,
 and PostgreSQL clients. Gemma (`google/gemma-4-26b-a4b-it:free`) is always the

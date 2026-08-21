@@ -22,6 +22,12 @@ dashboard fetches the FastAPI API server-side. Configure `RESEARCH_API_BASE_URL`
 with a public HTTPS API URL in Vercel. A local `127.0.0.1` API is not reachable
 from a Vercel deployment.
 
+The read-only API is deployed separately as `sheperd-research-api` from the
+`research-agents` directory with the FastAPI preset. Its Vercel environment
+contains only the pooled `DATABASE_URL` and `NEON_BRANCH_ID`; migration URLs,
+provider keys, and Neon management tokens stay out of the public API. The
+dashboard production URL is `https://sheperd-founder-intelligence.vercel.app`.
+
 ## Founder sharing gate
 
 1. Run all verification commands from `README.md`.

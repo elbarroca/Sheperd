@@ -279,18 +279,30 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         language: str | None = Query(default=None, max_length=12),
         evidence: str | None = Query(default=None, max_length=40),
     ) -> JSONResponse:
+        rollups = repository.monthly_rollup(
+            since=since,
+            until=until,
+            limit=limit,
+            offset=offset,
+            region=region,
+            language=language,
+            evidence=evidence,
+        )
+        normalized_rollups = [
+            {
+                **rollup,
+                "geographies": (
+                    [str(rollup["geography"])]
+                    if rollup.get("geography")
+                    else []
+                ),
+            }
+            for rollup in rollups
+        ]
         return JSONResponse(
             jsonable_encoder(
                 {
-                    "rollups": repository.monthly_rollup(
-                        since=since,
-                        until=until,
-                        limit=limit,
-                        offset=offset,
-                        region=region,
-                        language=language,
-                        evidence=evidence,
-                    ),
+                    "rollups": normalized_rollups,
                     "limit": limit,
                     "offset": offset,
                 }
