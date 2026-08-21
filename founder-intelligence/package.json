@@ -1,17 +1,13 @@
 {
-  "name": "founder-intelligence",
-  "version": "0.1.0",
+  "name": "sheperd-research-dashboard",
+  "version": "0.2.0",
   "private": true,
   "engines": {
     "node": "24.x"
   },
   "packageManager": "pnpm@10.33.2",
   "scripts": {
-    "index:build": "node scripts/build-knowledge-index.mjs",
-    "validate:data": "node scripts/validate-generated.mjs",
-    "predev": "pnpm index:build",
     "dev": "next dev",
-    "prebuild": "pnpm index:build && pnpm validate:data",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -19,12 +15,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@phosphor-icons/react": "^2.1.10",
-    "@xyflow/react": "12.11.2",
     "next": "16.2.10",
     "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "recharts": "^3.9.2"
+    "react-dom": "19.2.4"
   },
   "devDependencies": {
     "@types/node": "^20",

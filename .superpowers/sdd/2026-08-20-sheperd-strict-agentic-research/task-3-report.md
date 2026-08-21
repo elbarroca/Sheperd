@@ -1,0 +1,209 @@
+# Task 3 Report
+
+## Status
+
+- Completed in the current checkout on `feat/research-agents-neon`.
+- Added the worldwide source catalog, strict loader/validation, redacted `source-map` CLI, focused tests, and the carried Task 2 fail-closed geography/topic fixes.
+
+## Files
+
+- `research-agents/config/source_catalog.yml`
+- `research-agents/src/sheperd_research/cli.py`
+- `research-agents/src/sheperd_research/providers/openrouter.py`
+- `research-agents/src/sheperd_research/settings.py`
+- `research-agents/src/sheperd_research/source_catalog.py`
+- `research-agents/src/sheperd_research/topics.py`
+- `research-agents/tests/test_openrouter_agents.py`
+- `research-agents/tests/test_settings_and_policy.py`
+- `research-agents/tests/test_source_catalog.py`
+
+## Commits
+
+- `e53da84` `feat: add strict source catalog validation`
+
+## Exact Tests
+
+- `uv run pytest tests/test_openrouter_agents.py tests/test_settings_and_policy.py tests/test_source_catalog.py tests/test_validators.py`
+  - `55 passed in 0.74s`
+- `uv run ruff check src/sheperd_research/cli.py src/sheperd_research/topics.py src/sheperd_research/settings.py src/sheperd_research/source_catalog.py src/sheperd_research/providers/openrouter.py tests/test_openrouter_agents.py tests/test_settings_and_policy.py tests/test_source_catalog.py tests/test_validators.py`
+  - `All checks passed!`
+- `uv run mypy src/sheperd_research/cli.py src/sheperd_research/topics.py src/sheperd_research/settings.py src/sheperd_research/source_catalog.py src/sheperd_research/providers/openrouter.py tests/test_source_catalog.py`
+  - `Success: no issues found in 6 source files`
+- `uv run sheperd-research source-map --json`
+  - exit `0`
+  - verified redacted output only; no canonical URLs leaked
+
+## Concerns
+
+- Live `source-map --check --strict --json` verification was exercised through focused unit stubs, not against Tavily production credentials in this run.
+- A broader mypy run that included the legacy `tests/test_openrouter_agents.py` file still reports pre-existing harness typing issues unrelated to this patch, so the final typecheck scope was narrowed to the changed source files plus the new catalog test file.
+
+## Fix Round 1
+
+### Status
+
+- Addressed all six Important findings in shared policy code and focused tests.
+- Tightened runnable topic validation, quarantined unsafe seeds before persistence, centralized URL access policy, redacted `source-map` error handling, canonicalized required-source validation requests, and made strict checks fail on missing observations.
+
+### Files
+
+- `research-agents/src/sheperd_research/cli.py`
+- `research-agents/src/sheperd_research/source_catalog.py`
+- `research-agents/src/sheperd_research/topics.py`
+- `research-agents/src/sheperd_research/validators.py`
+- `research-agents/src/sheperd_research/workflow.py`
+- `research-agents/tests/test_openrouter_agents.py`
+- `research-agents/tests/test_source_catalog.py`
+- `research-agents/tests/test_validators.py`
+- `research-agents/tests/test_workflow.py`
+
+### Exact Tests
+
+- `uv run pytest tests/test_openrouter_agents.py tests/test_source_catalog.py tests/test_validators.py tests/test_workflow.py`
+  - `64 passed in 0.75s`
+- `uv run ruff check src/sheperd_research/validators.py src/sheperd_research/topics.py src/sheperd_research/source_catalog.py src/sheperd_research/workflow.py src/sheperd_research/cli.py tests/test_openrouter_agents.py tests/test_source_catalog.py tests/test_validators.py tests/test_workflow.py`
+  - `All checks passed!`
+- `uv run mypy src/sheperd_research/validators.py src/sheperd_research/topics.py src/sheperd_research/source_catalog.py src/sheperd_research/workflow.py src/sheperd_research/cli.py tests/test_source_catalog.py tests/test_validators.py tests/test_workflow.py`
+  - `Success: no issues found in 8 source files`
+
+### Concerns
+
+- `source-map --check --strict --json` remains unit-stubbed in this fix round; no live Tavily credential check was run.
+
+## Fix Round 2
+
+### Status
+
+- Closed the three reviewer URL-policy bypasses without changing Gemma/no-fallback behavior, source scope, or redacted output.
+- `normalize_url` now sorts surviving query pairs, workflow lane validation rejects model-returned URLs failing the centralized policy before persistence, and domain matching canonicalizes terminal DNS dots.
+
+### Files
+
+- `research-agents/src/sheperd_research/validators.py`
+- `research-agents/src/sheperd_research/workflow.py`
+- `research-agents/tests/test_validators.py`
+- `research-agents/tests/test_workflow.py`
+
+### Commits
+
+- `ff46d52` `fix: close URL policy bypasses`
+
+### Exact Tests
+
+- `uv run pytest tests/test_openrouter_agents.py tests/test_source_catalog.py tests/test_validators.py tests/test_workflow.py`
+  - `67 passed in 0.67s`
+- `uv run ruff check src/sheperd_research/validators.py src/sheperd_research/workflow.py tests/test_validators.py tests/test_workflow.py`
+  - `All checks passed!`
+- `uv run mypy src/sheperd_research/validators.py src/sheperd_research/workflow.py src/sheperd_research/source_catalog.py tests/test_validators.py tests/test_workflow.py tests/test_source_catalog.py`
+  - `Success: no issues found in 6 source files`
+- `git diff --check`
+  - passed
+
+### Concerns
+
+- Live `source-map --check --strict --json` verification remains outside this fix round; no Tavily production credential check was run.
+- Existing unrelated staged and untracked work remains in the checkout and was not touched.
+
+## Fix Round 4
+
+### Status
+
+- Promoted any normalized source collision involving a seed to `is_seed=true`, `source_kind=seed-only`, and `UNVERIFIED` evidence state in both the in-memory and Postgres repositories.
+- Preserved existing normal extracted-source behavior when no seed is involved; seed-only state cannot be demoted by a later normal source.
+
+### Files
+
+- `research-agents/src/sheperd_research/db.py`
+- `research-agents/tests/test_db.py`
+
+### Commits
+
+- `d479f76` `fix: merge seed provenance during source upsert`
+
+### Exact Tests
+
+- `uv run pytest tests/test_db.py::test_in_memory_source_upsert_promotes_existing_source_for_seed tests/test_db.py::test_in_memory_source_upsert_preserves_normal_source_without_seed tests/test_db.py::test_postgres_source_upsert_promotes_seed_metadata`
+  - `3 passed in 0.09s`
+- `uv run pytest tests/test_openrouter_agents.py tests/test_source_catalog.py tests/test_validators.py tests/test_validation.py tests/test_workflow.py tests/test_db.py tests/test_contracts.py`
+  - `79 passed in 0.55s`
+- `uv run ruff check src/sheperd_research/db.py tests/test_db.py`
+  - `All checks passed!`
+- `uv run mypy src/sheperd_research/db.py tests/test_db.py`
+  - `Success: no issues found in 2 source files`
+- `git diff --cached --check`
+  - passed before the code commit
+
+### Concerns
+
+- Live `source-map --check --strict --json` verification remains outside this fix round; no Tavily production credential check was run.
+- Existing unrelated staged and untracked work remains in the checkout and was not touched; website and recovery paths were not modified.
+
+## Fix Round 5
+
+### Status
+
+- Carried the repository's merged seed provenance back into workflow state before extraction and distillation, preventing a later discovery run from processing a URL that was seeded in an earlier run.
+- Added the same merged-source return contract to the in-memory and Postgres repositories; normal non-seed sources remain extractable.
+
+### Files
+
+- `research-agents/src/sheperd_research/db.py`
+- `research-agents/src/sheperd_research/workflow.py`
+- `research-agents/tests/test_db.py`
+- `research-agents/tests/test_workflow.py`
+
+### Commits
+
+- `873514c` `fix: carry merged seed provenance into workflow`
+
+### Exact Tests
+
+- `uv run pytest tests/test_workflow.py::test_workflow_blocks_seed_provenance_across_runs tests/test_db.py::test_postgres_source_upsert_returns_merged_seed_metadata`
+  - `2 passed in 0.27s`
+- `uv run pytest tests/test_openrouter_agents.py tests/test_source_catalog.py tests/test_validators.py tests/test_validation.py tests/test_workflow.py tests/test_db.py tests/test_contracts.py`
+  - `81 passed in 0.63s`
+- `uv run ruff check src/sheperd_research/workflow.py src/sheperd_research/db.py tests/test_workflow.py tests/test_db.py`
+  - `All checks passed!`
+- `uv run mypy src/sheperd_research/workflow.py src/sheperd_research/db.py tests/test_workflow.py tests/test_db.py`
+  - `Success: no issues found in 4 source files`
+- `git diff --cached --check`
+  - passed before the implementation commit
+
+### Concerns
+
+- Live `source-map --check --strict --json` verification remains outside this fix round; no Tavily production credential check was run.
+- Existing unrelated staged and untracked work remains in the checkout and was not touched; website and recovery paths were not modified.
+
+## Fix Round 3
+
+### Status
+
+- Preserved user-supplied LinkedIn and paywalled URLs as auditable `seed-only` / `is_seed` records with `UNVERIFIED` evidence state and existing quarantine reason metadata.
+- Kept the centralized access policy strict: quarantined seed leads are excluded from extraction and distillation, and all seed-only records are excluded from source-quality counts and thresholds.
+
+### Files
+
+- `research-agents/src/sheperd_research/workflow.py`
+- `research-agents/src/sheperd_research/validation.py`
+- `research-agents/tests/test_workflow.py`
+- `research-agents/tests/test_validation.py`
+
+### Commits
+
+- `b4be19d` `fix: retain quarantined seed leads`
+
+### Exact Tests
+
+- `uv run pytest tests/test_openrouter_agents.py tests/test_source_catalog.py tests/test_validators.py tests/test_validation.py tests/test_workflow.py`
+  - `71 passed in 0.64s`
+- `uv run ruff check src/sheperd_research/workflow.py src/sheperd_research/validation.py tests/test_workflow.py tests/test_validation.py`
+  - `All checks passed!`
+- `uv run mypy src/sheperd_research/workflow.py src/sheperd_research/validation.py tests/test_workflow.py tests/test_validation.py`
+  - `Success: no issues found in 4 source files`
+- `git diff --check`
+  - passed
+
+### Concerns
+
+- Live `source-map --check --strict --json` verification remains outside this fix round; no Tavily production credential check was run.
+- Existing unrelated staged and untracked work remains in the checkout and was not touched.

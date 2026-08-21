@@ -1,0 +1,71 @@
+topics:
+  dnd-port:
+    description: D&D, port, carrier, terminal, and regulatory intelligence.
+    seed_urls:
+      - https://gcaptain.com/port-of-los-angeles-nears-1-million-teus-in-second-busiest-july/?subscriber=true&goal=0_f50174ef03-ab032c59d1-381236113
+      - https://www.fmc.gov/articles/fmc-collects-civil-penalty-payment-of-1900000-from-shipping-line/
+      - https://gcaptain.com/appeals-court-upholds-fmcs-authority-to-strike-down-unreasonable-container-detention-fees/?subscriber=true&goal=0_f50174ef03-698b977298-381236113&mc_cid=698b977298&mc_eid=6be6d93e0f
+      - https://www.linkedin.com/posts/amanda-bradfield-05779080_i-am-quite-often-asked-how-transits-through-share-7495578784306302978-_wl4/
+    queries:
+      - latest D&D demurrage detention FMC penalties courts Part 541 OSRA
+      - latest Los Angeles Long Beach Oakland Seattle Tacoma port congestion dwell TEU closure
+      - latest Savannah Charleston New York New Jersey Houston port congestion terminal carrier
+      - latest Mexico Manzanillo Lazaro Cardenas Veracruz Altamira container port update
+      - latest Europe Rotterdam Antwerp Hamburg Valencia Barcelona Felixstowe port shipping update
+    geographies:
+      - West Coast
+      - East Coast
+      - Gulf
+      - Mexico
+      - Europe
+      - Canada
+      - South America
+      - Middle East
+      - Global
+    include_domains:
+      - fmc.gov
+      - ecfr.gov
+      - federalregister.gov
+      - cadc.uscourts.gov
+      - courtlistener.com
+      - justice.gov
+      - ftc.gov
+      - portoflosangeles.org
+      - polb.com
+      - oaklandca.gov
+      - nwseaportalliance.com
+      - portseattle.org
+      - portoftacoma.com
+      - gaports.com
+      - scspa.com
+      - panynj.gov
+      - portofvirginia.com
+      - porthouston.com
+      - puertomanzanillo.com.mx
+      - puertolazarocardenas.com.mx
+      - puertodeveracruz.com.mx
+      - puertoaltamira.com.mx
+      - anam.gob.mx
+      - gob.mx
+      - transport.ec.europa.eu
+      - emsa.europa.eu
+      - ec.europa.eu
+      - portofrotterdam.com
+      - portofantwerpbruges.com
+      - hamburg-port-authority.de
+      - valenciaport.com
+      - portdebarcelona.cat
+      - portoffelixstowe.co.uk
+      - peelports.com
+      - imo.org
+      - unctad.org
+      - worldbank.org
+      - portwatch.imf.org
+      - wto.org
+      - gcaptain.com
+      - container-news.com
+      - theloadstar.com
+      - splash247.com
+    exclude_domains:
+      - linkedin.com
+    lookback_days: 14

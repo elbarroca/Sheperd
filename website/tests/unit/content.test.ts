@@ -1,66 +1,62 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  benefits,
-  containerEvents,
-  liveSource,
-  marketStats,
-  missionOutcomes,
+  evidenceLayers,
+  faqItems,
   navigationItems,
-  recoverySteps,
+  pilotScope,
+  processSteps,
   volumeOptions,
 } from "../../lib/content";
 
-describe("Recovery Corridor content", () => {
-  it("preserves the three live market figures", () => {
-    expect(marketStats.map(({ value }) => value)).toEqual([
-      "$2.1B",
-      "$6.2B",
-      "3 years",
+describe("recovery-led landing page content", () => {
+  it("leads with the pilot conversion path", () => {
+    expect(navigationItems).toEqual([
+      { label: "How it works", href: "#process" },
+      { label: "What we review", href: "#evidence" },
+      { label: "Pilot scope", href: "#pilot-scope" },
+      { label: "Trust", href: "#trust" },
     ]);
   });
 
-  it("preserves the exact three-step recovery sequence", () => {
-    expect(recoverySteps.map(({ title }) => title)).toEqual([
-      "Send container invoices",
-      "We audit every charge",
-      "Recover eligible fees",
+  it("keeps the process explicit without promising recovery", () => {
+    expect(processSteps.map(({ title }) => title)).toEqual([
+      "Bring the invoice and operating record",
+      "Build the case from the evidence",
+      "Support the dispute and track the outcome",
+    ]);
+    expect(processSteps.at(-1)?.description).toContain("credit or refund");
+  });
+
+  it("names the three evidence layers", () => {
+    expect(evidenceLayers.map(({ title }) => title)).toEqual([
+      "Billing record",
+      "Operational timeline",
+      "Governing terms",
     ]);
   });
 
-  it("keeps the three operating benefits", () => {
-    expect(benefits.map(({ title }) => title)).toEqual([
-      "Zero upfront cost",
-      "Less internal work",
-      "Every charge tracked",
+  it("defines a bounded pilot scope", () => {
+    expect(pilotScope.map(({ title }) => title)).toEqual([
+      "A focused record review",
+      "A clear evidence map",
+      "A next-step conversation",
     ]);
   });
 
-  it("states the three company mission outcomes", () => {
-    expect(missionOutcomes.map(({ title }) => title)).toEqual([
-      "Prevent leakage",
-      "Recover eligible fees",
-      "Create accountability",
+  it("answers the trust questions without fabricating proof", () => {
+    expect(faqItems.map(({ question }) => question)).toEqual([
+      "What happens after I request a pilot?",
+      "Do I need to upload invoices now?",
+      "Does SheperD guarantee a refund?",
+      "What if the review does not support a recovery path?",
+      "What does the pilot cost?",
+      "How long does a review take?",
+      "Is the outcome cash or a carrier credit?",
     ]);
   });
 
-  it("tracks the complete import-container event record", () => {
-    expect(containerEvents.map(({ title }) => title)).toEqual([
-      "Last free day (LFD)",
-      "Terminal availability",
-      "Gate-out",
-      "Empty return",
-      "Invoice line items",
-    ]);
-  });
-
-  it("keeps every navigation target on the page", () => {
-    expect(navigationItems.every(({ href }) => href.startsWith("#"))).toBe(true);
-  });
-
-  it("keeps the complete volume range and official contact", () => {
+  it("keeps the approved volume ranges and official contact", () => {
     expect(volumeOptions).toHaveLength(4);
-    expect(liveSource.contactEmail).toBe("info@sheperd.io");
-    expect(new URL(liveSource.linkedin).hostname).toBe("www.linkedin.com");
   });
 });

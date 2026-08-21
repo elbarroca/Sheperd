@@ -9,15 +9,6 @@ const scriptSources = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
-  async redirects() {
-    return [
-      { source: "/", destination: "/competitors", permanent: false },
-      { source: "/research", destination: "/knowledge", permanent: false },
-      { source: "/mikey", destination: "/michael", permanent: false },
-      { source: "/improvements", destination: "/michael", permanent: false },
-      { source: "/ricardo", destination: "/market", permanent: false },
-    ];
-  },
   async headers() {
     return [
       {
