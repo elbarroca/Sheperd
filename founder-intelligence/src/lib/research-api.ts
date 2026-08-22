@@ -131,6 +131,22 @@ export interface ArticleDistillation {
   insight_packet?: Record<string, unknown>;
 }
 
+export interface ArticleFulfillment {
+  source_url: string;
+  status: string;
+  complete: boolean;
+  source_persisted: boolean;
+  extracted: boolean;
+  distillation_persisted: boolean;
+  claims_persisted: boolean;
+  claim_count: number;
+  citation_count: number;
+  citation_complete: boolean;
+  ui_displayable: boolean;
+  missing_fields: string[];
+  quality_issues: string[];
+}
+
 export interface QualitySnapshot {
   ready: boolean;
   readiness_status: string;
@@ -145,6 +161,7 @@ export interface QualitySnapshot {
   report_sections_complete: number;
   report_section_completeness: number;
   report_quality_issues: string[];
+  article_fulfillment?: ArticleFulfillment[];
 }
 
 export interface ToolCallReceipt {
@@ -284,6 +301,7 @@ export interface SourceExplorerItem {
   distillation: ArticleDistillation | null;
   claims: ResearchClaim[];
   source_hash: string | null;
+  fulfillment?: ArticleFulfillment;
 }
 
 export interface SourceExplorerPage {
@@ -597,6 +615,22 @@ function isArticleDistillation(value: unknown): value is ArticleDistillation {
     && isOptional(value, "insight_packet", isRecord);
 }
 
+function isArticleFulfillment(value: unknown): value is ArticleFulfillment {
+  return isRecord(value)
+    && hasStrings(value, ["source_url", "status"])
+    && isBoolean(value.complete)
+    && isBoolean(value.source_persisted)
+    && isBoolean(value.extracted)
+    && isBoolean(value.distillation_persisted)
+    && isBoolean(value.claims_persisted)
+    && isNonNegativeInteger(value.claim_count)
+    && isNonNegativeInteger(value.citation_count)
+    && isBoolean(value.citation_complete)
+    && isBoolean(value.ui_displayable)
+    && isStringArray(value.missing_fields)
+    && isStringArray(value.quality_issues);
+}
+
 function isQualitySnapshot(value: unknown): value is QualitySnapshot {
   return isRecord(value)
     && isBoolean(value.ready)
@@ -611,7 +645,10 @@ function isQualitySnapshot(value: unknown): value is QualitySnapshot {
     && isNonNegativeInteger(value.report_section_count)
     && isNonNegativeInteger(value.report_sections_complete)
     && isNumber(value.report_section_completeness)
-    && isStringArray(value.report_quality_issues);
+    && isStringArray(value.report_quality_issues)
+    && isOptional(value, "article_fulfillment", (candidate) =>
+      Array.isArray(candidate) && candidate.every(isArticleFulfillment)
+    );
 }
 
 function isReportPayload(value: unknown): value is ReportPayload {
@@ -749,7 +786,8 @@ function isSourceExplorerItem(value: unknown): value is SourceExplorerItem {
     && (value.distillation === null || isArticleDistillation(value.distillation))
     && Array.isArray(value.claims)
     && value.claims.every(isResearchClaim)
-    && isNullableString(value.source_hash);
+    && isNullableString(value.source_hash)
+    && isOptional(value, "fulfillment", isArticleFulfillment);
 }
 
 function isSourceExplorerPage(value: unknown): value is SourceExplorerPage {

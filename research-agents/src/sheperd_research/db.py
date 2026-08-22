@@ -28,7 +28,7 @@ from .contracts import (
     ValidationStatus,
     WeeklyBrief,
 )
-from .validators import content_hash, normalize_url, quality_metrics
+from .validators import article_fulfillment, content_hash, normalize_url, quality_metrics
 
 MIGRATION_VERSION = "0012_article_insight_quality"
 ArchiveScope = Literal["active", "archived", "all"]
@@ -1065,6 +1065,13 @@ class InMemoryRepository:
                     "distillation": distillation,
                     "claims": claims,
                     "source_hash": snapshot.get("content_hash") if snapshot else None,
+                    "fulfillment": article_fulfillment(
+                        source.url,
+                        source_persisted=True,
+                        extracted=source.extraction_status.value == "succeeded",
+                        distillation=distillation,
+                        claims=claims,
+                    ),
                 }
             )
         return {
@@ -3314,6 +3321,13 @@ class PostgresRepository:
                     "distillation": distillation,
                     "claims": source_claims,
                     "source_hash": snapshots.get(normalized_url),
+                    "fulfillment": article_fulfillment(
+                        source.url,
+                        source_persisted=True,
+                        extracted=source.extraction_status.value == "succeeded",
+                        distillation=distillation,
+                        claims=source_claims,
+                    ),
                 }
             )
         start = (bounded_page - 1) * bounded_size

@@ -148,6 +148,7 @@ def test_dashboard_exposes_read_only_run_source_and_brief_views() -> None:
     assert "user:secret@example.com" not in audit.text
     assert audit.json()["metrics"]["step_count"] == 1
     assert audit.json()["metrics"]["report_section_completeness"] == 0.0
+    assert audit.json()["metrics"]["article_fulfillment"][0]["status"] == "not_extracted"
     monthly = client.get("/api/reports/monthly")
     assert monthly.status_code == 200
     assert monthly.json()["rollups"][0]["geographies"] == ["West Coast"]
@@ -236,6 +237,9 @@ def test_source_explorer_returns_paged_source_evidence_and_facets() -> None:
     assert payload["items"][0]["distillation"]["summary"] == "English summary."
     assert payload["items"][0]["claims"][0]["claim"] == claim.claim
     assert payload["items"][0]["source_hash"]
+    assert payload["items"][0]["fulfillment"]["source_persisted"] is True
+    assert payload["items"][0]["fulfillment"]["distillation_persisted"] is True
+    assert payload["items"][0]["fulfillment"]["claim_count"] == 1
 
     facets = client.get("/api/sources/facets")
     assert facets.status_code == 200

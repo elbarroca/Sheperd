@@ -14,6 +14,7 @@ from sheperd_research.contracts import (
     WeeklyBrief,
 )
 from sheperd_research.validators import (
+    article_fulfillment,
     can_extract_url,
     deduplicate_sources,
     normalize_url,
@@ -158,6 +159,39 @@ def test_explicit_not_observed_insights_are_valid() -> None:
     )
 
     assert validate_article_distillation_quality(distillation) == []
+
+
+def test_article_fulfillment_reports_persistence_and_missing_quality() -> None:
+    distillation = ArticleDistillation(
+        source_url="https://example.com/article",
+        summary="Summary",
+        key_points=["Point one", "Point two"],
+    )
+
+    fulfillment = article_fulfillment(
+        distillation.source_url,
+        source_persisted=True,
+        extracted=True,
+        distillation=distillation,
+    )
+
+    assert fulfillment["status"] == "incomplete"
+    assert fulfillment["source_persisted"] is True
+    assert fulfillment["distillation_persisted"] is True
+    assert fulfillment["ui_displayable"] is True
+    assert "claims_incomplete" in fulfillment["missing_fields"]
+
+
+def test_article_fulfillment_marks_extracted_only_sources() -> None:
+    fulfillment = article_fulfillment(
+        "https://example.com/article",
+        source_persisted=True,
+        extracted=True,
+        distillation=None,
+    )
+
+    assert fulfillment["status"] == "extracted_only"
+    assert fulfillment["missing_fields"] == ["distillation"]
 
 
 def test_placeholder_article_fields_are_incomplete() -> None:

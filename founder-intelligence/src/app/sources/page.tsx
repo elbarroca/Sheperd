@@ -93,6 +93,7 @@ function SourceCard({ item }: { item: SourceExplorerItem }) {
       </div>
       <p className="source-snippet">{source.normalized_snippet_en ?? source.snippet ?? "No summary snippet recorded."}</p>
       {source.normalized_snippet_en && source.normalized_snippet_en !== source.snippet ? <p className="muted">Original: {source.snippet}</p> : null}
+      {item.fulfillment ? <p className="muted">Fulfillment: {item.fulfillment.status} · {item.fulfillment.claim_count} claims · {item.fulfillment.citation_count} cited · UI {item.fulfillment.ui_displayable ? "ready" : "not ready"}{item.fulfillment.missing_fields.length ? ` · missing ${item.fulfillment.missing_fields.join(", ")}` : ""}</p> : null}
       <details className="report-section">
         <summary>Article findings</summary>
         <div className="report-section-body">

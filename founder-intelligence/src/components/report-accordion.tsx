@@ -218,6 +218,10 @@ function SourceEvidence({ report }: { report: ReportPayload }) {
                 {distillation.evidence_locators?.length ? <p className="muted">Locators: {distillation.evidence_locators.join(" / ")}</p> : <p className="muted">Evidence locators: Not recorded in this run.</p>}
                 <p className="muted">{distillation.model_id} / {distillation.prompt_version} / {distillation.evidence_status} / language {distillation.source_language ?? "und"} / translation {distillation.translation_status ?? "unknown"} / quality {distillation.quality_status ?? "incomplete"}</p>
                 {distillation.quality_issues?.length ? <p className="muted">Quality issues: {distillation.quality_issues.join(", ")}</p> : null}
+                {report.quality?.article_fulfillment ? (() => {
+                  const fulfillment = report.quality.article_fulfillment.find((item) => item.source_url === distillation.source_url);
+                  return fulfillment ? <p className="muted">Fulfillment: {fulfillment.status} · {fulfillment.claim_count} claims · {fulfillment.citation_count} cited · UI {fulfillment.ui_displayable ? "ready" : "not ready"}{fulfillment.missing_fields.length ? ` · missing ${fulfillment.missing_fields.join(", ")}` : ""}</p> : null;
+                })() : null}
                 <code>Hash: {distillation.content_hash ?? "unknown"}</code>
                 {distillation.claims.length > 0 ? <ul>{distillation.claims.map((claim) => <ClaimRow key={claim.claim} claim={claim} />)}</ul> : <p className="muted">Claims: Not recorded in this run.</p>}
               </article>

@@ -929,6 +929,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                             "report_section_completeness": quality["report_section_completeness"],
                             "source_distillation_coverage": quality["source_distillation_coverage"],
                             "article_quality_issues": quality["article_quality_issues"],
+                            "article_fulfillment": quality["article_fulfillment"],
                             "report_quality_issues": quality["report_quality_issues"],
                             "blocking_reasons": readiness["blocking_reasons"],
                         "claim_count": len(claims),

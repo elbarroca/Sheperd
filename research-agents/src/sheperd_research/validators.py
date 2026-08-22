@@ -289,6 +289,59 @@ def validate_article_distillation_quality(
     return issues
 
 
+def article_fulfillment(
+    source_url: str,
+    *,
+    source_persisted: bool,
+    extracted: bool,
+    distillation: ArticleDistillation | None,
+    claims: Sequence[ClaimDraft] | None = None,
+) -> dict[str, object]:
+    """Project the source-to-UI fulfillment state from canonical records."""
+    missing_fields: list[str] = []
+    if not source_persisted:
+        missing_fields.append("source")
+    if not extracted:
+        missing_fields.append("extraction")
+    if distillation is None:
+        missing_fields.append("distillation")
+        quality_issues: list[str] = []
+    else:
+        quality_issues = validate_article_distillation_quality(distillation)
+        missing_fields.extend(quality_issues)
+
+    linked_claims = list(claims) if claims is not None else (
+        distillation.claims if distillation is not None else []
+    )
+    citation_count = sum(1 for claim in linked_claims if claim.source_urls)
+    complete = not missing_fields
+    if not source_persisted:
+        status = "orphaned"
+    elif not extracted:
+        status = "not_extracted"
+    elif distillation is None:
+        status = "extracted_only"
+    elif complete:
+        status = "complete"
+    else:
+        status = "incomplete"
+    return {
+        "source_url": normalize_url(source_url),
+        "status": status,
+        "complete": complete,
+        "source_persisted": source_persisted,
+        "extracted": extracted,
+        "distillation_persisted": distillation is not None,
+        "claims_persisted": bool(linked_claims),
+        "claim_count": len(linked_claims),
+        "citation_count": citation_count,
+        "citation_complete": bool(linked_claims) and citation_count == len(linked_claims),
+        "ui_displayable": source_persisted,
+        "missing_fields": sorted(set(missing_fields)),
+        "quality_issues": sorted(set(quality_issues)),
+    }
+
+
 def validate_report_sections(
     brief: WeeklyBrief,
     known_urls: set[str],
@@ -357,6 +410,24 @@ def quality_metrics(
         for item in distillations
         if not validate_article_distillation_quality(item)
     )
+    source_by_url = {normalize_url(source.url): source for source in sources}
+    fulfillment_urls = set(source_by_url) | set(distillation_counts)
+    distillation_by_url = {
+        normalize_url(item.source_url): item for item in distillations
+    }
+    article_fulfillment_records = [
+        article_fulfillment(
+            url,
+            source_persisted=url in source_by_url,
+            extracted=(
+                source_by_url[url].extraction_status.value == "succeeded"
+                if url in source_by_url
+                else False
+            ),
+            distillation=distillation_by_url.get(url),
+        )
+        for url in sorted(fulfillment_urls)
+    ]
     known_urls = {normalize_url(source.url) for source in sources}
     report_issues = (
         validate_report_sections(brief, known_urls) if brief is not None else []
@@ -387,6 +458,7 @@ def quality_metrics(
             round(complete_count / required_count, 6) if required_count else 0.0
         ),
         "article_quality_issues": article_issues,
+        "article_fulfillment": article_fulfillment_records,
         "source_distillation_coverage": (
             round(
                 sum(

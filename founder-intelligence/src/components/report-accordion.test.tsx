@@ -142,6 +142,49 @@ describe("ReportAccordion", () => {
     expect(markup).toContain("Aug 19, 2026, 12:34:56 PM");
   });
 
+  it("renders the source-to-UI fulfillment audit when provided", () => {
+    const markup = renderToStaticMarkup(
+      <ReportAccordion
+        report={{
+          ...report,
+          quality: {
+            ready: false,
+            readiness_status: "review_required",
+            blocking_reasons: ["incomplete_article_insights"],
+            quality_ready: false,
+            article_count: 1,
+            complete_article_count: 0,
+            article_insight_completeness: 0,
+            article_quality_issues: { "https://example.com/source": ["claims_incomplete"] },
+            source_distillation_coverage: 1,
+            report_section_count: 5,
+            report_sections_complete: 0,
+            report_section_completeness: 0,
+            report_quality_issues: [],
+            article_fulfillment: [{
+              source_url: "https://example.com/source",
+              status: "incomplete",
+              complete: false,
+              source_persisted: true,
+              extracted: true,
+              distillation_persisted: true,
+              claims_persisted: false,
+              claim_count: 0,
+              citation_count: 0,
+              citation_complete: false,
+              ui_displayable: true,
+              missing_fields: ["claims_incomplete"],
+              quality_issues: ["claims_incomplete"],
+            }],
+          },
+        }}
+      />,
+    );
+
+    expect(markup).toContain("Fulfillment: incomplete");
+    expect(markup).toContain("missing claims_incomplete");
+  });
+
   it("renders report summaries as compact rows and labels archived reports", () => {
     const markup = renderToStaticMarkup(
       <ReportLink
