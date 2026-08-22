@@ -617,13 +617,15 @@ class ResearchWorkflow:
             if topic is None:
                 raise ValueError(f"unknown topic set: {request.topic_set}")
             repair_sources = [
-                source.model_copy(
-                    update={
-                        "is_seed": False,
-                        "source_kind": "repair",
-                        "extraction_status": ExtractionStatus.NOT_ATTEMPTED,
-                        "extraction_error_code": None,
-                    }
+                self.repository.record_source(
+                    source.model_copy(
+                        update={
+                            "is_seed": False,
+                            "source_kind": "repair",
+                            "extraction_status": ExtractionStatus.NOT_ATTEMPTED,
+                            "extraction_error_code": None,
+                        }
+                    )
                 )
                 for source in deduplicate_sources(sources)[: request.max_sources]
             ]

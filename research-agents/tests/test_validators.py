@@ -110,6 +110,7 @@ def test_article_quality_rejects_missing_required_insights() -> None:
 
     assert {
         "key_points_incomplete",
+        "claims_incomplete",
         "missing_what_happened",
         "missing_why_it_matters",
         "uncertainties_incomplete",
@@ -146,6 +147,13 @@ def test_explicit_not_observed_insights_are_valid() -> None:
         opportunity_assessment=insight,
         uncertainties=["The source has limited scope."],
         next_steps=["Compare another source."],
+        claims=[
+            ClaimDraft(
+                claim="The source reports a development.",
+                source_urls=["https://example.com/complete"],
+                evidence_excerpt="The source reports a development.",
+            )
+        ],
         quality_status=DistillationQualityStatus.COMPLETE,
     )
 

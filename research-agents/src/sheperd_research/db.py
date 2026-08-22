@@ -1801,10 +1801,14 @@ class PostgresRepository:
                 self.connection.commit()
                 return rows
             except OperationalError:
+                self.connection.rollback()
                 if attempt == 1 or self._connection_url is None:
                     raise
                 self.connection.close()
                 self._reconnect()
+            except Exception:
+                self.connection.rollback()
+                raise
         raise OperationalError("database operation could not be completed")
 
     def create_run(self, run_id: str, request: ResearchRunRequest) -> None:
@@ -2846,7 +2850,7 @@ class PostgresRepository:
                    ad.evidence_status, ad.content_hash, ad.source_language,
                    ad.summary_original, ad.key_points_original, ad.translation_status,
                    ad.evidence_excerpts, ad.evidence_locators, ad.insight_packet,
-                   ad.quality_status, ad.quality_issues
+                   ad.quality_status, ad.quality_issues, ad.run_id
             FROM article_distillations ad
             JOIN sources s ON s.normalized_url = ad.normalized_url
             WHERE """
@@ -2854,7 +2858,41 @@ class PostgresRepository:
             + " ORDER BY ad.created_at DESC LIMIT %s OFFSET %s",
             tuple(params),
         )
-        return [_article_distillation_from_row(row) for row in rows]
+        run_ids = sorted({cast(str, row[20]) for row in rows if len(row) > 20})
+        claims_by_run_url: dict[tuple[str, str], list[ClaimDraft]] = defaultdict(list)
+        if run_ids:
+            claim_rows = self._execute(
+                "SELECT run_id, claim_text, evidence_status, confidence, source_urls, "
+                "support_locator, conflicts, original_claim, evidence_excerpt, "
+                "independent_source_count, citation_status, verification_basis "
+                "FROM claims WHERE run_id = ANY(%s) ORDER BY created_at, claim_id",
+                (run_ids,),
+            )
+            for row in claim_rows:
+                claim = ClaimDraft(
+                    claim=cast(str, row[1]),
+                    evidence_status=EvidenceStatus(cast(str, row[2])),
+                    confidence=cast(str, row[3]),
+                    source_urls=_safe_public_urls(row[4] or []),
+                    support_locator=cast(str | None, row[5]),
+                    conflicts=cast(list[str], row[6] or []),
+                    original_claim=cast(str | None, row[7]),
+                    evidence_excerpt=cast(str | None, row[8]),
+                    independent_source_count=cast(int, row[9] or 0),
+                    citation_status=cast(str, row[10]),
+                    verification_basis=cast(str | None, row[11]),
+                )
+                for url in claim.source_urls:
+                    claims_by_run_url[(cast(str, row[0]), normalize_url(url))].append(claim)
+        return [
+            _article_distillation_from_row(
+                row,
+                claims=claims_by_run_url.get(
+                    (cast(str, row[20]), cast(str, row[0])), []
+                ),
+            )
+            for row in rows
+        ]
 
     def list_claims(
         self,

@@ -130,7 +130,7 @@ def test_weekly_run_combines_retained_seven_day_evidence_with_fresh_discovery() 
     retained_claim = ClaimDraft(
         claim="A retained port signal remains material.",
         source_urls=[retained_source.url],
-        evidence_status=EvidenceStatus.VERIFIED,
+        evidence_status=EvidenceStatus.UNVERIFIED,
     )
     repository.record_source(retained_source)
     repository.record_snapshot("daily-run", retained_source, "retained evidence")
