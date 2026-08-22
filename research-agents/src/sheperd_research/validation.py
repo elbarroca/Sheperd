@@ -133,7 +133,7 @@ def build_validation_report(
     ]
     hashes = source_hashes or []
     duplicate_hashes = len(hashes) != len(set(hashes))
-    quality_mode = any(
+    quality_mode = bool(distillations) or any(
         source.extraction_status is not ExtractionStatus.NOT_ATTEMPTED
         or source.region != "global"
         or source.language_code != "und"
@@ -159,15 +159,19 @@ def build_validation_report(
     }
     article_insight_issues: dict[str, list[str]] = {}
     if distillations is not None:
+        for distillation in distillations:
+            issues = validate_article_distillation_quality(distillation)
+            if issues:
+                article_insight_issues[normalize_url(distillation.source_url)] = issues
         for source in enriched_sources:
             if source.extraction_status is not ExtractionStatus.SUCCEEDED:
                 continue
             url = normalize_url(source.url)
-            item = distillations_by_url.get(url)
+            matched_distillation = distillations_by_url.get(url)
             issues = (
                 ["missing_distillation"]
-                if item is None
-                else validate_article_distillation_quality(item)
+                if matched_distillation is None
+                else validate_article_distillation_quality(matched_distillation)
             )
             if issues:
                 article_insight_issues[url] = issues

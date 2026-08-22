@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from sheperd_research.contracts import (
+    ArticleDistillation,
     ClaimDraft,
     EvidenceStatus,
     ReportBullet,
@@ -165,6 +166,36 @@ def test_validation_requires_europe_geography() -> None:
         ).status
         is ValidationStatus.FAILED
     )
+
+
+def test_legacy_incomplete_distillation_cannot_remain_pass() -> None:
+    sources = _sources()
+    claims = [
+        ClaimDraft(claim=f"Claim {index}", source_urls=[sources[index].url])
+        for index in range(5)
+    ]
+    report = build_validation_report(
+        "legacy-incomplete",
+        sources,
+        claims,
+        datetime(2026, 8, 19, tzinfo=UTC),
+        STRICT_OPENROUTER_MODEL,
+        {"regulatory": "succeeded", "us-ports": "succeeded", "mexico": "succeeded"},
+        [f"hash-{index}" for index in range(10)],
+        distillations=[
+            ArticleDistillation(
+                source_url=sources[0].url,
+                summary="Legacy summary",
+                key_points=["One point"],
+            )
+        ],
+    )
+
+    check = next(
+        check for check in report.checks if check.name == "article_insight_completeness"
+    )
+    assert report.status is ValidationStatus.FAILED
+    assert check.status is ValidationStatus.FAILED
 
 
 def test_provider_partial_is_not_silently_promoted_to_pass() -> None:
