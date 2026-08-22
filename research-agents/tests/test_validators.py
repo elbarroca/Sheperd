@@ -4,12 +4,22 @@ from datetime import UTC, datetime
 
 import pytest
 
-from sheperd_research.contracts import ClaimDraft, SourceCandidate
+from sheperd_research.contracts import (
+    ArticleDistillation,
+    ArticleInsight,
+    ClaimDraft,
+    DistillationQualityStatus,
+    InsightStatus,
+    SourceCandidate,
+    WeeklyBrief,
+)
 from sheperd_research.validators import (
     can_extract_url,
     deduplicate_sources,
     normalize_url,
+    validate_article_distillation_quality,
     validate_claim_citations,
+    validate_report_sections,
     validate_source_dates,
 )
 
@@ -87,3 +97,103 @@ def test_validate_source_dates_rejects_future_publication() -> None:
 
     with pytest.raises(ValueError, match="after as_of"):
         validate_source_dates([source], datetime(2026, 8, 19, tzinfo=UTC))
+
+
+def test_article_quality_rejects_missing_required_insights() -> None:
+    distillation = ArticleDistillation(
+        source_url="https://example.com/incomplete",
+        summary="Summary",
+        key_points=["Only one point"],
+    )
+
+    issues = validate_article_distillation_quality(distillation)
+
+    assert {
+        "key_points_incomplete",
+        "missing_what_happened",
+        "missing_why_it_matters",
+        "uncertainties_incomplete",
+        "next_steps_incomplete",
+        "missing_risk_assessment",
+        "missing_opportunity_assessment",
+    }.issubset(issues)
+
+
+def test_supported_article_insight_requires_evidence() -> None:
+    with pytest.raises(ValueError, match="requires an evidence excerpt or locator"):
+        ArticleInsight(
+            status=InsightStatus.SUPPORTED,
+            statement="A supported development occurred.",
+            why_it_matters="It changes the operating picture.",
+            next_step="Monitor the primary source.",
+        )
+
+
+def test_explicit_not_observed_insights_are_valid() -> None:
+    insight = ArticleInsight(
+        status=InsightStatus.NOT_OBSERVED,
+        statement="No supported risk was observed in this source.",
+        why_it_matters="The source does not establish a risk.",
+        next_step="Review an independent source.",
+    )
+    distillation = ArticleDistillation(
+        source_url="https://example.com/complete",
+        summary="Summary",
+        key_points=["Point one", "Point two"],
+        what_happened="The source reports a development.",
+        why_it_matters="The development may matter operationally.",
+        risk_assessment=insight,
+        opportunity_assessment=insight,
+        uncertainties=["The source has limited scope."],
+        next_steps=["Compare another source."],
+        quality_status=DistillationQualityStatus.COMPLETE,
+    )
+
+    assert validate_article_distillation_quality(distillation) == []
+
+
+def test_placeholder_article_fields_are_incomplete() -> None:
+    insight = ArticleInsight(
+        status=InsightStatus.NOT_OBSERVED,
+        statement="Not recorded in this run.",
+        why_it_matters="Not available yet.",
+        next_step="Review another source.",
+    )
+    distillation = ArticleDistillation(
+        source_url="https://example.com/placeholder",
+        summary="Not recorded in this run.",
+        key_points=["Point one", "Point two"],
+        what_happened="A development was reported.",
+        why_it_matters="The operating picture may change.",
+        risk_assessment=insight,
+        opportunity_assessment=insight,
+        uncertainties=["The source has limited scope."],
+        next_steps=["Review another source."],
+        quality_status=DistillationQualityStatus.COMPLETE,
+    )
+
+    issues = validate_article_distillation_quality(distillation)
+
+    assert "missing_summary" in issues
+    assert "missing_risk_assessment_statement" in issues
+    assert "missing_risk_assessment_why_it_matters" in issues
+
+
+def test_v6_report_sections_require_cited_context_and_next_step() -> None:
+    brief = WeeklyBrief(
+        run_id="run-1",
+        title="Brief",
+        covered_from=datetime(2026, 8, 18, tzinfo=UTC),
+        covered_until=datetime(2026, 8, 19, tzinfo=UTC),
+        summary="Summary",
+        prompt_version="weekly-brief-v6-decision",
+        executive_bullets=[],
+    )
+
+    issues = validate_report_sections(brief, {"https://example.com/source"})
+
+    assert "executive_bullets_empty" in issues
+    assert "developments_empty" in issues
+    assert "risks_empty" in issues
+    assert "opportunities_empty" in issues
+    assert "uncertainties_empty" in issues

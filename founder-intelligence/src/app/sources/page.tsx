@@ -3,6 +3,7 @@ import { UnavailableState } from "@/components/report-accordion";
 import {
   getResearchSourceExplorer,
   getResearchSourceFacets,
+  type ArticleInsight,
   type ResearchClaim,
   type SourceExplorerItem,
   type SourceFacets,
@@ -34,6 +35,20 @@ function CitationLinks({ urls }: { urls: string[] }) {
       Citation {index + 1}
     </a>
   ));
+}
+
+function Insight({ label, value }: { label: string; value?: ArticleInsight | null }) {
+  if (!value) return <div><strong>{label}</strong><p className="muted">Not recorded in this run.</p></div>;
+  return (
+    <div>
+      <div className="bullet-meta"><strong>{label}</strong><Status label="Status" value={value.status} /></div>
+      <p>{value.statement}</p>
+      <p><strong>Why it matters:</strong> {value.why_it_matters}</p>
+      <p><strong>Next step:</strong> {value.next_step}</p>
+      {value.evidence_excerpt ? <small>Evidence: {value.evidence_excerpt}</small> : null}
+      {value.evidence_locator ? <small>Locator: {value.evidence_locator}</small> : null}
+    </div>
+  );
 }
 
 function ClaimList({ claims }: { claims: ResearchClaim[] }) {
@@ -84,14 +99,27 @@ function SourceCard({ item }: { item: SourceExplorerItem }) {
           {distillation ? (
             <>
               <h3>Research summary</h3>
-              <p>{distillation.summary}</p>
+              <p>{distillation.summary?.trim() || "Not recorded in this run."}</p>
               <h3>Original-language summary</h3>
-              <p className="muted">{distillation.summary_original || "Not recorded."}</p>
+              <p className="muted">{distillation.summary_original?.trim() || "Not recorded in this run."}</p>
               <h3>Key points</h3>
-              {distillation.key_points.length > 0 ? <ul>{distillation.key_points.map((point) => <li key={point}>{point}</li>)}</ul> : <p className="muted">None recorded.</p>}
+              {distillation.key_points.length > 0 ? <ul>{distillation.key_points.map((point) => <li key={point}>{point}</li>)}</ul> : <p className="muted">Not recorded in this run.</p>}
               {distillation.key_points_original?.length ? <><h3>Original key points</h3><ul>{distillation.key_points_original.map((point) => <li key={point}>{point}</li>)}</ul></> : null}
+              <h3>What happened</h3>
+              <p>{distillation.what_happened?.trim() || "Not recorded in this run."}</p>
+              <h3>Why it matters</h3>
+              <p>{distillation.why_it_matters?.trim() || "Not recorded in this run."}</p>
+              <div className="insight-grid">
+                <Insight label="Risk assessment" value={distillation.risk_assessment} />
+                <Insight label="Opportunity assessment" value={distillation.opportunity_assessment} />
+              </div>
+              <h3>Next steps</h3>
+              {distillation.next_steps?.length ? <ul>{distillation.next_steps.map((step) => <li key={step}>{step}</li>)}</ul> : <p className="muted">Not recorded in this run.</p>}
+              <h3>Uncertainty</h3>
+              {distillation.uncertainties?.length ? <ul>{distillation.uncertainties.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="muted">Not recorded in this run.</p>}
               {distillation.signals.length > 0 ? <><h3>Signals</h3><ul>{distillation.signals.map((signal) => <li key={signal}>{signal}</li>)}</ul></> : null}
-              <p className="muted">Model {distillation.model_id} / evidence {distillation.evidence_status} / translation {distillation.translation_status ?? "unknown"}</p>
+              <p className="muted">Model {distillation.model_id} / evidence {distillation.evidence_status} / translation {distillation.translation_status ?? "unknown"} / quality {distillation.quality_status ?? "incomplete"}</p>
+              {distillation.quality_issues?.length ? <p className="muted">Quality issues: {distillation.quality_issues.join(", ")}</p> : null}
               {distillation.limitations.length > 0 ? <p className="muted">Limitations: {distillation.limitations.join("; ")}</p> : null}
             </>
           ) : <p className="muted">No distillation persisted for this source.</p>}
@@ -101,8 +129,8 @@ function SourceCard({ item }: { item: SourceExplorerItem }) {
         <summary>Claims and evidence ({mergedClaims.length})</summary>
         <div className="report-section-body">
           <ClaimList claims={mergedClaims} />
-          {distillation?.evidence_excerpts?.length ? <p>Excerpts: {distillation.evidence_excerpts.join(" / ")}</p> : null}
-          {distillation?.evidence_locators?.length ? <p>Locators: {distillation.evidence_locators.join(" / ")}</p> : null}
+          {distillation?.evidence_excerpts?.length ? <p>Excerpts: {distillation.evidence_excerpts.join(" / ")}</p> : <p className="muted">Evidence excerpts: Not recorded in this run.</p>}
+          {distillation?.evidence_locators?.length ? <p>Locators: {distillation.evidence_locators.join(" / ")}</p> : <p className="muted">Evidence locators: Not recorded in this run.</p>}
         </div>
       </details>
       <p className="hash-line">Content hash: <code>{item.source_hash ?? "not recorded"}</code></p>

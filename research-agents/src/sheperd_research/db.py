@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol, cast
@@ -12,6 +13,7 @@ from psycopg import Connection, OperationalError
 from .contracts import (
     ArticleDistillation,
     ClaimDraft,
+    DistillationQualityStatus,
     EvidenceStatus,
     ExtractionStatus,
     FreshnessStatus,
@@ -28,7 +30,7 @@ from .contracts import (
 )
 from .validators import content_hash, normalize_url
 
-MIGRATION_VERSION = "0011_archive_failed_runs"
+MIGRATION_VERSION = "0012_article_insight_quality"
 ArchiveScope = Literal["active", "archived", "all"]
 _ARCHIVE_SCOPES = frozenset({"active", "archived", "all"})
 _AUDIT_TEXT_LIMIT = 400
@@ -481,6 +483,50 @@ def _safe_public_bullets(value: object) -> list[ReportBullet]:
         payload["source_urls"] = _safe_public_urls(payload.get("source_urls"))
         bullets.append(ReportBullet.model_validate(payload))
     return bullets
+
+
+def _article_distillation_from_row(
+    row: Sequence[object],
+    *,
+    claims: Sequence[ClaimDraft] = (),
+) -> ArticleDistillation:
+    """Decode the stable article projection, including legacy defaults."""
+    raw_quality = row[18] if len(row) > 18 else None
+    try:
+        quality_status = DistillationQualityStatus(str(raw_quality or "incomplete"))
+    except ValueError:
+        quality_status = DistillationQualityStatus.INCOMPLETE
+    quality_issues = row[19] if len(row) > 19 and isinstance(row[19], list) else []
+    insight_packet = row[17] if len(row) > 17 and isinstance(row[17], dict) else {}
+    return ArticleDistillation(
+        source_url=_require_public_url(row[0]),
+        summary=cast(str, row[1]),
+        key_points=cast(list[str], row[2] or []),
+        entities=cast(list[str], row[3] or []),
+        signals=cast(list[str], row[4] or []),
+        claims=list(claims),
+        limitations=cast(list[str], row[5] or []),
+        published_at=cast(datetime | None, row[6]),
+        model_id=cast(str, row[7]),
+        prompt_version=cast(str, row[8]),
+        evidence_status=EvidenceStatus(cast(str, row[9])),
+        content_hash=cast(str | None, row[10]),
+        source_language=cast(str, row[11]),
+        summary_original=cast(str, row[12]),
+        key_points_original=cast(list[str], row[13] or []),
+        translation_status=TranslationStatus(cast(str, row[14])),
+        evidence_excerpts=cast(list[str], row[15] or []),
+        evidence_locators=cast(list[str], row[16] or []),
+        insight_packet=insight_packet,
+        what_happened=cast(str, insight_packet.get("what_happened") or ""),
+        why_it_matters=cast(str, insight_packet.get("why_it_matters") or ""),
+        risk_assessment=insight_packet.get("risk_assessment"),
+        opportunity_assessment=insight_packet.get("opportunity_assessment"),
+        uncertainties=cast(list[str], insight_packet.get("uncertainties", []) or []),
+        next_steps=cast(list[str], insight_packet.get("next_steps", []) or []),
+        quality_status=quality_status,
+        quality_issues=cast(list[str], quality_issues),
+    )
 
 
 class RepositoryProtocol(Protocol):
@@ -2054,6 +2100,9 @@ class PostgresRepository:
                     "key_points_original": distillation.key_points_original,
                     "evidence_excerpts": distillation.evidence_excerpts,
                     "evidence_locators": distillation.evidence_locators,
+                    "insight_packet": distillation.insight_packet,
+                    "quality_status": distillation.quality_status.value,
+                    "quality_issues": distillation.quality_issues,
                 },
                 sort_keys=True,
             )
@@ -2064,10 +2113,10 @@ class PostgresRepository:
                 run_id, normalized_url, summary, key_points, entities, signals, limitations,
                 model_id, prompt_version, content_hash, evidence_status, source_language,
                 summary_original, key_points_original, translation_status, evidence_excerpts,
-                evidence_locators
+                evidence_locators, insight_packet, quality_status, quality_issues
             )
             VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s,
-                    %s, %s, %s::jsonb, %s, %s::jsonb, %s::jsonb)
+                    %s, %s, %s::jsonb, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s::jsonb)
             ON CONFLICT (run_id, normalized_url) DO UPDATE SET
                 summary = EXCLUDED.summary,
                 key_points = EXCLUDED.key_points,
@@ -2083,7 +2132,10 @@ class PostgresRepository:
                 key_points_original = EXCLUDED.key_points_original,
                 translation_status = EXCLUDED.translation_status,
                 evidence_excerpts = EXCLUDED.evidence_excerpts,
-                evidence_locators = EXCLUDED.evidence_locators
+                evidence_locators = EXCLUDED.evidence_locators,
+                insight_packet = EXCLUDED.insight_packet,
+                quality_status = EXCLUDED.quality_status,
+                quality_issues = EXCLUDED.quality_issues
             """,
             (
                 run_id,
@@ -2103,6 +2155,9 @@ class PostgresRepository:
                 distillation.translation_status,
                 json.dumps(distillation.evidence_excerpts),
                 json.dumps(distillation.evidence_locators),
+                json.dumps(distillation.insight_packet),
+                distillation.quality_status.value,
+                json.dumps(distillation.quality_issues),
             ),
         )
 
@@ -2559,7 +2614,8 @@ class PostgresRepository:
                    ad.limitations, s.published_at, ad.model_id, ad.prompt_version,
                    ad.evidence_status, ad.content_hash, ad.source_language,
                    ad.summary_original, ad.key_points_original, ad.translation_status,
-                   ad.evidence_excerpts, ad.evidence_locators
+                   ad.evidence_excerpts, ad.evidence_locators, ad.insight_packet,
+                   ad.quality_status, ad.quality_issues
             FROM article_distillations ad
             JOIN sources s ON s.normalized_url = ad.normalized_url
             WHERE ad.run_id = %s ORDER BY ad.distillation_id
@@ -2571,25 +2627,9 @@ class PostgresRepository:
             for url in claim.source_urls:
                 claims_by_url[normalize_url(url)].append(claim)
         return [
-            ArticleDistillation(
-                source_url=_require_public_url(row[0]),
-                summary=cast(str, row[1]),
-                key_points=cast(list[str], row[2] or []),
-                entities=cast(list[str], row[3] or []),
-                signals=cast(list[str], row[4] or []),
+            _article_distillation_from_row(
+                row,
                 claims=claims_by_url.get(cast(str, row[0]), []),
-                limitations=cast(list[str], row[5] or []),
-                published_at=cast(datetime | None, row[6]),
-                model_id=cast(str, row[7]),
-                prompt_version=cast(str, row[8]),
-                evidence_status=EvidenceStatus(cast(str, row[9])),
-                content_hash=cast(str | None, row[10]),
-                source_language=cast(str, row[11]),
-                summary_original=cast(str, row[12]),
-                key_points_original=cast(list[str], row[13] or []),
-                translation_status=TranslationStatus(cast(str, row[14])),
-                evidence_excerpts=cast(list[str], row[15] or []),
-                evidence_locators=cast(list[str], row[16] or []),
             )
             for row in rows
         ]
@@ -2640,7 +2680,8 @@ class PostgresRepository:
                    s.extraction_status, s.extraction_error_code, s.normalized_title_en,
                    s.normalized_snippet_en, ad.source_language, ad.summary_original,
                    ad.key_points_original, ad.translation_status, ad.evidence_excerpts,
-                   ad.evidence_locators
+                   ad.evidence_locators, ad.insight_packet, ad.quality_status,
+                   ad.quality_issues
             FROM article_distillations ad
             JOIN sources s ON s.normalized_url = ad.normalized_url
             JOIN research_runs rr ON rr.run_id = ad.run_id
@@ -2696,25 +2737,30 @@ class PostgresRepository:
             )
             sources.append(source)
             distillations.append(
-                ArticleDistillation(
-                    source_url=normalized_url,
-                    summary=cast(str, row[13]),
-                    key_points=cast(list[str], row[14] or []),
-                    entities=cast(list[str], row[15] or []),
-                    signals=cast(list[str], row[16] or []),
+                _article_distillation_from_row(
+                    (
+                        row[1],
+                        row[13],
+                        row[14],
+                        row[15],
+                        row[16],
+                        row[17],
+                        row[4],
+                        row[18],
+                        row[19],
+                        row[20],
+                        row[21],
+                        row[34],
+                        row[35],
+                        row[36],
+                        row[37],
+                        row[38],
+                        row[39],
+                        row[40],
+                        row[41],
+                        row[42],
+                    ),
                     claims=claims_by_run_url.get((run_id, normalized_url), []),
-                    limitations=cast(list[str], row[17] or []),
-                    published_at=cast(datetime | None, row[4]),
-                    model_id=cast(str, row[18]),
-                    prompt_version=cast(str, row[19]),
-                    evidence_status=EvidenceStatus(cast(str, row[20])),
-                    content_hash=cast(str | None, row[21]),
-                    source_language=cast(str, row[34]),
-                    summary_original=cast(str, row[35]),
-                    key_points_original=cast(list[str], row[36] or []),
-                    translation_status=TranslationStatus(cast(str, row[37])),
-                    evidence_excerpts=cast(list[str], row[38] or []),
-                    evidence_locators=cast(list[str], row[39] or []),
                 )
             )
         return sources, distillations
@@ -2764,7 +2810,8 @@ class PostgresRepository:
                    ad.limitations, s.published_at, ad.model_id, ad.prompt_version,
                    ad.evidence_status, ad.content_hash, ad.source_language,
                    ad.summary_original, ad.key_points_original, ad.translation_status,
-                   ad.evidence_excerpts, ad.evidence_locators
+                   ad.evidence_excerpts, ad.evidence_locators, ad.insight_packet,
+                   ad.quality_status, ad.quality_issues
             FROM article_distillations ad
             JOIN sources s ON s.normalized_url = ad.normalized_url
             WHERE """
@@ -2772,28 +2819,7 @@ class PostgresRepository:
             + " ORDER BY ad.created_at DESC LIMIT %s OFFSET %s",
             tuple(params),
         )
-        return [
-            ArticleDistillation(
-                source_url=_require_public_url(row[0]),
-                summary=cast(str, row[1]),
-                key_points=cast(list[str], row[2] or []),
-                entities=cast(list[str], row[3] or []),
-                signals=cast(list[str], row[4] or []),
-                limitations=cast(list[str], row[5] or []),
-                published_at=cast(datetime | None, row[6]),
-                model_id=cast(str, row[7]),
-                prompt_version=cast(str, row[8]),
-                evidence_status=EvidenceStatus(cast(str, row[9])),
-                content_hash=cast(str | None, row[10]),
-                source_language=cast(str, row[11]),
-                summary_original=cast(str, row[12]),
-                key_points_original=cast(list[str], row[13] or []),
-                translation_status=TranslationStatus(cast(str, row[14])),
-                evidence_excerpts=cast(list[str], row[15] or []),
-                evidence_locators=cast(list[str], row[16] or []),
-            )
-            for row in rows
-        ]
+        return [_article_distillation_from_row(row) for row in rows]
 
     def list_claims(
         self,
@@ -2981,7 +3007,7 @@ class PostgresRepository:
         clauses = ["TRUE"]
         params: list[object] = []
         if query.strip():
-            clauses.append("wb.search_vector @@ plainto_tsquery('english', %s)")
+            clauses.append("search_vector @@ plainto_tsquery('english', %s)")
             params.append(query.strip())
         if geography is not None:
             clauses.append("%s = ANY(geographies)")
@@ -3164,7 +3190,8 @@ class PostgresRepository:
                 "ad.key_points, ad.entities, ad.signals, ad.limitations, s.published_at, "
                 "ad.model_id, ad.prompt_version, ad.evidence_status, ad.content_hash, "
                 "ad.source_language, ad.summary_original, ad.key_points_original, "
-                "ad.translation_status, ad.evidence_excerpts, ad.evidence_locators "
+                "ad.translation_status, ad.evidence_excerpts, ad.evidence_locators, "
+                "ad.insight_packet, ad.quality_status, ad.quality_issues "
                 "FROM article_distillations ad JOIN sources s "
                 "ON s.normalized_url = ad.normalized_url "
                 "WHERE ad.normalized_url = ANY(%s) "
@@ -3173,25 +3200,7 @@ class PostgresRepository:
             )
             for row in distillation_rows:
                 normalized_url = cast(str, row[0])
-                distillations[normalized_url] = ArticleDistillation(
-                    source_url=_require_public_url(normalized_url),
-                    summary=cast(str, row[1]),
-                    key_points=cast(list[str], row[2] or []),
-                    entities=cast(list[str], row[3] or []),
-                    signals=cast(list[str], row[4] or []),
-                    limitations=cast(list[str], row[5] or []),
-                    published_at=cast(datetime | None, row[6]),
-                    model_id=cast(str, row[7]),
-                    prompt_version=cast(str, row[8]),
-                    evidence_status=EvidenceStatus(cast(str, row[9])),
-                    content_hash=cast(str | None, row[10]),
-                    source_language=cast(str, row[11]),
-                    summary_original=cast(str, row[12]),
-                    key_points_original=cast(list[str], row[13] or []),
-                    translation_status=TranslationStatus(cast(str, row[14])),
-                    evidence_excerpts=cast(list[str], row[15] or []),
-                    evidence_locators=cast(list[str], row[16] or []),
-                )
+                distillations[normalized_url] = _article_distillation_from_row(row)
             claim_rows = self._execute(
                 "SELECT claim_text, evidence_status, confidence, source_urls, "
                 "support_locator, conflicts, original_claim, evidence_excerpt, "

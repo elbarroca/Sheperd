@@ -6,7 +6,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
 from time import monotonic
-from typing import NamedTuple, Protocol, TypedDict, runtime_checkable
+from typing import NamedTuple, Protocol, TypedDict, cast, runtime_checkable
 from urllib.parse import urlsplit
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -45,6 +45,7 @@ from .validators import (
     deduplicate_sources,
     normalize_url,
     url_policy_error,
+    validate_article_distillation_quality,
     validate_claim_citations,
     validate_report_sections,
     validate_source_dates,
@@ -61,12 +62,12 @@ MAX_LLM_SOURCE_CHARS = 8_000
 PIPELINE_OVERHEAD_RESERVE = 1_024
 DISCOVERY_INPUT_BUDGET_RESERVE = MAX_LLM_SOURCE_CHARS + PIPELINE_OVERHEAD_RESERVE
 PROMPT_VERSION = "workflow-v3"
-DAILY_BRIEF_PROMPT_VERSION = "daily-brief-v4"
-WEEKLY_BRIEF_PROMPT_VERSION = "weekly-brief-v5-global"
+DAILY_BRIEF_PROMPT_VERSION = "daily-brief-v6-decision"
+WEEKLY_BRIEF_PROMPT_VERSION = "weekly-brief-v6-decision"
 DISCOVERY_PROMPT_VERSION = "discovery-v3-multilingual"
-DISTILL_PROMPT_VERSION = "distill-v5-multilingual"
+DISTILL_PROMPT_VERSION = "distill-v6-insight"
 CRITIC_PROMPT_VERSION = "critic-v5-evidence"
-GLOBAL_WEEKLY_BRIEF_PROMPT_VERSION = "weekly-brief-v5-global"
+GLOBAL_WEEKLY_BRIEF_PROMPT_VERSION = "weekly-brief-v6-decision"
 CHECKPOINT_ALLOWED_MODULES = tuple(
     ("sheperd_research.contracts", name)
     for name in (
@@ -74,6 +75,8 @@ CHECKPOINT_ALLOWED_MODULES = tuple(
         "FreshnessStatus",
         "ExtractionStatus",
         "TranslationStatus",
+        "InsightStatus",
+        "DistillationQualityStatus",
         "ReviewState",
         "RunStatus",
         "ValidationStatus",
@@ -82,6 +85,7 @@ CHECKPOINT_ALLOWED_MODULES = tuple(
         "ClaimDraft",
         "ReportBullet",
         "ArticleDistillation",
+        "ArticleInsight",
         "SignalEvent",
         "WeeklyBrief",
         "TopicConfig",
@@ -208,6 +212,7 @@ class GraphState(TypedDict, total=False):
     partial_reasons: list[str]
     retained_sources: list[SourceCandidate]
     retained_distillations: list[ArticleDistillation]
+    repair_mode: bool
 
 
 class ResearchWorkflow:
@@ -571,6 +576,7 @@ class ResearchWorkflow:
                 cadence=request.cadence,
                 error=message,
             )
+
         except ProviderError as error:
             message = str(error)
             status_error = self._safe_update_run_status(run_id, RunStatus.FAILED, message)
@@ -589,6 +595,103 @@ class ResearchWorkflow:
             if status_error:
                 message = f"{message}; {status_error}"
             self._emit("error", "Research run stopped", run_id=run_id, error=message)
+            return RunResult(
+                run_id=run_id,
+                status=RunStatus.FAILED,
+                cadence=request.cadence,
+                error=message,
+            )
+
+    async def repair(
+        self,
+        request: ResearchRunRequest,
+        sources: list[SourceCandidate],
+        run_id: str,
+    ) -> RunResult:
+        """Re-extract and redistill incomplete sources in a new run scope."""
+        self._llm_calls = 0
+        self._llm_input_chars = 0
+        self.repository.create_run(run_id, request)
+        try:
+            topic = self.topic_configs.get(request.topic_set)
+            if topic is None:
+                raise ValueError(f"unknown topic set: {request.topic_set}")
+            repair_sources = [
+                source.model_copy(
+                    update={
+                        "is_seed": False,
+                        "source_kind": "repair",
+                        "extraction_status": ExtractionStatus.NOT_ATTEMPTED,
+                        "extraction_error_code": None,
+                    }
+                )
+                for source in deduplicate_sources(sources)[: request.max_sources]
+            ]
+            if not repair_sources:
+                raise ValueError("no incomplete sources were selected for repair")
+            self._emit(
+                "repair",
+                "Re-extracting incomplete sources",
+                source_count=len(repair_sources),
+            )
+            raw_content = await self.tavily.extract(repair_sources)
+            content = {
+                normalize_url(url): body
+                for url, body in raw_content.items()
+                if isinstance(body, str) and body.strip()
+            }
+            missing = [
+                source.url
+                for source in repair_sources
+                if not content.get(normalize_url(source.url), "").strip()
+            ]
+            if missing:
+                raise ProviderError("repair extraction missing content for: " + ", ".join(missing))
+            state: GraphState = {
+                "run_id": run_id,
+                "request": request,
+                "topic": topic,
+                "sources": repair_sources,
+                "content": content,
+                "source_hashes": [],
+                "lane_statuses": {},
+                "partial_reasons": [],
+                "repair_mode": True,
+                "retained_sources": [],
+                "retained_distillations": [],
+            }
+            state.update(cast(GraphState, await self._extract(state)))
+            state.update(cast(GraphState, await self._distill(state)))
+            state.update(cast(GraphState, await self._critic(state)))
+            state.update(cast(GraphState, await self._synthesize(state)))
+            state.update(cast(GraphState, await self._validate(state)))
+            validation = state.get("validation")
+            brief = state.get("brief")
+            status = (
+                RunStatus.SUCCEEDED
+                if brief is not None
+                and validation is not None
+                and validation.status is ValidationStatus.PASS
+                else RunStatus.FAILED
+            )
+            error = None if status is RunStatus.SUCCEEDED else "repair validation did not pass"
+            self.repository.update_run_status(run_id, status, error)
+            return RunResult(
+                run_id=run_id,
+                status=status,
+                cadence=request.cadence,
+                source_count=len(state.get("sources", [])),
+                distillation_count=len(state.get("distillations", [])),
+                claim_count=len(state.get("claims", [])),
+                brief_id=brief.run_id if brief else None,
+                error=error,
+                citation_coverage=validation.citation_coverage if validation else 0.0,
+                validation_status=validation.status if validation else ValidationStatus.BLOCKED,
+                lane_statuses=state.get("lane_statuses", {}),
+            )
+        except Exception as error:
+            message = str(error) or error.__class__.__name__
+            self._safe_update_run_status(run_id, RunStatus.FAILED, message)
             return RunResult(
                 run_id=run_id,
                 status=RunStatus.FAILED,
@@ -1173,6 +1276,12 @@ class ResearchWorkflow:
                     body,
                     prompt_version=DISTILL_PROMPT_VERSION,
                 )
+                quality_issues = validate_article_distillation_quality(distillation)
+                if quality_issues:
+                    raise ValueError(
+                        "article insight packet incomplete: "
+                        + ", ".join(quality_issues)
+                    )
                 validate_claim_citations(distillation.claims, {source.url}, as_of)
                 return distillation, None, annotate(self._llm_metadata())
             except (ProviderError, ValueError) as error:
@@ -1458,6 +1567,21 @@ class ResearchWorkflow:
             distillation_count=len(distillations),
             claim_count=len(claims),
         )
+        article_quality_issues = {
+            normalize_url(item.source_url): validate_article_distillation_quality(item)
+            for item in distillations
+        }
+        incomplete_articles = {
+            url: issues for url, issues in article_quality_issues.items() if issues
+        }
+        if incomplete_articles:
+            raise ProviderError(
+                "synthesis: incomplete article insight packets for "
+                + ", ".join(
+                    f"{url} ({', '.join(issues)})"
+                    for url, issues in sorted(incomplete_articles.items())
+                )
+            )
         source_urls = {
             normalize_url(source.url)
             for source in self._merge_sources(
@@ -1613,6 +1737,7 @@ class ResearchWorkflow:
                     if call.get("status") == "succeeded"
                 )
                 if isinstance(self.llm, LaneResearchLike)
+                and not state.get("repair_mode", False)
                 else None
             ),
             required_tool_lanes=(
@@ -1630,6 +1755,7 @@ class ResearchWorkflow:
                     for lane in ("regulatory", "us-ports", "mexico")
                 }
                 if isinstance(self.llm, LaneResearchLike)
+                and not state.get("repair_mode", False)
                 else None
             ),
             distillations=self._merge_distillations(
@@ -1649,6 +1775,7 @@ class ResearchWorkflow:
                 if request.validation_profile in {"full", "global-canary"}
                 else set()
             ),
+            required_lanes=set() if state.get("repair_mode", False) else None,
             brief=brief,
         )
         self.repository.record_validation(report)

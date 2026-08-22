@@ -1517,9 +1517,30 @@ def test_create_agent_names_all_six_workers(monkeypatch: pytest.MonkeyPatch) -> 
             if self.name == "source_distillation_agent":
                 structured_response = {
                     "summary": "Source-bound summary.",
-                    "key_points": ["Reported point."],
-                    "claims": [],
-                    "limitations": [],
+                    "key_points": ["Reported point.", "Second reported point."],
+                    "what_happened": "The source reports a public development.",
+                    "why_it_matters": "The development changes the operating picture.",
+                    "risk_assessment": {
+                        "status": "not_observed",
+                        "statement": "No supported material risk was observed.",
+                        "why_it_matters": "The source does not establish a material risk.",
+                        "next_step": "Check an independent source for risk evidence.",
+                    },
+                    "opportunity_assessment": {
+                        "status": "not_observed",
+                        "statement": "No supported commercial opportunity was observed.",
+                        "why_it_matters": "The source does not establish an opportunity.",
+                        "next_step": "Check an independent source for opportunity evidence.",
+                    },
+                    "uncertainties": ["The source may not cover the full market."],
+                    "next_steps": ["Compare the report with an independent source."],
+                    "claims": [
+                        {
+                            "claim": "A reported point.",
+                            "source_urls": ["https://www.fmc.gov/example-agent-source"],
+                        }
+                    ],
+                    "limitations": ["Public source only."],
                 }
             elif self.name == "critic_agent":
                 structured_response = {"claims": []}

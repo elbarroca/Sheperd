@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type {
   AgentStep,
+  ArticleInsight,
   ReportBullet,
   ReportPayload,
   ResearchClaim,
@@ -40,6 +41,26 @@ function CitationLinks({ urls }: { urls: string[] }) {
       Source {index + 1}
     </a>
   ));
+}
+
+function recorded(value: string | null | undefined): string {
+  return value?.trim() ? value : "Not recorded in this run.";
+}
+
+function InsightBlock({ label, insight }: { label: string; insight?: ArticleInsight | null }) {
+  if (!insight) {
+    return <div className="insight-block"><strong>{label}</strong><p className="muted">Not recorded in this run.</p></div>;
+  }
+  return (
+    <div className="insight-block">
+      <div className="bullet-meta"><strong>{label}</strong><span className={`status-badge status-${insight.status}`}>{insight.status.replaceAll("_", " ")}</span></div>
+      <p>{recorded(insight.statement)}</p>
+      <p><strong>Why it matters:</strong> {recorded(insight.why_it_matters)}</p>
+      <p><strong>Next step:</strong> {recorded(insight.next_step)}</p>
+      {insight.evidence_excerpt ? <p className="muted">Evidence: {insight.evidence_excerpt}</p> : null}
+      {insight.evidence_locator ? <p className="muted">Locator: {insight.evidence_locator}</p> : null}
+    </div>
+  );
 }
 
 function BulletList({ bullets, emptyLabel = "Not recorded in this run." }: { bullets: ReportBullet[]; emptyLabel?: string }) {
@@ -176,27 +197,40 @@ function SourceEvidence({ report }: { report: ReportPayload }) {
           <div className="evidence-grid">
             {report.distillations.map((distillation) => (
               <article className="evidence-card" key={distillation.source_url}>
-                <p>{distillation.summary}</p>
+                <p>{recorded(distillation.summary)}</p>
                 {distillation.summary_original && distillation.summary_original !== distillation.summary ? <p className="muted">Original: {distillation.summary_original}</p> : null}
-                {distillation.key_points.length > 0 && <ul>{distillation.key_points.map((point) => <li key={point}>{point}</li>)}</ul>}
+                {distillation.key_points.length > 0 ? <ul>{distillation.key_points.map((point) => <li key={point}>{point}</li>)}</ul> : <p className="muted">Key points: Not recorded in this run.</p>}
+                <h4>What happened</h4>
+                <p>{recorded(distillation.what_happened)}</p>
+                <h4>Why it matters</h4>
+                <p>{recorded(distillation.why_it_matters)}</p>
+                <div className="insight-grid">
+                  <InsightBlock label="Risk assessment" insight={distillation.risk_assessment} />
+                  <InsightBlock label="Opportunity assessment" insight={distillation.opportunity_assessment} />
+                </div>
+                <h4>Next steps</h4>
+                {distillation.next_steps?.length ? <ul>{distillation.next_steps.map((step) => <li key={step}>{step}</li>)}</ul> : <p className="muted">Not recorded in this run.</p>}
+                <h4>Uncertainty</h4>
+                {distillation.uncertainties?.length ? <ul>{distillation.uncertainties.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="muted">Not recorded in this run.</p>}
                 {distillation.entities.length > 0 ? <p className="muted">Entities: {distillation.entities.join(", ")}</p> : null}
                 {distillation.signals.length > 0 ? <p className="muted">Signals: {distillation.signals.join(", ")}</p> : null}
-                {distillation.evidence_excerpts?.length ? <p className="muted">Evidence: {distillation.evidence_excerpts.join(" / ")}</p> : null}
-                {distillation.evidence_locators?.length ? <p className="muted">Locators: {distillation.evidence_locators.join(" / ")}</p> : null}
-                <p className="muted">{distillation.model_id} / {distillation.prompt_version} / {distillation.evidence_status} / language {distillation.source_language ?? "und"} / translation {distillation.translation_status ?? "unknown"}</p>
+                {distillation.evidence_excerpts?.length ? <p className="muted">Evidence: {distillation.evidence_excerpts.join(" / ")}</p> : <p className="muted">Evidence excerpts: Not recorded in this run.</p>}
+                {distillation.evidence_locators?.length ? <p className="muted">Locators: {distillation.evidence_locators.join(" / ")}</p> : <p className="muted">Evidence locators: Not recorded in this run.</p>}
+                <p className="muted">{distillation.model_id} / {distillation.prompt_version} / {distillation.evidence_status} / language {distillation.source_language ?? "und"} / translation {distillation.translation_status ?? "unknown"} / quality {distillation.quality_status ?? "incomplete"}</p>
+                {distillation.quality_issues?.length ? <p className="muted">Quality issues: {distillation.quality_issues.join(", ")}</p> : null}
                 <code>Hash: {distillation.content_hash ?? "unknown"}</code>
-                {distillation.claims.length > 0 && <ul>{distillation.claims.map((claim) => <ClaimRow key={claim.claim} claim={claim} />)}</ul>}
+                {distillation.claims.length > 0 ? <ul>{distillation.claims.map((claim) => <ClaimRow key={claim.claim} claim={claim} />)}</ul> : <p className="muted">Claims: Not recorded in this run.</p>}
               </article>
             ))}
           </div>
         </>
       )}
-      {report.claims.length > 0 && (
+      {report.claims.length > 0 ? (
         <>
           <h3>Claims and citations</h3>
           <ul className="source-list">{report.claims.map((claim) => <ClaimRow key={claim.claim} claim={claim} />)}</ul>
         </>
-      )}
+      ) : <p className="muted">Claims and citations: Not recorded in this run.</p>}
       {report.signals.length > 0 && (
         <>
           <h3>Signals</h3>
@@ -224,6 +258,7 @@ function ReportQuality({ report, brief }: { report: ReportPayload; brief: Weekly
   const coverage = Math.round((report.validation?.citation_coverage ?? 0) * 100);
   const sectionCheck = report.validation?.checks.find((check) => check.name === "report_sections");
   const sectionComplete = completeSections === sections.length && sectionCheck?.status !== "failed";
+  const completeArticles = report.distillations.filter((item) => item.quality_status === "complete").length;
   return (
     <div className="report-quality" aria-label="Report quality">
       <div><strong>{completeSections}/{sections.length}</strong><span>insight sections</span></div>
@@ -231,6 +266,7 @@ function ReportQuality({ report, brief }: { report: ReportPayload; brief: Weekly
       <div><strong>{report.sources.length}</strong><span>sources</span></div>
       <div><strong>{report.distillations.length}</strong><span>distillations</span></div>
       <div><strong>{report.claims.length}</strong><span>claims</span></div>
+      <div><strong>{completeArticles}/{report.distillations.length}</strong><span>complete article insights</span></div>
       <div><strong>{sectionCheck?.status ?? "not recorded"}</strong><span>section validator</span></div>
       <p>{sectionComplete ? "All insight sections are populated." : "Older or incomplete output is visibly marked; this run is not fully mapped."}</p>
     </div>
@@ -374,10 +410,10 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
         <p className="lane-line">Coverage: {report.lane_coverage.join(", ") || "none recorded"}</p>
       </Section>
       <ReportQuality report={report} brief={brief} />
-      <Section title="3. Risks / exposure and impact"><BulletList bullets={brief.risks} emptyLabel="No evidence-backed risks were recorded by this run." /></Section>
-      <Section title="4. Opportunities / openings and next moves"><BulletList bullets={brief.opportunities} emptyLabel="No evidence-backed opportunities were recorded by this run." /></Section>
+      <Section title="3. Risks / exposure and impact"><BulletList bullets={brief.risks} emptyLabel="No structured risk insight was recorded in this run." /></Section>
+      <Section title="4. Opportunities / openings and next moves"><BulletList bullets={brief.opportunities} emptyLabel="No structured opportunity insight was recorded in this run." /></Section>
       <Section title="5. Uncertainty and follow-up research">
-        <BulletList bullets={brief.uncertainties} emptyLabel="No uncertainty statement was recorded by this run." />
+        <BulletList bullets={brief.uncertainties} emptyLabel="No structured uncertainty insight was recorded in this run." />
         {brief.follow_up_questions.length > 0 ? (
           <ol className="follow-up-list">{brief.follow_up_questions.map((question) => <li key={question}>{question}</li>)}</ol>
         ) : <p className="muted">No follow-up questions recorded.</p>}

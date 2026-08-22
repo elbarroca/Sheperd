@@ -3,7 +3,6 @@ from __future__ import annotations
 from urllib.parse import urlsplit
 
 from .contracts import SourceCandidate, ValidationStatus
-from .db import MIGRATION_VERSION
 from .providers.capabilities import resolve_capabilities, resolve_free_model_catalog
 from .providers.errors import ProviderError
 from .providers.neon import NeonApiClient
@@ -128,13 +127,28 @@ def _database_check(url: str | None, *, pooled: bool, label: str) -> dict[str, o
             if schema_row is None:
                 raise RuntimeError("database schema query returned no row")
             has_schema = bool(schema_row[0])
+            migration_version: str | None = None
+            if has_schema:
+                cursor.execute(
+                    "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+                    "WHERE table_name = 'schema_migrations')"
+                )
+                migrations_row = cursor.fetchone()
+                if migrations_row is None:
+                    raise RuntimeError("migration table query returned no row")
+                if migrations_row[0]:
+                    cursor.execute("SELECT max(version) FROM schema_migrations")
+                    version_row = cursor.fetchone()
+                    if version_row is None:
+                        raise RuntimeError("migration version query returned no row")
+                    migration_version = version_row[0]
         return _status(
             True,
             f"{label} connection succeeded",
             database=database,
             user=user,
             research_schema=has_schema,
-            migration_version=MIGRATION_VERSION,
+            migration_version=migration_version or "not_applied",
         )
     except Exception as error:
         return _status(False, f"{label} connection failed: {error.__class__.__name__}")

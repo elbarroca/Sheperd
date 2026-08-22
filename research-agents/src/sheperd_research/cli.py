@@ -21,12 +21,14 @@ from langgraph.checkpoint.base import (
 from pydantic import ValidationError
 
 from .contracts import (
+    ArticleDistillation,
     LaneDiscoveryResult,
     ResearchCadence,
     ResearchRunRequest,
     ReviewState,
     RunResult,
     RunStatus,
+    SourceCandidate,
     ValidationStatus,
 )
 from .db import PostgresRepository, _redact_audit_metadata, run_migrations
@@ -54,6 +56,7 @@ from .settings import (
 from .source_catalog import REGIONS, load_source_catalog, validate_required_sources
 from .topics import load_topic_configs
 from .validation import build_validation_report
+from .validators import validate_article_distillation_quality
 from .web import create_app
 from .workflow import ResearchWorkflow, checkpoint_serializer
 
@@ -346,6 +349,122 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
         return 0 if result.validation_status is ValidationStatus.PASS else 2
     finally:
         repository.close()
+
+
+def _repair_command(args: argparse.Namespace, settings: Settings) -> int:
+    if not settings.has_database_credentials:
+        return _blocked(args, "set pooled DATABASE_URL in the repository-root .env.local")
+    if not settings.has_live_provider_credentials:
+        return _blocked(
+            args,
+            "set replacement Tavily and OpenRouter keys in the repository-root .env.local",
+        )
+    allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
+    model_chain = settings.model_chain(allow_free_fallbacks=allow_free_fallbacks)
+    fallback_models = model_chain[1:]
+    policy_error = (
+        free_openrouter_policy_error(
+            settings.openrouter_model,
+            fallback_models,
+            raw_fallback_config=settings.openrouter_fallback_models,
+        )
+        if allow_free_fallbacks
+        else strict_openrouter_policy_error(
+            settings.openrouter_model,
+            settings.openrouter_fallback_model_list,
+            raw_fallback_config=settings.openrouter_fallback_models,
+        )
+    )
+    if policy_error is not None:
+        return _blocked(args, policy_error)
+    try:
+        capabilities = _capability_report(
+            settings,
+            (settings.openrouter_model, *fallback_models),
+            require_tools=True,
+            allow_cached=False,
+        )
+        repository = _database(settings)
+        page = 1
+        candidates: list[SourceCandidate] = []
+        while True:
+            page_data = repository.list_source_explorer(page=page, page_size=100)
+            for item in cast(list[dict[str, object]], page_data.get("items", [])):
+                source = item.get("source")
+                distillation = item.get("distillation")
+                if not isinstance(source, SourceCandidate):
+                    continue
+                if (
+                    not isinstance(distillation, ArticleDistillation)
+                    or validate_article_distillation_quality(distillation)
+                ):
+                    candidates.append(source)
+            if not page_data.get("has_more"):
+                break
+            page += 1
+            if page > 10:
+                break
+        if not candidates:
+            return _blocked(args, "no incomplete sources were found")
+        request = ResearchRunRequest(
+            topic_set="dnd-port",
+            cadence=ResearchCadence.WEEKLY,
+            as_of=_parse_datetime(args.as_of) or datetime.now(UTC),
+            max_sources=args.max_sources,
+            model=settings.openrouter_model,
+            include_topic_seeds=False,
+            validation_profile="canary",
+        )
+        openrouter_key = settings.openrouter_api_key
+        if not settings.tavily_api_keys or openrouter_key is None:
+            return _blocked(args, "provider credentials are incomplete")
+        progress = ProgressReporter(enabled=bool(getattr(args, "verbose", False)))
+
+        async def execute() -> RunResult:
+            async with _checkpoint_saver(settings.database_url or "") as checkpointer:
+                workflow = ResearchWorkflow(
+                    repository,
+                    TavilyProvider(
+                        settings.tavily_api_keys,
+                        settings.tavily_project_id,
+                        progress=progress,
+                    ),
+                    OpenRouterProvider(
+                        openrouter_key.get_secret_value(),
+                        settings.openrouter_model,
+                        fallback_models=fallback_models,
+                        allow_free_fallbacks=allow_free_fallbacks,
+                        capability_report=capabilities,
+                        progress=progress,
+                    ),
+                    load_topic_configs(settings.resolved_topics_path),
+                    checkpointer=checkpointer,
+                    max_llm_calls=settings.llm_max_calls,
+                    max_llm_input_chars=settings.llm_max_input_chars,
+                    max_run_seconds=settings.max_run_seconds,
+                    progress=progress,
+                )
+                return await workflow.repair(request, candidates, args.run_id)
+
+        result = asyncio.run(execute())
+        _print_json(
+            {
+                "status": result.status.value,
+                "run_id": result.run_id,
+                "selected_source_count": min(len(candidates), args.max_sources),
+                "source_count": result.source_count,
+                "distillation_count": result.distillation_count,
+                "claim_count": result.claim_count,
+                "validation_status": result.validation_status.value,
+                "error": result.error,
+            }
+        )
+        return 0 if result.status is RunStatus.SUCCEEDED else 2
+    except (ProviderError, RuntimeError, ValueError) as error:
+        return _blocked(args, str(error))
+    finally:
+        if "repository" in locals():
+            repository.close()
 
 
 def _rollup_command(args: argparse.Namespace, settings: Settings) -> int:
@@ -822,6 +941,9 @@ def _validate_command(args: argparse.Namespace, settings: Settings) -> int:
         get_brief = getattr(repository, "get_brief", None)
         brief = get_brief(args.run_id) if callable(get_brief) else None
         strict_profile = request.validation_profile in {"full", "global-canary"}
+        repair_mode = bool(sources) and all(
+            source.source_kind == "repair" for source in sources if not source.is_seed
+        )
         report = build_validation_report(
             args.run_id,
             sources,
@@ -850,7 +972,9 @@ def _validate_command(args: argparse.Namespace, settings: Settings) -> int:
                     }
                 )
                 for lane in ("regulatory", "us-ports", "mexico")
-            },
+            }
+            if not repair_mode
+            else None,
             distillations=distillations,
             required_geographies=(
                 {
@@ -869,6 +993,7 @@ def _validate_command(args: argparse.Namespace, settings: Settings) -> int:
                 else set()
             ),
             required_regions=(set(REGIONS) - {"global"} if strict_profile else set()),
+            required_lanes=set() if repair_mode else None,
             brief=brief,
         )
         repository.record_validation(report)
@@ -1142,6 +1267,15 @@ def _parser() -> argparse.ArgumentParser:
     audit.add_argument("--allow-free-fallbacks", action="store_true")
     audit.add_argument("--json", action="store_true")
 
+    repair = subparsers.add_parser("repair")
+    repair.add_argument("--source-scope", choices=["incomplete"], default="incomplete")
+    repair.add_argument("--run-id", required=True)
+    repair.add_argument("--as-of")
+    repair.add_argument("--max-sources", type=int, default=25)
+    repair.add_argument("--allow-free-fallbacks", action="store_true")
+    repair.add_argument("--verbose", action="store_true")
+    repair.add_argument("--json", action="store_true")
+
     validate = subparsers.add_parser("validate")
     validate.add_argument("--run-id", required=True)
 
@@ -1168,6 +1302,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _rollup_command(args, settings)
     if args.command == "audit":
         return _audit_command(args, settings)
+    if args.command == "repair":
+        return _repair_command(args, settings)
     if args.command == "e2e":
         return _e2e_command(args, settings)
     if args.command == "agent-check":

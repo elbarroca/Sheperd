@@ -10,8 +10,11 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from sheperd_research.contracts import (
     ArticleDistillation,
+    ArticleInsight,
     ClaimDraft,
+    DistillationQualityStatus,
     EvidenceStatus,
+    InsightStatus,
     LaneDiscoveryPacket,
     LaneDiscoveryResult,
     ReportBullet,
@@ -24,6 +27,39 @@ from sheperd_research.db import InMemoryRepository
 from sheperd_research.providers.errors import ProviderError
 from sheperd_research.validators import can_extract_url
 from sheperd_research.workflow import LANES, ResearchWorkflow, checkpoint_serializer
+
+
+def _not_observed_insight(subject: str) -> ArticleInsight:
+    return ArticleInsight(
+        status=InsightStatus.NOT_OBSERVED,
+        statement=f"No supported {subject} was observed in this source.",
+        why_it_matters=f"This source does not provide enough evidence for a {subject} conclusion.",
+        next_step=f"Review an independent source for {subject} evidence.",
+    )
+
+
+def _complete_distillation(
+    source_url: str, *, summary: str = "Source summary."
+) -> ArticleDistillation:
+    claim = ClaimDraft(
+        claim="A reported port signal exists.",
+        source_urls=[source_url],
+    )
+    return ArticleDistillation(
+        source_url=source_url,
+        summary=summary,
+        key_points=["Reported point one.", "Reported point two."],
+        what_happened="The source reports a public port development.",
+        why_it_matters="The development may affect the operating picture.",
+        risk_assessment=_not_observed_insight("material risk"),
+        opportunity_assessment=_not_observed_insight("commercial opportunity"),
+        uncertainties=["The source may not cover the full market."],
+        next_steps=["Compare the report with an independent source."],
+        claims=[claim],
+        limitations=["Public report only."],
+        quality_status=DistillationQualityStatus.COMPLETE,
+        model_id="google/gemma-4-26b-a4b-it:free",
+    )
 
 
 class FakeTavily:
@@ -110,13 +146,12 @@ class FakeLLM:
         content: str,
         **_: object,
     ) -> ArticleDistillation:
-        return ArticleDistillation(
-            source_url=source.url,
+        distillation = _complete_distillation(
+            source.url,
             summary=f"Summary of {source.title}.",
-            key_points=[content],
-            claims=[ClaimDraft(claim="A reported port signal exists.", source_urls=[source.url])],
-            limitations=["Public report only."],
-            model_id="google/gemma-4-26b-a4b-it:free",
+        )
+        return distillation.model_copy(
+            update={"key_points": [content, "The source provides public evidence."]}
         )
 
     async def synthesize(
@@ -127,16 +162,13 @@ class FakeLLM:
     ) -> WeeklyBrief:
         source_urls = [item.source_url for item in distillations]
 
-        def bullet(text: str, *, structured: bool = False) -> ReportBullet:
-            fields = (
-                {
-                    "why_it_matters": "This is relevant to the operating picture.",
-                    "next_step": "Monitor the cited evidence.",
-                }
-                if structured
-                else {}
+        def bullet(text: str) -> ReportBullet:
+            return ReportBullet(
+                text=text,
+                source_urls=source_urls,
+                why_it_matters="This is relevant to the operating picture.",
+                next_step="Monitor the cited evidence.",
             )
-            return ReportBullet(text=text, source_urls=source_urls, **fields)
 
         return WeeklyBrief(
             run_id=run_id,
@@ -149,9 +181,9 @@ class FakeLLM:
             model_id="google/gemma-4-26b-a4b-it:free",
             executive_bullets=[bullet("Executive signal.")],
             developments=[bullet("Development signal.")],
-            risks=[bullet("Risk signal.", structured=True)],
-            opportunities=[bullet("Opportunity signal.", structured=True)],
-            uncertainties=[bullet("Uncertainty signal.", structured=True)],
+            risks=[bullet("Risk signal.")],
+            opportunities=[bullet("Opportunity signal.")],
+            uncertainties=[bullet("Uncertainty signal.")],
             follow_up_questions=["What should be monitored next?"],
         )
 
@@ -340,13 +372,12 @@ def test_synthesis_accepts_bullets_citing_known_sources_without_claims() -> None
                 "sources": [claimed_source, source_without_claim],
                 "content": {},
                 "distillations": [
-                    ArticleDistillation(
-                        source_url=claimed_source.url,
+                    _complete_distillation(
+                        claimed_source.url,
                         summary="Claimed source summary.",
-                        claims=[claim],
-                    ),
-                    ArticleDistillation(
-                        source_url=source_without_claim.url,
+                    ).model_copy(update={"claims": [claim]}),
+                    _complete_distillation(
+                        source_without_claim.url,
                         summary="Context source summary.",
                     ),
                 ],
@@ -382,6 +413,40 @@ def test_workflow_records_a_cited_draft_and_is_idempotent() -> None:
     assert repository.briefs[first.run_id].signal_event_ids
     assert repository.briefs[first.run_id].review_state.value == "draft"
     assert first.distillation_count == first.source_count
+
+
+def test_repair_preserves_incomplete_history_and_writes_a_new_complete_run() -> None:
+    repository = InMemoryRepository()
+    request = ResearchRunRequest(
+        topic_set="dnd-port",
+        max_sources=1,
+        include_topic_seeds=False,
+        validation_profile="canary",
+    )
+    source = SourceCandidate(
+        url="https://www.fmc.gov/repair-source",
+        title="Repair source",
+        publisher="fmc.gov",
+        lane="regulatory",
+        geographies=["Regulatory"],
+    )
+    repository.create_run("old-run", request)
+    repository.record_source(source)
+    repository.record_distillation(
+        "old-run",
+        ArticleDistillation(source_url=source.url, summary="Legacy summary."),
+    )
+
+    workflow = ResearchWorkflow(repository, FakeTavily(), FakeLLM())
+    result = asyncio.run(workflow.repair(request, [source], "repair-run"))
+
+    assert result.status.value == "succeeded"
+    assert repository.get_run("old-run") is not None
+    assert len(repository.get_run_distillations("old-run")) == 1
+    repaired = repository.get_run_distillations("repair-run")
+    assert len(repaired) == 1
+    assert repaired[0].quality_status is DistillationQualityStatus.COMPLETE
+    assert repository.get_brief("repair-run") is not None
 
 
 def test_canary_discovery_query_limit_bounds_each_lane() -> None:

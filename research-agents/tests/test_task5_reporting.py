@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from unittest.mock import Mock, patch
 
 import pytest
-from test_workflow import FakeLLM, FakeTavily
+from test_workflow import FakeLLM, FakeTavily, _complete_distillation
 
 from sheperd_research.cli import _parser
 from sheperd_research.contracts import (
@@ -99,7 +99,7 @@ def test_daily_run_persists_a_draft_brief_without_approval() -> None:
     brief = repository.get_brief(result.run_id)
     assert result.status.value == "succeeded"
     assert brief is not None
-    assert brief.prompt_version == "daily-brief-v4"
+    assert brief.prompt_version == "daily-brief-v6-decision"
     assert brief.review_state is ReviewState.DRAFT
     assert brief.summary.startswith("DRAFT - HUMAN REVIEW REQUIRED")
     assert repository.review_decisions == []
@@ -136,12 +136,14 @@ def test_weekly_run_combines_retained_seven_day_evidence_with_fresh_discovery() 
     repository.record_snapshot("daily-run", retained_source, "retained evidence")
     repository.record_distillation(
         "daily-run",
-        ArticleDistillation(
-            source_url=retained_source.url,
+        _complete_distillation(
+            retained_source.url,
             summary="Retained summary.",
-            claims=[retained_claim],
-            published_at=retained_source.published_at,
-            model_id="google/gemma-4-26b-a4b-it:free",
+        ).model_copy(
+            update={
+                "claims": [retained_claim],
+                "published_at": retained_source.published_at,
+            }
         ),
     )
     repository.record_claims("daily-run", [retained_claim])

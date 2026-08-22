@@ -21,7 +21,9 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from ..contracts import (
     ArticleDistillation,
+    ArticleInsight,
     ClaimDraft,
+    DistillationQualityStatus,
     EvidenceStatus,
     LaneDiscoveryPacket,
     LaneDiscoveryResult,
@@ -38,7 +40,12 @@ from ..settings import (
     strict_openrouter_policy_error,
 )
 from ..source_catalog import authoritative_geography_domain_catalog
-from ..validators import can_extract_url, normalize_url, url_policy_error
+from ..validators import (
+    can_extract_url,
+    normalize_url,
+    url_policy_error,
+    validate_article_distillation_quality,
+)
 from .capabilities import CapabilityReport
 from .errors import ProviderError
 
@@ -110,12 +117,18 @@ class ExtractToolInput(BaseModel):
 class ArticleOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    summary: str = Field(max_length=700)
-    key_points: list[str] = Field(max_length=4)
+    summary: str = Field(min_length=1, max_length=700)
+    key_points: list[str] = Field(min_length=2, max_length=4)
+    what_happened: str = Field(min_length=1, max_length=700)
+    why_it_matters: str = Field(min_length=1, max_length=700)
+    risk_assessment: ArticleInsight
+    opportunity_assessment: ArticleInsight
+    uncertainties: list[str] = Field(min_length=1, max_length=4)
+    next_steps: list[str] = Field(min_length=1, max_length=4)
     entities: list[str] = Field(default_factory=list, max_length=12)
     signals: list[str] = Field(default_factory=list, max_length=8)
-    claims: list[ClaimDraft] = Field(max_length=3)
-    limitations: list[str] = Field(max_length=3)
+    claims: list[ClaimDraft] = Field(min_length=1, max_length=3)
+    limitations: list[str] = Field(min_length=1, max_length=3)
     source_language: str = "und"
     summary_original: str = ""
     key_points_original: list[str] = Field(default_factory=list, max_length=4)
@@ -422,7 +435,7 @@ class OpenRouterProvider:
         return (
             is_free_openrouter_model(model_name)
             and attempt < 2
-            and error_code == "timeout"
+            and error_code in {"timeout", "malformed_output"}
         )
 
     @staticmethod
@@ -888,6 +901,7 @@ class OpenRouterProvider:
         model_chain = tuple(getattr(self, "model_chain", (self.model_name,)))
         allow_free_fallbacks = bool(getattr(self, "allow_free_fallbacks", False))
         fallback_reason: str | None = None
+        corrective_retry = False
         for model_index, model_name in enumerate(model_chain):
             for attempt in range(1, 3):
                 started_at = monotonic()
@@ -917,7 +931,18 @@ class OpenRouterProvider:
                     result = await self._invoke_agent_request(
                         agent,
                         {
-                            "messages": [{"role": "user", "content": prompt}],
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        f"{prompt}\n\nCORRECTIVE RETRY: The previous response "
+                                        "was malformed. Return every required field with "
+                                        "non-empty structured values and no extra fields."
+                                        if corrective_retry
+                                        else prompt
+                                    ),
+                                }
+                            ],
                         },
                     )
                     structured_tool_names = {
@@ -1046,6 +1071,7 @@ class OpenRouterProvider:
                     if error_code == "rate_limit":
                         self._rate_limit_seen = True
                     if self._should_retry(error, model_name=model_name, attempt=attempt):
+                        corrective_retry = error_code == "malformed_output"
                         await asyncio.sleep(0.2)
                         continue
                     next_model_available = model_index + 1 < len(model_chain)
@@ -1444,7 +1470,7 @@ class OpenRouterProvider:
         source: SourceCandidate,
         content: str,
         *,
-        prompt_version: str = "distill-v4",
+        prompt_version: str = "distill-v6-insight",
     ) -> ArticleDistillation:
         self._reset_task_call_state()
         prompt = (
@@ -1454,12 +1480,19 @@ class OpenRouterProvider:
             "Do not provide legal advice. Return only the requested structured fields.\n\n"
             "Rules: keep the summary concise; detect the source language; preserve an "
             "original-language summary and key points, then provide normalized English "
-            "fields; return no more than three short key_points, entities, signals, "
-            "three claims, and three limitations; "
+            "fields; return at least two short key_points, one or more claims, entities, "
+            "signals, and limitations; provide what_happened, why_it_matters, at least "
+            "one uncertainty, and at least one next_step; provide both a risk_assessment "
+            "and opportunity_assessment using status supported, not_observed, or "
+            "uncertain; when evidence does not support a risk or opportunity, use "
+            "not_observed with an explicit evidence-gap statement rather than inventing "
+            "a conclusion; "
             "include limitations and access gaps; mark unsupported or inferred claims "
             "unverified; use the source URL exactly as provided for every citation; "
             "never invent a citation, date, number, entity, or event. Evidence excerpts "
-            "must be <=320 characters and <=40 words and must be copied from the source.\n\n"
+            "must be <=320 characters and <=40 words and must be copied from the source; "
+            "supported risk and opportunity assessments require an evidence excerpt or "
+            "locator. Return no null, blank, placeholder, or omitted required field.\n\n"
             f"SOURCE URL: {source.url}\nTITLE: {source.title}\n"
             f"PUBLISHER: {source.publisher}\nCONTENT:\n{content[:MAX_SOURCE_CONTENT_CHARS]}"
         )
@@ -1477,7 +1510,7 @@ class OpenRouterProvider:
                 and translation_status is TranslationStatus.NOT_NEEDED
             ):
                 translation_status = TranslationStatus.FAILED
-            return ArticleDistillation(
+            distillation = ArticleDistillation(
                 source_url=source.url,
                 summary=output.summary,
                 key_points=output.key_points[:MAX_KEY_POINTS_PER_SOURCE],
@@ -1497,6 +1530,13 @@ class OpenRouterProvider:
                 translation_status=translation_status,
                 evidence_excerpts=output.evidence_excerpts,
                 evidence_locators=output.evidence_locators,
+                what_happened=output.what_happened,
+                why_it_matters=output.why_it_matters,
+                risk_assessment=output.risk_assessment,
+                opportunity_assessment=output.opportunity_assessment,
+                uncertainties=output.uncertainties,
+                next_steps=output.next_steps,
+                quality_status=DistillationQualityStatus.COMPLETE,
                 evidence_status=(
                     EvidenceStatus.PARTIALLY_SUPPORTED
                     if output.source_language not in {"en", "und"}
@@ -1504,6 +1544,12 @@ class OpenRouterProvider:
                     else EvidenceStatus.MIXED
                 ),
             )
+            quality_issues = validate_article_distillation_quality(distillation)
+            if quality_issues:
+                raise ProviderError(
+                    "article insight packet incomplete: " + ", ".join(quality_issues)
+                )
+            return distillation
         except ProviderError:
             raise
         except Exception as error:
@@ -1549,15 +1595,31 @@ class OpenRouterProvider:
         *,
         covered_from: datetime,
         covered_until: datetime,
-        prompt_version: str = "weekly-brief-v4",
+        prompt_version: str = "weekly-brief-v6-decision",
     ) -> WeeklyBrief:
         self._reset_task_call_state()
         cadence_label = "daily" if prompt_version.startswith("daily-") else "weekly"
-        evidence = "\n\n".join(
-            f"URL: {item.source_url}\nSUMMARY: {item.summary}\nCLAIMS: "
-            f"{[claim.claim for claim in item.claims]}"
-            for item in distillations
-        )
+        evidence_blocks: list[str] = []
+        for item in distillations:
+            risk = (
+                item.risk_assessment.model_dump(mode="json")
+                if item.risk_assessment
+                else "not recorded"
+            )
+            opportunity = (
+                item.opportunity_assessment.model_dump(mode="json")
+                if item.opportunity_assessment
+                else "not recorded"
+            )
+            evidence_blocks.append(
+                f"URL: {item.source_url}\nSUMMARY: {item.summary}\n"
+                f"WHAT HAPPENED: {item.what_happened}\n"
+                f"WHY IT MATTERS: {item.why_it_matters}\nRISK: {risk}\n"
+                f"OPPORTUNITY: {opportunity}\nNEXT STEPS: {item.next_steps}\n"
+                f"UNCERTAINTIES: {item.uncertainties}\nCLAIMS: "
+                f"{[claim.model_dump(mode='json') for claim in item.claims]}"
+            )
+        evidence = "\n\n".join(evidence_blocks)
         prompt = (
             f"Create a concise {cadence_label} maritime intelligence brief using only the "
             "source-bound evidence below. Write an executive summary suitable for "
@@ -1565,7 +1627,8 @@ class OpenRouterProvider:
             "opportunities, uncertainty, and follow-up questions. Separate facts "
             "from inference and limitations. Do not provide legal advice. Preserve "
             "source-linked signal IDs and never invent citations. Every factual "
-            "bullet must cite one or more supplied URLs. Return non-empty structured "
+            "bullet must cite one or more supplied URLs and include non-empty "
+            "why_it_matters and next_step fields. Return non-empty structured "
             "fields for executive_bullets, developments, risks, opportunities, "
             "uncertainties, and follow_up_questions. If the supplied evidence does "
             "not support a material item, include an explicit evidence-backed absence "

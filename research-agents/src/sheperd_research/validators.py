@@ -5,7 +5,15 @@ from collections.abc import Sequence
 from datetime import datetime
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
-from .contracts import ClaimDraft, FreshnessStatus, SourceCandidate, WeeklyBrief
+from .contracts import (
+    ArticleDistillation,
+    ClaimDraft,
+    DistillationQualityStatus,
+    FreshnessStatus,
+    InsightStatus,
+    SourceCandidate,
+    WeeklyBrief,
+)
 
 REQUIRED_DRAFT_PREFIX = "DRAFT - HUMAN REVIEW REQUIRED"
 MANDATORY_EXCLUDED_DOMAINS = ("linkedin.com",)
@@ -26,6 +34,16 @@ REPORT_BULLET_SECTIONS = (
     "uncertainties",
 )
 ACTIONABLE_REPORT_SECTIONS = {"risks", "opportunities", "uncertainties"}
+_PLACEHOLDER_TEXT = frozenset(
+    {"", "null", "none", "n/a", "na", "not recorded", "not available"}
+)
+
+
+def _is_placeholder(value: str) -> bool:
+    normalized = " ".join(value.strip().casefold().rstrip(".").split())
+    return normalized in _PLACEHOLDER_TEXT or normalized.startswith(
+        ("not recorded ", "not available ")
+    )
 
 
 def normalize_url(url: str) -> str:
@@ -199,6 +217,67 @@ def validate_claim_citations(
             raise ValueError(f"claim cites unknown source: {sorted(unknown)[0]}")
 
 
+def _required_insight_text(value: str, field: str, issues: list[str]) -> None:
+    if _is_placeholder(value):
+        issues.append(f"missing_{field}")
+
+
+def validate_article_distillation_quality(
+    distillation: ArticleDistillation,
+) -> list[str]:
+    """Return deterministic completeness issues for one extracted article."""
+    issues: list[str] = []
+    if distillation.quality_status is not DistillationQualityStatus.COMPLETE:
+        issues.append("quality_status_incomplete")
+    _required_insight_text(distillation.summary, "summary", issues)
+    if len(
+        [
+            point
+            for point in distillation.key_points
+            if point.strip() and not _is_placeholder(point)
+        ]
+    ) < 2:
+        issues.append("key_points_incomplete")
+    _required_insight_text(distillation.what_happened, "what_happened", issues)
+    _required_insight_text(distillation.why_it_matters, "why_it_matters", issues)
+    if not distillation.uncertainties or not all(
+        item.strip() and not _is_placeholder(item)
+        for item in distillation.uncertainties
+    ):
+        issues.append("uncertainties_incomplete")
+    if not distillation.next_steps or not all(
+        item.strip() and not _is_placeholder(item)
+        for item in distillation.next_steps
+    ):
+        issues.append("next_steps_incomplete")
+
+    for name, insight in (
+        ("risk_assessment", distillation.risk_assessment),
+        ("opportunity_assessment", distillation.opportunity_assessment),
+    ):
+        if insight is None:
+            issues.append(f"missing_{name}")
+            continue
+        if insight.status not in {
+            InsightStatus.SUPPORTED,
+            InsightStatus.NOT_OBSERVED,
+            InsightStatus.UNCERTAIN,
+        }:
+            issues.append(f"invalid_{name}_status")
+        _required_insight_text(insight.statement, f"{name}_statement", issues)
+        _required_insight_text(
+            insight.why_it_matters, f"{name}_why_it_matters", issues
+        )
+        _required_insight_text(insight.next_step, f"{name}_next_step", issues)
+        if (
+            insight.status is InsightStatus.SUPPORTED
+            and not insight.evidence_excerpt
+            and not insight.evidence_locator
+        ):
+            issues.append(f"{name}_missing_evidence")
+    return issues
+
+
 def validate_report_sections(
     brief: WeeklyBrief,
     known_urls: set[str],
@@ -215,10 +294,17 @@ def validate_report_sections(
             normalized_urls = {normalize_url(url) for url in bullet.source_urls}
             if not normalized_urls or not normalized_urls.issubset(normalized_known):
                 issues.append(f"{section}_{index}_unknown_citation")
-            if section in ACTIONABLE_REPORT_SECTIONS:
-                if not bullet.why_it_matters:
+            if (
+                brief.prompt_version.startswith("weekly-brief-v6")
+                or section in ACTIONABLE_REPORT_SECTIONS
+            ):
+                if not bullet.why_it_matters or (
+                    _is_placeholder(bullet.why_it_matters)
+                ):
                     issues.append(f"{section}_{index}_missing_why_it_matters")
-                if not bullet.next_step:
+                if not bullet.next_step or (
+                    _is_placeholder(bullet.next_step)
+                ):
                     issues.append(f"{section}_{index}_missing_next_step")
     if not any(question.strip() for question in brief.follow_up_questions):
         issues.append("follow_up_questions_empty")

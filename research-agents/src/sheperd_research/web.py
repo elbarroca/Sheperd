@@ -12,6 +12,7 @@ from .contracts import WeeklyBrief
 from .db import ArchiveScope, RepositoryProtocol
 from .exporters.obsidian import render_weekly_markdown
 from .source_catalog import load_source_catalog
+from .validators import validate_article_distillation_quality
 
 
 def _value(value: object) -> str:
@@ -818,6 +819,12 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         independent_sources = Counter(
             str(item.independent_source_count) for item in claims
         )
+        article_quality = Counter(
+            "complete"
+            if not validate_article_distillation_quality(item)
+            else "incomplete"
+            for item in distillations
+        )
         extraction_success_rate = (
             extraction.get("succeeded", 0) / len(sources) if sources else 0.0
         )
@@ -850,7 +857,15 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                         ),
                         "source_count": len(sources),
                         "source_hash_count": len(source_hashes),
-                        "distillation_count": len(distillations),
+                            "distillation_count": len(distillations),
+                            "article_insight_quality": dict(sorted(article_quality.items())),
+                            "article_insight_complete_count": article_quality.get("complete", 0),
+                            "article_insight_completeness": round(
+                                article_quality.get("complete", 0) / len(distillations),
+                                6,
+                            )
+                            if distillations
+                            else 0.0,
                         "claim_count": len(claims),
                             "signal_count": len(signals),
                             "sources_by_region": dict(sorted(sources_by_region.items())),

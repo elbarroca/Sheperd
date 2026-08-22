@@ -18,6 +18,7 @@ from .validators import (
     claim_verification_allowed,
     content_hash,
     normalize_url,
+    validate_article_distillation_quality,
     validate_evidence_quality,
     validate_report_sections,
 )
@@ -69,6 +70,7 @@ def build_validation_report(
     distillations: list[ArticleDistillation] | None = None,
     required_geographies: set[str] | None = None,
     required_regions: set[str] | None = None,
+    required_lanes: set[str] | None = None,
     brief: WeeklyBrief | None = None,
 ) -> ValidationReport:
     quality_sources = source_quality_sources(sources)
@@ -106,6 +108,7 @@ def build_validation_report(
     region_coverage = {source.region for source in quality_sources}
     expected_regions = set() if required_regions is None else set(required_regions)
     missing_regions = sorted(expected_regions - region_coverage)
+    expected_lanes = set(REQUIRED_LANES) if required_lanes is None else set(required_lanes)
     future_sources = [
         source
         for source in quality_sources
@@ -151,6 +154,23 @@ def build_validation_report(
         and source.extraction_status is ExtractionStatus.SUCCEEDED
         and normalize_url(source.url) not in distillation_urls
     ]
+    distillations_by_url = {
+        normalize_url(item.source_url): item for item in (distillations or [])
+    }
+    article_insight_issues: dict[str, list[str]] = {}
+    if distillations is not None:
+        for source in enriched_sources:
+            if source.extraction_status is not ExtractionStatus.SUCCEEDED:
+                continue
+            url = normalize_url(source.url)
+            item = distillations_by_url.get(url)
+            issues = (
+                ["missing_distillation"]
+                if item is None
+                else validate_article_distillation_quality(item)
+            )
+            if issues:
+                article_insight_issues[url] = issues
     evidence_quality_issues = validate_evidence_quality(
         [
             claim
@@ -183,16 +203,16 @@ def build_validation_report(
         ),
         _check(
             "lane_coverage",
-            REQUIRED_LANES.issubset(lane_coverage),
+            expected_lanes.issubset(lane_coverage),
             ",".join(lane_coverage),
-            ",".join(sorted(REQUIRED_LANES)),
+            ",".join(sorted(expected_lanes)) or "none",
             "all research lanes must complete",
         ),
         _check(
             "geography_coverage",
             not missing_geographies,
             ",".join(sorted(geography_coverage)),
-            ",".join(sorted(REQUIRED_GEOGRAPHIES)),
+            ",".join(sorted(expected_geographies)) or "none",
             "strict acceptance requires regulatory, U.S. ports, Mexico, and Europe coverage",
         ),
         _check(
@@ -260,6 +280,15 @@ def build_validation_report(
                     "every successfully extracted source must have one distillation",
                 )
             )
+            checks.append(
+                _check(
+                    "article_insight_completeness",
+                    not article_insight_issues,
+                    len(article_insight_issues),
+                    0,
+                    "every extracted article must have a complete insight packet",
+                )
+            )
         if expected_regions:
             checks.append(
                 _check(
@@ -310,7 +339,7 @@ def build_validation_report(
         and not (check.name == "lane_coverage" and lane_partial)
         for check in checks
     )
-    if not lane_partial and not REQUIRED_LANES.issubset(lane_coverage):
+    if not lane_partial and not expected_lanes.issubset(lane_coverage):
         hard_fail = True
     status = (
         ValidationStatus.FAILED

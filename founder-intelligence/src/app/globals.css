@@ -139,12 +139,15 @@ code { font: 0.88em/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; overflo
 .audit-grid div { padding: 10px; border: 1px solid var(--line); }
 .audit-grid dt { color: var(--muted); font-size: 0.65rem; font-weight: 750; text-transform: uppercase; }
 .audit-grid dd { margin: 4px 0 0; overflow-wrap: anywhere; }
-.report-quality { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; padding: 14px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.report-quality { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; padding: 14px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .report-quality div { display: grid; gap: 2px; }
 .report-quality strong { font-size: 1.1rem; }
 .report-quality span, .report-quality p { color: var(--muted); font-size: 0.74rem; }
 .report-quality p { grid-column: 1 / -1; margin: 3px 0 0; }
 .evidence-grid { display: grid; gap: 12px; }
+.insight-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.insight-block { padding: 12px; border: 1px solid var(--line); }
+.insight-block p:last-child { margin-bottom: 0; }
 .evidence-card { padding: 14px 0; border-bottom: 1px solid var(--line); }
 .evidence-card code, .step-list small { overflow-wrap: anywhere; }
 .step-list { display: grid; gap: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
@@ -205,6 +208,7 @@ code { font: 0.88em/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; overflo
   .system-status { justify-content: flex-start; text-align: left; }
   .document-feature { grid-template-columns: 1fr; }
   .featured-readout, .decision-grid { grid-template-columns: 1fr; gap: 18px; }
+  .insight-grid { grid-template-columns: 1fr; }
   .featured-readout > div + div { padding-top: 18px; border-top: 1px solid var(--line); }
   .text-action { align-self: start; }
   .report-row { grid-template-columns: 1fr; gap: 6px; padding: 14px 0; }

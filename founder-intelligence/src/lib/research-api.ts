@@ -77,6 +77,17 @@ export interface ResearchClaim {
   verification_basis?: string | null;
 }
 
+export type InsightStatus = "supported" | "not_observed" | "uncertain" | string;
+
+export interface ArticleInsight {
+  status: InsightStatus;
+  statement: string;
+  why_it_matters: string;
+  next_step: string;
+  evidence_excerpt?: string | null;
+  evidence_locator?: string | null;
+}
+
 export interface ResearchSignal {
   event_id: string;
   run_id: string;
@@ -109,6 +120,15 @@ export interface ArticleDistillation {
   translation_status?: string;
   evidence_excerpts?: string[];
   evidence_locators?: string[];
+  what_happened?: string;
+  why_it_matters?: string;
+  risk_assessment?: ArticleInsight | null;
+  opportunity_assessment?: ArticleInsight | null;
+  uncertainties?: string[];
+  next_steps?: string[];
+  quality_status?: string;
+  quality_issues?: string[];
+  insight_packet?: Record<string, unknown>;
 }
 
 export interface ToolCallReceipt {

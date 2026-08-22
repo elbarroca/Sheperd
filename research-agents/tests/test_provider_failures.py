@@ -76,6 +76,36 @@ def patch_client(
     )
 
 
+def valid_article_response(source_url: str) -> dict[str, object]:
+    return {
+        "summary": "A source-bound summary.",
+        "key_points": ["A reported point.", "A second reported point."],
+        "what_happened": "The source reports a public development.",
+        "why_it_matters": "The development changes the operating picture.",
+        "risk_assessment": {
+            "status": "not_observed",
+            "statement": "No supported material risk was observed in this source.",
+            "why_it_matters": "The source does not establish a material risk.",
+            "next_step": "Check an independent source for risk evidence.",
+        },
+        "opportunity_assessment": {
+            "status": "not_observed",
+            "statement": "No supported commercial opportunity was observed in this source.",
+            "why_it_matters": "The source does not establish a commercial opportunity.",
+            "next_step": "Check an independent source for opportunity evidence.",
+        },
+        "uncertainties": ["The source may not cover the full market."],
+        "next_steps": ["Compare the report with an independent source."],
+        "claims": [
+            {"claim": "A reported point.", "source_urls": [source_url]},
+        ],
+        "limitations": ["Public source only."],
+        "source_language": "en",
+        "summary_original": "A source-bound summary.",
+        "key_points_original": ["A reported point.", "A second reported point."],
+    }
+
+
 def test_tavily_rate_limit_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
     patch_client(monkeypatch, [response(429, {"error": "rate limit"})])
 
@@ -336,10 +366,7 @@ def test_openrouter_uses_create_agent_schema_and_records_resolved_model(
     agent = CapturingAgent(
         {
             "structured_response": {
-                "summary": "A source-bound summary.",
-                "key_points": ["A reported point."],
-                "claims": [],
-                "limitations": [],
+                **valid_article_response("https://example.com/article"),
             },
             "messages": [RawResponse()],
         }
@@ -367,6 +394,47 @@ def test_openrouter_uses_create_agent_schema_and_records_resolved_model(
     assert provider.last_call_metadata["total_tokens"] == 20
 
 
+def test_malformed_distillation_retries_with_a_corrective_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompts: list[str] = []
+    source_url = "https://example.com/article"
+    outcomes: list[dict[str, object]] = [
+        {
+            "structured_response": {"summary": "incomplete"},
+            "messages": [RawResponse()],
+        },
+        {
+            "structured_response": valid_article_response(source_url),
+            "messages": [RawResponse()],
+        },
+    ]
+
+    class SequenceAgent:
+        async def ainvoke(
+            self,
+            payload: dict[str, object],
+            **_: object,
+        ) -> dict[str, object]:
+            messages = payload["messages"]
+            assert isinstance(messages, list)
+            prompts.append(str(messages[0]))
+            return outcomes.pop(0)
+
+    provider = _stub_provider()
+    provider._model_for = lambda _: object()
+    monkeypatch.setattr(openrouter_module, "create_agent", lambda **_: SequenceAgent())
+
+    result = asyncio.run(
+        provider.distill(SourceCandidate(url=source_url), "source body")
+    )
+
+    assert result.quality_status.value == "complete"
+    assert len(prompts) == 2
+    assert "CORRECTIVE RETRY" in prompts[1]
+    assert [item["attempt"] for item in provider.call_history] == [1, 2]
+
+
 def test_openrouter_distillation_prompt_is_source_bound(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -374,10 +442,7 @@ def test_openrouter_distillation_prompt_is_source_bound(
     agent = CapturingAgent(
         {
             "structured_response": {
-                "summary": "A source-bound summary.",
-                "key_points": ["A reported point."],
-                "claims": [{"claim": "A reported point.", "source_urls": [source.url]}],
-                "limitations": ["Public source only."],
+                **valid_article_response(source.url),
             },
             "messages": [RawResponse()],
         }

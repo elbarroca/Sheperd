@@ -80,6 +80,18 @@ class TranslationStatus(StrEnum):
     FAILED = "failed"
 
 
+class InsightStatus(StrEnum):
+    SUPPORTED = "supported"
+    NOT_OBSERVED = "not_observed"
+    UNCERTAIN = "uncertain"
+
+
+class DistillationQualityStatus(StrEnum):
+    COMPLETE = "complete"
+    INCOMPLETE = "incomplete"
+    FAILED = "failed"
+
+
 class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -171,6 +183,32 @@ class ClaimDraft(ContractModel):
         return value
 
 
+class ArticleInsight(ContractModel):
+    status: InsightStatus
+    statement: str = Field(min_length=1, max_length=600)
+    why_it_matters: str = Field(min_length=1, max_length=600)
+    next_step: str = Field(min_length=1, max_length=600)
+    evidence_excerpt: str | None = Field(default=None, max_length=320)
+    evidence_locator: str | None = Field(default=None, max_length=300)
+
+    @field_validator("evidence_excerpt")
+    @classmethod
+    def validate_evidence_excerpt(cls, value: str | None) -> str | None:
+        if value is not None and len(value.split()) > 40:
+            raise ValueError("insight evidence_excerpt must be at most 40 words")
+        return value
+
+    @model_validator(mode="after")
+    def require_supported_evidence(self) -> Self:
+        if self.status is InsightStatus.SUPPORTED and not (
+            self.evidence_excerpt or self.evidence_locator
+        ):
+            raise ValueError(
+                "supported article insight requires an evidence excerpt or locator"
+            )
+        return self
+
+
 class ArticleDistillation(ContractModel):
     source_url: str
     summary: str = Field(min_length=1)
@@ -190,6 +228,17 @@ class ArticleDistillation(ContractModel):
     translation_status: TranslationStatus = TranslationStatus.NOT_NEEDED
     evidence_excerpts: list[str] = Field(default_factory=list, max_length=8)
     evidence_locators: list[str] = Field(default_factory=list, max_length=8)
+    # Legacy rows predate article insight packets. They remain readable as
+    # incomplete evidence until a repair run creates a complete packet.
+    what_happened: str = ""
+    why_it_matters: str = ""
+    risk_assessment: ArticleInsight | None = None
+    opportunity_assessment: ArticleInsight | None = None
+    uncertainties: list[str] = Field(default_factory=list, max_length=8)
+    next_steps: list[str] = Field(default_factory=list, max_length=8)
+    quality_status: DistillationQualityStatus = DistillationQualityStatus.INCOMPLETE
+    quality_issues: list[str] = Field(default_factory=list, max_length=20)
+    insight_packet: dict[str, object] = Field(default_factory=dict)
 
     @field_validator("source_language")
     @classmethod
@@ -198,6 +247,27 @@ class ArticleDistillation(ContractModel):
         if normalized != "und" and (not normalized.isalpha() or len(normalized) not in {2, 3}):
             raise ValueError("source_language must be ISO-639-1/2 or und")
         return normalized
+
+    @model_validator(mode="after")
+    def populate_insight_packet(self) -> Self:
+        if not self.insight_packet:
+            self.insight_packet = {
+                "what_happened": self.what_happened,
+                "why_it_matters": self.why_it_matters,
+                "risk_assessment": (
+                    self.risk_assessment.model_dump(mode="json")
+                    if self.risk_assessment is not None
+                    else None
+                ),
+                "opportunity_assessment": (
+                    self.opportunity_assessment.model_dump(mode="json")
+                    if self.opportunity_assessment is not None
+                    else None
+                ),
+                "uncertainties": self.uncertainties,
+                "next_steps": self.next_steps,
+            }
+        return self
 
 
 class SignalEvent(ContractModel):
