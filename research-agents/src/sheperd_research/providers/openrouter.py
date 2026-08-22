@@ -895,6 +895,7 @@ class OpenRouterProvider:
         tool_latency_by_input: dict[str, int] | None = None,
         tool_provider_metadata_by_input: dict[str, dict[str, object]] | None = None,
         tool_failure_sink: list[dict[str, object]] | None = None,
+        runtime_tool_receipts: list[dict[str, object]] | None = None,
     ) -> OutputT:
         last_error: BaseException | None = None
         last_error_code: str | None = None
@@ -906,6 +907,9 @@ class OpenRouterProvider:
             for attempt in range(1, 3):
                 started_at = monotonic()
                 tool_receipts: list[dict[str, object]] = []
+                runtime_receipt_start = (
+                    len(runtime_tool_receipts) if runtime_tool_receipts is not None else 0
+                )
                 try:
                     progress = getattr(self, "_progress", None)
                     if progress is not None:
@@ -954,6 +958,11 @@ class OpenRouterProvider:
                         for receipt in self._tool_call_receipts(result)
                         if receipt.get("tool_name") not in structured_tool_names
                     ]
+                    if not tool_receipts and runtime_tool_receipts is not None:
+                        tool_receipts = [
+                            dict(receipt)
+                            for receipt in runtime_tool_receipts[runtime_receipt_start:]
+                        ]
                     if tool_failure_sink is not None:
                         tool_failure_sink.clear()
                     tool_names = {tool.name for tool in tools}
@@ -1031,6 +1040,11 @@ class OpenRouterProvider:
                     last_error = error
                     error_code = self._error_code(error)
                     last_error_code = error_code
+                    if not tool_receipts and runtime_tool_receipts is not None:
+                        tool_receipts = [
+                            dict(receipt)
+                            for receipt in runtime_tool_receipts[runtime_receipt_start:]
+                        ]
                     if tool_failure_sink:
                         for failure in tool_failure_sink:
                             matching = next(
@@ -1106,6 +1120,7 @@ class OpenRouterProvider:
         tool_latency_by_input: dict[str, int] | None = None,
         tool_provider_metadata_by_input: dict[str, dict[str, object]] | None = None,
         tool_failure_sink: list[dict[str, object]] | None = None,
+        runtime_tool_receipts: list[dict[str, object]] | None = None,
     ) -> OutputT:
         return await self._invoke_agent(
             schema,
@@ -1118,6 +1133,7 @@ class OpenRouterProvider:
             tool_latency_by_input=tool_latency_by_input,
             tool_provider_metadata_by_input=tool_provider_metadata_by_input,
             tool_failure_sink=tool_failure_sink,
+            runtime_tool_receipts=runtime_tool_receipts,
         )
 
     async def discover_lane(
@@ -1136,12 +1152,14 @@ class OpenRouterProvider:
         known_sources: dict[str, SourceCandidate] = {}
         captured_content: dict[str, str] = {}
         search_calls: set[str] = set()
+        search_results_by_query: dict[str, list[SourceCandidate]] = {}
         requested_extraction_urls: set[str] = set()
         tool_errors: list[str] = []
         filtered_source_rejections: list[str] = []
         tool_latency_by_input: dict[str, int] = {}
         tool_provider_metadata_by_input: dict[str, dict[str, object]] = {}
         tool_failure_receipts: list[dict[str, object]] = []
+        runtime_tool_receipts: list[dict[str, object]] = []
         attempt_sink: list[dict[str, object]] = []
         tool_calls = 0
         tool_input_chars = 0
@@ -1186,6 +1204,30 @@ class OpenRouterProvider:
                 receipt.update(provider_metadata)
             tool_failure_receipts.append(receipt)
 
+        def record_tool_success(
+            tool_name: str,
+            input_hash: str,
+            url_count: int,
+            latency_ms: int,
+            result_text: str,
+            result_count: int,
+            provider_metadata: dict[str, object] | None = None,
+        ) -> None:
+            runtime_tool_receipts.append(
+                {
+                    "call_id": f"runtime-{len(runtime_tool_receipts) + 1}",
+                    "call_index": len(runtime_tool_receipts),
+                    "tool_name": tool_name,
+                    "url_count": url_count,
+                    "status": "succeeded",
+                    "input_hash": input_hash,
+                    "result_hash": hashlib.sha256(result_text.encode()).hexdigest(),
+                    "result_count": result_count,
+                    "latency_ms": latency_ms,
+                    **(provider_metadata or {}),
+                }
+            )
+
         def provider_key_metadata() -> dict[str, object]:
             raw = getattr(tavily, "last_call_metadata", {})
             if not isinstance(raw, dict):
@@ -1204,12 +1246,38 @@ class OpenRouterProvider:
             try:
                 if query not in queries:
                     raise ValueError("discovery query is outside the configured lane scope")
-                if query in search_calls:
-                    return json.dumps({"query": query, "reused": True})
                 reserve_tool_call(len(query))
+                if query in search_calls:
+                    cached_sources = search_results_by_query.get(query, [])
+                    result_text = json.dumps(
+                        {
+                            "query": query,
+                            "sources": [
+                                {
+                                    "url": normalize_url(source.url),
+                                    "title": source.title,
+                                    "publisher": source.publisher,
+                                    "published_at": source.published_at.isoformat()
+                                    if source.published_at
+                                    else None,
+                                    "snippet": source.snippet[:500],
+                                }
+                                for source in cached_sources[:MAX_DISCOVERY_SOURCES]
+                                if can_extract_url(source.url)
+                            ],
+                        }
+                    )
+                    record_tool_success(
+                        "tavily_search",
+                        input_hash,
+                        len(cached_sources),
+                        max(0, int((monotonic() - started) * 1000)),
+                        result_text,
+                        len(cached_sources),
+                    )
+                    return result_text
                 if len(search_calls) >= len(queries):
                     raise ValueError("discovery search-call budget exceeded")
-                search_calls.add(query)
                 found = await tavily.search(
                     query,
                     since=since,
@@ -1242,6 +1310,8 @@ class OpenRouterProvider:
                     raise ValueError(
                         "Tavily search returned no sources inside the configured policy"
                     )
+                search_calls.add(query)
+                search_results_by_query[query] = valid_sources
             except Exception as error:
                 failure = error
                 tool_errors.append(error.__class__.__name__)
@@ -1264,7 +1334,7 @@ class OpenRouterProvider:
             for source in valid_sources:
                 if can_extract_url(source.url):
                     known_sources.setdefault(normalize_url(source.url), source)
-            return json.dumps(
+            result_text = json.dumps(
                 {
                     "query": query,
                     "sources": [
@@ -1282,6 +1352,16 @@ class OpenRouterProvider:
                     ],
                 }
             )
+            record_tool_success(
+                "tavily_search",
+                input_hash,
+                len(valid_sources),
+                max(0, int((monotonic() - started) * 1000)),
+                result_text,
+                len(valid_sources),
+                provider_metadata,
+            )
+            return result_text
 
         async def run_extract(urls: list[str]) -> str:
             input_hash = self._tool_input_hash(None, urls)
@@ -1289,14 +1369,23 @@ class OpenRouterProvider:
             failure: BaseException | None = None
             try:
                 normalized = [normalize_url(url) for url in urls]
+                reserve_tool_call(sum(len(url) for url in normalized))
                 if normalized and all(url in captured_content for url in normalized):
-                    return json.dumps(
+                    result_text = json.dumps(
                         {
                             "extracted_urls": sorted(captured_content),
                             "extracted_count": len(captured_content),
                         }
                     )
-                reserve_tool_call(sum(len(url) for url in normalized))
+                    record_tool_success(
+                        "tavily_extract",
+                        input_hash,
+                        len(normalized),
+                        max(0, int((monotonic() - started) * 1000)),
+                        result_text,
+                        len(captured_content),
+                    )
+                    return result_text
                 if any(url not in known_sources for url in normalized):
                     raise ValueError("extraction URL was not returned by Tavily Search")
                 requested_extraction_urls.update(normalized)
@@ -1331,12 +1420,22 @@ class OpenRouterProvider:
                         provider_metadata,
                     )
             captured_content.update(normalized_extracted)
-            return json.dumps(
+            result_text = json.dumps(
                 {
                     "extracted_urls": sorted(captured_content),
                     "extracted_count": len(captured_content),
                 }
             )
+            record_tool_success(
+                "tavily_extract",
+                input_hash,
+                len(normalized),
+                max(0, int((monotonic() - started) * 1000)),
+                result_text,
+                len(normalized_extracted),
+                provider_metadata,
+            )
+            return result_text
 
         search_tool = StructuredTool.from_function(
             coroutine=run_search,
@@ -1382,6 +1481,7 @@ class OpenRouterProvider:
                 tool_latency_by_input=tool_latency_by_input,
                 tool_provider_metadata_by_input=tool_provider_metadata_by_input,
                 tool_failure_sink=tool_failure_receipts,
+                runtime_tool_receipts=runtime_tool_receipts,
             )
         except ProviderError as error:
             if tool_calls > MAX_DISCOVERY_TOOL_CALLS:

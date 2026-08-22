@@ -624,6 +624,63 @@ def test_discovery_persists_failed_tavily_tool_receipt(
     assert attempt["tool_call_receipts"][0]["status"] == "failed"
 
 
+def test_discovery_preserves_successful_tool_receipt_when_agent_fails_after_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TavilyStub:
+        last_call_metadata = {"key_slot": 2, "key_count": 2}
+
+        async def search(self, _: str, **__: object) -> list[SourceCandidate]:
+            return [
+                SourceCandidate(
+                    url="https://www.fmc.gov/example-agent-source",
+                    publisher="fmc.gov",
+                    published_at=datetime(2026, 8, 10, tzinfo=UTC),
+                    geographies=["Regulatory"],
+                )
+            ]
+
+        async def extract(self, _: list[SourceCandidate]) -> dict[str, str]:
+            return {}
+
+    class AgentFailureAfterSearch:
+        def __init__(self, tools: list[BaseTool]) -> None:
+            self.tools = {tool.name: tool for tool in tools}
+
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            await self.tools["tavily_search"].ainvoke({"query": "configured"})
+            raise RuntimeError("OpenRouter 429 after the search tool returned")
+
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+    monkeypatch.setattr(
+        openrouter_module,
+        "create_agent",
+        lambda *, tools, **_: AgentFailureAfterSearch(tools),
+    )
+
+    with pytest.raises(ProviderError, match="OpenRouter discovery:regulatory failed"):
+        asyncio.run(
+            provider.discover_lane(
+                "regulatory",
+                ["configured"],
+                ("Regulatory",),
+                since=datetime(2026, 8, 1, tzinfo=UTC),
+                until=datetime(2026, 8, 20, tzinfo=UTC),
+                include_domains=["fmc.gov"],
+                exclude_domains=[],
+                max_results=1,
+                tavily=TavilyStub(),
+            )
+        )
+
+    attempt = provider.call_history[0]
+    assert attempt["error_code"] == "rate_limit"
+    assert attempt["tool_calls"] == 1
+    assert attempt["tool_call_receipts"][0]["tool_name"] == "tavily_search"
+    assert attempt["tool_call_receipts"][0]["status"] == "succeeded"
+
+
 def test_discovery_rejects_a_zero_tool_response(monkeypatch: pytest.MonkeyPatch) -> None:
     class ZeroToolAgent:
         async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
