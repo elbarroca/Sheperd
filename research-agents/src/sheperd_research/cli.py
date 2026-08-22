@@ -58,7 +58,7 @@ from .settings import (
 from .source_catalog import REGIONS, load_source_catalog, validate_required_sources
 from .topics import load_topic_configs
 from .validation import build_validation_report, validation_blocking_reasons
-from .validators import validate_article_distillation_quality
+from .validators import content_hash, validate_article_distillation_quality
 from .web import create_app
 from .workflow import ResearchWorkflow, checkpoint_serializer
 
@@ -933,7 +933,14 @@ def _build_persisted_validation(
     request_value = run.get("request")
     if not isinstance(request_value, dict):
         raise ValueError("run request metadata is unavailable")
-    request = ResearchRunRequest.model_validate(request_value)
+    raw_model = request_value.get("model")
+    validation_model = raw_model if isinstance(raw_model, str) else STRICT_OPENROUTER_MODEL
+    normalized_request = dict(request_value)
+    # Legacy runs may contain the retired openrouter/free router identifier.
+    # Normalize only for request parsing; retain the original model for the
+    # deterministic free-model validation check.
+    normalized_request["model"] = STRICT_OPENROUTER_MODEL
+    request = ResearchRunRequest.model_validate(normalized_request)
     sources = repository.get_run_sources(run_id)
     claims = repository.get_run_claims(run_id)
     get_distillations = getattr(repository, "get_run_distillations", None)
@@ -949,7 +956,7 @@ def _build_persisted_validation(
         sources,
         claims,
         request.as_of,
-        request.model,
+        validation_model,
         repository.get_run_lane_statuses(run_id),
         repository.get_run_snapshot_hashes(run_id),
         minimum_sources=1 if request.validation_profile in {"canary", "global-canary"} else 10,
@@ -1138,6 +1145,9 @@ def _revalidate_command(args: argparse.Namespace, settings: Settings) -> int:
                         )
                     ],
                     blocking_reasons=["stale_validation"],
+                    content_hash=content_hash(
+                        f"revalidation:{run_id}:{error.__class__.__name__}"
+                    ),
                 )
                 repository.record_validation(blocked)
                 results.append(
