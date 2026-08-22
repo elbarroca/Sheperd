@@ -137,6 +137,18 @@ class ArticleOutput(BaseModel):
     evidence_locators: list[str] = Field(default_factory=list, max_length=8)
 
 
+class AgentReportBullet(BaseModel):
+    """Strict synthesis-only bullet; legacy persisted bullets stay backward-compatible."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=600)
+    source_urls: list[str] = Field(min_length=1, max_length=8)
+    evidence_status: EvidenceStatus = EvidenceStatus.MIXED
+    why_it_matters: str = Field(min_length=1, max_length=600)
+    next_step: str = Field(min_length=1, max_length=600)
+
+
 class BriefOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -145,11 +157,11 @@ class BriefOutput(BaseModel):
     signal_event_ids: list[str] = Field(default_factory=list, max_length=100)
     limitations: list[str] = Field(default_factory=list, max_length=8)
     evidence_status: EvidenceStatus = EvidenceStatus.MIXED
-    executive_bullets: list[ReportBullet] = Field(default_factory=list, max_length=6)
-    developments: list[ReportBullet] = Field(default_factory=list, max_length=12)
-    risks: list[ReportBullet] = Field(default_factory=list, max_length=8)
-    opportunities: list[ReportBullet] = Field(default_factory=list, max_length=8)
-    uncertainties: list[ReportBullet] = Field(default_factory=list, max_length=8)
+    executive_bullets: list[AgentReportBullet] = Field(default_factory=list, max_length=6)
+    developments: list[AgentReportBullet] = Field(default_factory=list, max_length=12)
+    risks: list[AgentReportBullet] = Field(default_factory=list, max_length=8)
+    opportunities: list[AgentReportBullet] = Field(default_factory=list, max_length=8)
+    uncertainties: list[AgentReportBullet] = Field(default_factory=list, max_length=8)
     follow_up_questions: list[str] = Field(default_factory=list)
 
 
@@ -1760,11 +1772,26 @@ class OpenRouterProvider:
                     str(metadata.get("requested_model", self.model_name)),
                 ),
                 prompt_version=prompt_version,
-                executive_bullets=output.executive_bullets,
-                developments=output.developments,
-                risks=output.risks,
-                opportunities=output.opportunities,
-                uncertainties=output.uncertainties,
+                executive_bullets=[
+                    ReportBullet.model_validate(item.model_dump())
+                    for item in output.executive_bullets
+                ],
+                developments=[
+                    ReportBullet.model_validate(item.model_dump())
+                    for item in output.developments
+                ],
+                risks=[
+                    ReportBullet.model_validate(item.model_dump())
+                    for item in output.risks
+                ],
+                opportunities=[
+                    ReportBullet.model_validate(item.model_dump())
+                    for item in output.opportunities
+                ],
+                uncertainties=[
+                    ReportBullet.model_validate(item.model_dump())
+                    for item in output.uncertainties
+                ],
                 follow_up_questions=output.follow_up_questions,
             )
         except ProviderError:

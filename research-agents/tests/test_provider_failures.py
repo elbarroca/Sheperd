@@ -11,7 +11,7 @@ from pydantic import BaseModel
 import sheperd_research.providers.openrouter as openrouter_module
 from sheperd_research.contracts import SourceCandidate
 from sheperd_research.providers.errors import ProviderError
-from sheperd_research.providers.openrouter import OpenRouterProvider
+from sheperd_research.providers.openrouter import BriefOutput, OpenRouterProvider
 from sheperd_research.providers.tavily import TavilyProvider
 from sheperd_research.settings import STRICT_OPENROUTER_MODEL
 
@@ -334,6 +334,21 @@ def test_openrouter_malformed_structured_output_is_explicit() -> None:
                 SourceCandidate(url="https://example.com/article"),
                 "source body",
             )
+        )
+
+
+def test_synthesis_schema_rejects_bullets_without_why_or_next_step() -> None:
+    with pytest.raises(ValueError):
+        BriefOutput(
+            title="Weekly",
+            summary="Cited summary.",
+            executive_bullets=[
+                {
+                    "text": "A source-backed development.",
+                    "source_urls": ["https://example.com/article"],
+                    "evidence_status": "unverified",
+                }
+            ],
         )
 
 
