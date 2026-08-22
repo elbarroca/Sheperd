@@ -12,7 +12,7 @@ from sheperd_research.contracts import (
     WeeklyBrief,
 )
 from sheperd_research.settings import STRICT_OPENROUTER_MODEL
-from sheperd_research.validation import build_validation_report
+from sheperd_research.validation import build_validation_report, validation_blocking_reasons
 
 
 def _sources() -> list[SourceCandidate]:
@@ -84,6 +84,7 @@ def test_validation_passes_with_thresholds_and_full_citations() -> None:
     assert report.status is ValidationStatus.PASS
     assert report.citation_coverage == 1.0
     assert report.content_hash
+    assert report.blocking_reasons == []
 
 
 def test_validation_rejects_empty_report_sections_when_brief_is_available() -> None:
@@ -107,6 +108,7 @@ def test_validation_rejects_empty_report_sections_when_brief_is_available() -> N
     assert report.status is ValidationStatus.FAILED
     assert check.status is ValidationStatus.FAILED
     assert "risks" in str(check.observed)
+    assert "empty_report_section" in report.blocking_reasons
 
 
 def test_validation_rejects_uncited_and_unstructured_report_bullets() -> None:
@@ -138,6 +140,7 @@ def test_validation_rejects_uncited_and_unstructured_report_bullets() -> None:
     check = next(check for check in report.checks if check.name == "report_sections")
     assert report.status is ValidationStatus.FAILED
     assert check.status is ValidationStatus.FAILED
+    assert validation_blocking_reasons(report) == report.blocking_reasons
     assert "opportunities" in str(check.observed)
 
 

@@ -33,6 +33,36 @@ REQUIRED_REGIONS = frozenset(
     {"us", "canada", "mexico", "europe", "south-america", "middle-east", "global"}
 )
 
+_CHECK_REASON_MAP = {
+    "article_insight_completeness": "incomplete_article_insights",
+    "source_distillation_completeness": "incomplete_source_distillation",
+    "citation_coverage": "missing_citation",
+    "report_sections": "empty_report_section",
+    "evidence_quality": "missing_evidence_locator",
+}
+
+
+def validation_blocking_reasons(report: ValidationReport) -> list[str]:
+    """Map failed deterministic checks to stable operator-facing reasons."""
+    reasons: set[str] = set()
+    checks = getattr(report, "checks", [])
+    for check in checks:
+        if check.status is not ValidationStatus.FAILED:
+            continue
+        reason = _CHECK_REASON_MAP.get(check.name)
+        if reason is not None:
+            reasons.add(reason)
+        if "citation" in check.message.lower() and check.name != "citation_coverage":
+            reasons.add("missing_citation")
+        if "evidence" in check.message.lower() and check.name != "evidence_quality":
+            reasons.add("missing_evidence_locator")
+    if (
+        getattr(report, "status", ValidationStatus.BLOCKED) is not ValidationStatus.PASS
+        and not reasons
+    ):
+        reasons.add("stale_validation")
+    return sorted(reasons)
+
 
 def source_quality_sources(sources: list[SourceCandidate]) -> list[SourceCandidate]:
     return [source for source in sources if not source.is_seed]
@@ -365,6 +395,9 @@ def build_validation_report(
         model_id=model_id,
         prompt_version=prompt_version,
         as_of=as_of,
+    )
+    report = report.model_copy(
+        update={"blocking_reasons": validation_blocking_reasons(report)}
     )
     payload = report.model_dump(mode="json", exclude={"content_hash"})
     return report.model_copy(

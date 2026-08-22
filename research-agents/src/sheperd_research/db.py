@@ -1197,12 +1197,13 @@ class InMemoryRepository:
         )
 
     def record_validation(self, report: ValidationReport) -> None:
-        self.validations.setdefault(report.run_id, report)
-        if report.status is ValidationStatus.FAILED:
-            run = self.runs.setdefault(report.run_id, {})
-            if run.get("archived_at") is None:
-                run["archived_at"] = datetime.now(UTC)
-                run["archive_reason"] = "validation_failed"
+        self.validations[report.run_id] = report
+        run = self.runs.setdefault(report.run_id, {})
+        run["validation_status"] = report.status
+        run["citation_coverage"] = report.citation_coverage
+        if report.status is ValidationStatus.FAILED and run.get("archived_at") is None:
+            run["archived_at"] = datetime.now(UTC)
+            run["archive_reason"] = "validation_failed"
 
     def get_validation(self, run_id: str) -> ValidationReport | None:
         return self.validations.get(run_id)
@@ -1722,6 +1723,16 @@ class InMemoryRepository:
                 "partial": sum(item.status is ValidationStatus.PARTIAL for item in validations),
                 "failed": sum(item.status is ValidationStatus.FAILED for item in validations),
                 "blocked": sum(item.status is ValidationStatus.BLOCKED for item in validations),
+            },
+            "quality": {
+                "distillations_complete": sum(
+                    item.quality_status.value == "complete"
+                    for item in self.distillations.values()
+                ),
+                "distillations_incomplete": sum(
+                    item.quality_status.value != "complete"
+                    for item in self.distillations.values()
+                ),
             },
             "migration_version": MIGRATION_VERSION,
         }
@@ -2301,7 +2312,20 @@ class PostgresRepository:
                 model_id, prompt_version, as_of, content_hash
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s)
-            ON CONFLICT (run_id) DO NOTHING
+            ON CONFLICT (run_id) DO UPDATE SET
+                status = EXCLUDED.status,
+                source_count = EXCLUDED.source_count,
+                unique_source_count = EXCLUDED.unique_source_count,
+                claim_count = EXCLUDED.claim_count,
+                cited_claim_count = EXCLUDED.cited_claim_count,
+                citation_coverage = EXCLUDED.citation_coverage,
+                lane_coverage = EXCLUDED.lane_coverage,
+                checks = EXCLUDED.checks,
+                model_id = EXCLUDED.model_id,
+                prompt_version = EXCLUDED.prompt_version,
+                as_of = EXCLUDED.as_of,
+                content_hash = EXCLUDED.content_hash,
+                created_at = now()
             """,
             (
                 report.run_id,
@@ -3594,6 +3618,27 @@ class PostgresRepository:
             raise RuntimeError("audit query returned no row")
         row = rows[0]
         health = self.health()
+        quality_rows = self._execute(
+            """
+            SELECT
+                count(*),
+                count(*) FILTER (WHERE quality_status = 'complete'),
+                count(*) FILTER (WHERE quality_status <> 'complete'),
+                (SELECT count(*) FROM weekly_briefs),
+                (SELECT count(*) FROM weekly_briefs WHERE
+                    jsonb_array_length(COALESCE(executive_bullets, '[]'::jsonb)) > 0
+                    AND jsonb_array_length(COALESCE(developments, '[]'::jsonb)) > 0
+                    AND jsonb_array_length(COALESCE(risks, '[]'::jsonb)) > 0
+                    AND jsonb_array_length(COALESCE(opportunities, '[]'::jsonb)) > 0
+                    AND jsonb_array_length(COALESCE(uncertainties, '[]'::jsonb)) > 0
+                    AND jsonb_array_length(COALESCE(follow_up_questions, '[]'::jsonb)) > 0)
+            FROM article_distillations
+            """
+        )
+        quality = quality_rows[0] if quality_rows else (0, 0, 0, 0, 0)
+        quality_counts = [
+            int(value) if isinstance(value, int) else 0 for value in quality
+        ]
         return {
             "database": health,
             "reports": {
@@ -3615,6 +3660,23 @@ class PostgresRepository:
                 "failed": row[7],
                 "blocked": row[8],
                 "checks": row[13],
+            },
+            "quality": {
+                "distillations_total": quality_counts[0],
+                "distillations_complete": quality_counts[1],
+                "distillations_incomplete": quality_counts[2],
+                "article_insight_completeness": (
+                    round(quality_counts[1] / quality_counts[0], 6)
+                    if quality_counts[0]
+                    else 0.0
+                ),
+                "briefs_total": quality_counts[3],
+                "briefs_with_complete_sections": quality_counts[4],
+                "report_section_completeness": (
+                    round(quality_counts[4] / quality_counts[3], 6)
+                    if quality_counts[3]
+                    else 0.0
+                ),
             },
             "migration_version": health.get("migration_version"),
         }

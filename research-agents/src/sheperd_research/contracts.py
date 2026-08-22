@@ -426,3 +426,4 @@ class ValidationReport(ContractModel):
     prompt_version: str = "validation-v1"
     as_of: datetime | None = None
     content_hash: str | None = None
+    blocking_reasons: list[str] = Field(default_factory=list)

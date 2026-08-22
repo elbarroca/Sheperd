@@ -29,6 +29,8 @@ from .contracts import (
     RunResult,
     RunStatus,
     SourceCandidate,
+    ValidationCheck,
+    ValidationReport,
     ValidationStatus,
 )
 from .db import PostgresRepository, _redact_audit_metadata, run_migrations
@@ -55,7 +57,7 @@ from .settings import (
 )
 from .source_catalog import REGIONS, load_source_catalog, validate_required_sources
 from .topics import load_topic_configs
-from .validation import build_validation_report
+from .validation import build_validation_report, validation_blocking_reasons
 from .validators import validate_article_distillation_quality
 from .web import create_app
 from .workflow import ResearchWorkflow, checkpoint_serializer
@@ -503,6 +505,7 @@ def _audit_command(args: argparse.Namespace, settings: Settings) -> int:
         return _blocked(args, str(error))
     try:
         summary = repository.audit_summary()
+        quality = _quality_audit(repository)
         diagnostics = asyncio.run(
             run_doctor(
                 settings,
@@ -544,6 +547,7 @@ def _audit_command(args: argparse.Namespace, settings: Settings) -> int:
             {
                 "status": status,
                 "database": summary,
+                "quality": quality,
                 "diagnostics": diagnostics,
                 "blockers": blockers,
             }
@@ -920,85 +924,247 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
         return 2
 
 
+def _build_persisted_validation(
+    repository: PostgresRepository, run_id: str
+) -> ValidationReport:
+    run = repository.get_run(run_id)
+    if run is None:
+        raise KeyError(f"run not found: {run_id}")
+    request_value = run.get("request")
+    if not isinstance(request_value, dict):
+        raise ValueError("run request metadata is unavailable")
+    request = ResearchRunRequest.model_validate(request_value)
+    sources = repository.get_run_sources(run_id)
+    claims = repository.get_run_claims(run_id)
+    get_distillations = getattr(repository, "get_run_distillations", None)
+    distillations = get_distillations(run_id) if callable(get_distillations) else None
+    get_brief = getattr(repository, "get_brief", None)
+    brief = get_brief(run_id) if callable(get_brief) else None
+    strict_profile = request.validation_profile in {"full", "global-canary"}
+    repair_mode = bool(sources) and all(
+        source.source_kind == "repair" for source in sources if not source.is_seed
+    )
+    return build_validation_report(
+        run_id,
+        sources,
+        claims,
+        request.as_of,
+        request.model,
+        repository.get_run_lane_statuses(run_id),
+        repository.get_run_snapshot_hashes(run_id),
+        minimum_sources=1 if request.validation_profile in {"canary", "global-canary"} else 10,
+        minimum_claims=1 if request.validation_profile in {"canary", "global-canary"} else 5,
+        tool_call_count=sum(
+            1
+            for call in repository.get_run_tool_calls(run_id)
+            if call.get("status") == "succeeded"
+        ),
+        required_tool_lanes={
+            lane: {"tavily_search", "tavily_extract"}.issubset(
+                {
+                    str(call.get("tool_name"))
+                    for call in repository.get_run_tool_calls(run_id)
+                    if call.get("lane") == lane and call.get("status") == "succeeded"
+                }
+            )
+            for lane in ("regulatory", "us-ports", "mexico")
+        }
+        if not repair_mode
+        else None,
+        distillations=distillations,
+        required_geographies=(
+            {
+                "Regulatory",
+                "United States",
+                "West Coast",
+                "East Coast",
+                "Gulf",
+                "Canada",
+                "Mexico",
+                "Europe",
+                "South America",
+                "Middle East",
+            }
+            if strict_profile
+            else set()
+        ),
+        required_regions=(set(REGIONS) - {"global"} if strict_profile else set()),
+        required_lanes=set() if repair_mode else None,
+        brief=brief,
+    )
+
+
+def _iter_run_ids(repository: PostgresRepository) -> list[str]:
+    run_ids: list[str] = []
+    offset = 0
+    while True:
+        rows = repository.list_runs(limit=1000, offset=offset)
+        if not rows:
+            break
+        run_ids.extend(
+            str(row["run_id"])
+            for row in rows
+            if isinstance(row.get("run_id"), str)
+        )
+        if len(rows) < 1000:
+            break
+        offset += len(rows)
+    return run_ids
+
+
+def _quality_audit(repository: PostgresRepository) -> dict[str, object]:
+    observations: list[dict[str, object]] = []
+    for run_id in _iter_run_ids(repository):
+        run = repository.get_run(run_id)
+        if run is None or run.get("archived_at") is not None:
+            continue
+        stored = repository.get_validation(run_id)
+        try:
+            current = _build_persisted_validation(repository, run_id)
+            observations.append(
+                {
+                    "run_id": run_id,
+                    "stored_status": stored.status.value if stored else "missing",
+                    "current_status": current.status.value,
+                    "blocking_reasons": validation_blocking_reasons(current),
+                    "article_insight_completeness": next(
+                        (
+                            check.observed
+                            for check in current.checks
+                            if check.name == "article_insight_completeness"
+                        ),
+                        None,
+                    ),
+                    "report_section_status": next(
+                        (
+                            check.status.value
+                            for check in current.checks
+                            if check.name == "report_sections"
+                        ),
+                        "not_recorded",
+                    ),
+                    "stale_validation": stored is None
+                    or stored.content_hash != current.content_hash
+                    or stored.status is not current.status,
+                }
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            observations.append(
+                {
+                    "run_id": run_id,
+                    "stored_status": stored.status.value if stored else "missing",
+                    "current_status": "blocked",
+                    "blocking_reasons": ["stale_validation"],
+                    "error": error.__class__.__name__,
+                    "stale_validation": True,
+                }
+            )
+    current_statuses = [str(item["current_status"]) for item in observations]
+    reason_counts: dict[str, int] = {}
+    for observation in observations:
+        raw_reasons = observation.get("blocking_reasons", [])
+        reasons = raw_reasons if isinstance(raw_reasons, list) else []
+        for reason in reasons:
+            if isinstance(reason, str):
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+    return {
+        "active_runs_checked": len(observations),
+        "current_status_counts": {
+            status: current_statuses.count(status)
+            for status in sorted(set(current_statuses))
+        },
+        "stale_validation_count": sum(
+            bool(item.get("stale_validation")) for item in observations
+        ),
+        "blocking_reason_counts": dict(sorted(reason_counts.items())),
+        "reports": observations,
+    }
+
+
 def _validate_command(args: argparse.Namespace, settings: Settings) -> int:
     if not _require_database(settings):
         return 2
     repository = _database(settings)
     try:
-        run = repository.get_run(args.run_id)
-        if run is None:
+        try:
+            report = _build_persisted_validation(repository, args.run_id)
+        except KeyError:
             print(f"ERROR: run not found: {args.run_id}")
             return 2
-        request_value = run.get("request")
-        if not isinstance(request_value, dict):
-            print("BLOCKED: run request metadata is unavailable")
+        except (TypeError, ValueError) as error:
+            print(f"BLOCKED: {error}")
             return 2
-        request = ResearchRunRequest.model_validate(request_value)
-        sources = repository.get_run_sources(args.run_id)
-        claims = repository.get_run_claims(args.run_id)
-        get_distillations = getattr(repository, "get_run_distillations", None)
-        distillations = get_distillations(args.run_id) if callable(get_distillations) else None
-        get_brief = getattr(repository, "get_brief", None)
-        brief = get_brief(args.run_id) if callable(get_brief) else None
-        strict_profile = request.validation_profile in {"full", "global-canary"}
-        repair_mode = bool(sources) and all(
-            source.source_kind == "repair" for source in sources if not source.is_seed
+        repository.record_validation(report)
+        _print_json(
+            report.model_dump(mode="json")
+            | {"blocking_reasons": validation_blocking_reasons(report)}
         )
-        report = build_validation_report(
-            args.run_id,
-            sources,
-            claims,
-            request.as_of,
-            request.model,
-            repository.get_run_lane_statuses(args.run_id),
-            repository.get_run_snapshot_hashes(args.run_id),
-            minimum_sources=1 if request.validation_profile in {"canary", "global-canary"} else 10,
-            minimum_claims=1 if request.validation_profile in {"canary", "global-canary"} else 5,
-            tool_call_count=sum(
-                1
-                for call in repository.get_run_tool_calls(args.run_id)
-                if call.get("status") == "succeeded"
-            ),
-            required_tool_lanes={
-                lane: {
-                    "tavily_search",
-                    "tavily_extract",
-                }.issubset(
+        return 0 if report.status is ValidationStatus.PASS else 2
+    finally:
+        repository.close()
+
+
+def _revalidate_command(args: argparse.Namespace, settings: Settings) -> int:
+    if not _require_database(settings):
+        return 2
+    repository = _database(settings)
+    results: list[dict[str, object]] = []
+    try:
+        for run_id in _iter_run_ids(repository):
+            run = repository.get_run(run_id)
+            if run is None:
+                continue
+            if args.scope == "active" and run.get("archived_at") is not None:
+                continue
+            try:
+                report = _build_persisted_validation(repository, run_id)
+                repository.record_validation(report)
+                results.append(
                     {
-                        str(call.get("tool_name"))
-                        for call in repository.get_run_tool_calls(args.run_id)
-                        if call.get("lane") == lane
-                        and call.get("status") == "succeeded"
+                        "run_id": run_id,
+                        "status": report.status.value,
+                        "blocking_reasons": validation_blocking_reasons(report),
                     }
                 )
-                for lane in ("regulatory", "us-ports", "mexico")
-            }
-            if not repair_mode
-            else None,
-            distillations=distillations,
-            required_geographies=(
-                {
-                    "Regulatory",
-                    "United States",
-                    "West Coast",
-                    "East Coast",
-                    "Gulf",
-                    "Canada",
-                    "Mexico",
-                    "Europe",
-                    "South America",
-                    "Middle East",
-                }
-                if strict_profile
-                else set()
+            except (TypeError, ValueError, KeyError) as error:
+                blocked = ValidationReport(
+                    run_id=run_id,
+                    status=ValidationStatus.BLOCKED,
+                    checks=[
+                        ValidationCheck(
+                            name="revalidation",
+                            status=ValidationStatus.BLOCKED,
+                            message=error.__class__.__name__,
+                        )
+                    ],
+                    blocking_reasons=["stale_validation"],
+                )
+                repository.record_validation(blocked)
+                results.append(
+                    {
+                        "run_id": run_id,
+                        "status": "blocked",
+                        "blocking_reasons": ["stale_validation"],
+                        "error": error.__class__.__name__,
+                    }
+                )
+        counts: dict[str, int] = {}
+        for result in results:
+            status = str(result["status"])
+            counts[status] = counts.get(status, 0) + 1
+        payload = {
+            "status": (
+                "pass"
+                if counts.get("failed", 0) == 0 and counts.get("blocked", 0) == 0
+                else "failed"
             ),
-            required_regions=(set(REGIONS) - {"global"} if strict_profile else set()),
-            required_lanes=set() if repair_mode else None,
-            brief=brief,
-        )
-        repository.record_validation(report)
-        _print_json(report.model_dump(mode="json"))
-        return 0 if report.status is ValidationStatus.PASS else 2
+            "scope": args.scope,
+            "checked": len(results),
+            "counts": dict(sorted(counts.items())),
+            "runs": results,
+        }
+        _print_json(payload)
+        return 0 if payload["status"] == "pass" else 2
     finally:
         repository.close()
 
@@ -1279,6 +1445,10 @@ def _parser() -> argparse.ArgumentParser:
     validate = subparsers.add_parser("validate")
     validate.add_argument("--run-id", required=True)
 
+    revalidate = subparsers.add_parser("revalidate")
+    revalidate.add_argument("--scope", choices=["active", "all"], default="active")
+    revalidate.add_argument("--json", action="store_true")
+
     review = subparsers.add_parser("review")
     review.add_argument("--run-id", required=True)
     review.add_argument(
@@ -1336,6 +1506,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _index_command(args, settings)
     if args.command == "validate":
         return _validate_command(args, settings)
+    if args.command == "revalidate":
+        return _revalidate_command(args, settings)
     if args.command == "review":
         return _review_command(args, settings)
     if args.command == "export":

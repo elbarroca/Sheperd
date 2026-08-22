@@ -268,7 +268,7 @@ def test_repositories_redact_raw_step_metadata_before_persistence() -> None:
     assert "api_key" not in persisted
 
 
-def test_postgres_audit_and_validation_inserts_are_immutable_no_ops_on_conflict() -> None:
+def test_validation_revalidation_replaces_report_metadata_without_replacing_steps() -> None:
     first_report = ValidationReport(
         run_id="run-1",
         status=ValidationStatus.BLOCKED,
@@ -278,9 +278,10 @@ def test_postgres_audit_and_validation_inserts_are_immutable_no_ops_on_conflict(
     memory.record_step("run-1", "critic", "succeeded", {"status": "first"})
     memory.record_step("run-1", "critic", "failed", {"status": "replacement"})
     memory.record_validation(first_report)
-    memory.record_validation(first_report.model_copy(update={"status": ValidationStatus.PASS}))
+    replacement = first_report.model_copy(update={"status": ValidationStatus.PASS})
+    memory.record_validation(replacement)
     assert memory.steps[0]["status"] == "succeeded"
-    assert memory.get_validation("run-1") is first_report
+    assert memory.get_validation("run-1") is replacement
 
     repository = PostgresRepository(Mock())
     with patch.object(repository, "_execute", return_value=[]) as execute:
@@ -289,8 +290,8 @@ def test_postgres_audit_and_validation_inserts_are_immutable_no_ops_on_conflict(
 
     queries = [entry.args[0] for entry in execute.call_args_list]
     assert "ON CONFLICT (run_id, agent_name, attempt) DO NOTHING" in queries[0]
-    assert "ON CONFLICT (run_id) DO NOTHING" in queries[1]
-    assert all("DO UPDATE" not in query for query in queries[:2])
+    assert "ON CONFLICT (run_id) DO UPDATE" in queries[1]
+    assert "checks = EXCLUDED.checks" in queries[1]
 
 
 def test_postgres_source_persistence_uses_sanitized_url() -> None:
