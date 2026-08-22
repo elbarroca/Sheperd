@@ -8,11 +8,12 @@ from fastapi import FastAPI, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from .contracts import WeeklyBrief
+from .contracts import ValidationReport, ValidationStatus, WeeklyBrief
 from .db import ArchiveScope, RepositoryProtocol
 from .exporters.obsidian import render_weekly_markdown
 from .source_catalog import load_source_catalog
-from .validators import validate_article_distillation_quality
+from .validation import validation_blocking_reasons
+from .validators import quality_metrics, validate_article_distillation_quality
 
 
 def _value(value: object) -> str:
@@ -156,6 +157,50 @@ def _public_run(run: dict[str, object] | None) -> dict[str, object] | None:
     return public_run
 
 
+def _readiness(
+    run: dict[str, object] | None,
+    validation: ValidationReport | None,
+    quality: dict[str, object],
+) -> dict[str, object]:
+    raw_reasons = quality.get("blocking_reasons", [])
+    reasons = (
+        {item for item in raw_reasons if isinstance(item, str)}
+        if isinstance(raw_reasons, list)
+        else set()
+    )
+    if validation is None:
+        reasons.add("missing_validation")
+    elif validation.status is not ValidationStatus.PASS:
+        reasons.update(validation_blocking_reasons(validation))
+    if run is None or run.get("status") != "succeeded":
+        reasons.add("run_not_succeeded")
+    ready = not reasons and quality.get("quality_ready") is True
+    return {
+        "ready": ready,
+        "readiness_status": "decision_ready" if ready else "review_required",
+        "blocking_reasons": sorted(reasons),
+    }
+
+
+def _summary_readiness(summary: dict[str, object]) -> dict[str, object]:
+    result = dict(summary)
+    stored_status = result.get("readiness_status")
+    if isinstance(stored_status, str):
+        result["decision_ready"] = stored_status == "decision_ready"
+        result.setdefault("blocking_reasons", [])
+        return result
+    quality_ready = result.get("quality_ready") is True
+    ready = (
+        result.get("run_status") == "succeeded"
+        and result.get("validation_status") == "pass"
+        and quality_ready
+    )
+    result["readiness_status"] = "decision_ready" if ready else "review_required"
+    result["decision_ready"] = ready
+    result.setdefault("blocking_reasons", [] if quality_ready else ["quality_review_required"])
+    return result
+
+
 def create_app(repository: RepositoryProtocol) -> FastAPI:
     app = FastAPI(title="SheperD Research", docs_url=None, redoc_url=None)
 
@@ -193,10 +238,14 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         if brief_model and str(brief_model) not in resolved_models:
             resolved_models.append(str(brief_model))
         public_run = _public_run(run)
+        quality = quality_metrics(sources, distillations, selected_brief)
+        readiness = _readiness(run, validation, quality)
         return {
             "brief": selected_brief,
             "run": public_run,
             "validation": validation,
+            "quality": {**quality, **readiness},
+            **readiness,
             "lane_coverage": validation.lane_coverage if validation else [],
             "models": resolved_models,
             "requested_models": requested_models,
@@ -274,7 +323,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         return JSONResponse(
             jsonable_encoder(
                 {
-                    "reports": reports,
+                    "reports": [_summary_readiness(report) for report in reports],
                     "count": len(reports),
                     "total": total,
                     "limit": limit,
@@ -318,7 +367,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         return JSONResponse(
             jsonable_encoder(
                 {
-                    "reports": reports,
+                    "reports": [_summary_readiness(report) for report in reports],
                     "count": len(reports),
                     "total": total,
                     "limit": limit,
@@ -778,19 +827,27 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         run = repository.get_run(run_id)
         if run is None:
             return JSONResponse({"error": "run not found"}, status_code=404)
+        brief = repository.get_brief(run_id)
+        sources = repository.get_run_sources(run_id)
+        distillations = repository.get_run_distillations(run_id)
+        validation = repository.get_validation(run_id)
+        quality = quality_metrics(sources, distillations, brief)
+        readiness = _readiness(run, validation, quality)
         return JSONResponse(
             jsonable_encoder(
                 {
                     "run": _public_run(run),
                     "steps": _public_steps(repository.get_run_steps(run_id)),
-                    "sources": repository.get_run_sources(run_id),
+                    "sources": sources,
                     "claims": repository.get_run_claims(run_id),
-                    "distillations": repository.get_run_distillations(run_id),
+                    "distillations": distillations,
                     "signals": repository.get_run_signal_events(run_id),
                     "tool_calls": _public_tool_calls(repository.get_run_tool_calls(run_id)),
                     "source_hashes": repository.get_run_snapshot_hashes(run_id),
-                    "brief": repository.get_brief(run_id),
-                    "validation": repository.get_validation(run_id),
+                    "brief": brief,
+                    "validation": validation,
+                    "quality": {**quality, **readiness},
+                    **readiness,
                 }
             )
         )
@@ -808,6 +865,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         signals = repository.get_run_signal_events(run_id)
         source_hashes = repository.get_run_snapshot_hashes(run_id)
         validation_report = repository.get_validation(run_id)
+        brief = repository.get_brief(run_id)
         sources_by_region = Counter(source.region for source in sources)
         sources_by_language = Counter(source.language_code for source in sources)
         freshness = Counter(source.freshness_status.value for source in sources)
@@ -819,10 +877,10 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         independent_sources = Counter(
             str(item.independent_source_count) for item in claims
         )
+        quality = quality_metrics(sources, distillations, brief)
+        readiness = _readiness(run, validation_report, quality)
         article_quality = Counter(
-            "complete"
-            if not validate_article_distillation_quality(item)
-            else "incomplete"
+            "complete" if not validate_article_distillation_quality(item) else "incomplete"
             for item in distillations
         )
         extraction_success_rate = (
@@ -841,7 +899,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                 {
                     "run_id": run_id,
                     "run": _public_run(run),
-                    "validation": repository.get_validation(run_id),
+                    "validation": validation_report,
+                    "quality": {**quality, **readiness},
+                    **readiness,
                     "steps": steps,
                     "tool_calls": tool_calls,
                     "sources": sources,
@@ -866,6 +926,11 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                             )
                             if distillations
                             else 0.0,
+                            "report_section_completeness": quality["report_section_completeness"],
+                            "source_distillation_coverage": quality["source_distillation_coverage"],
+                            "article_quality_issues": quality["article_quality_issues"],
+                            "report_quality_issues": quality["report_quality_issues"],
+                            "blocking_reasons": readiness["blocking_reasons"],
                         "claim_count": len(claims),
                             "signal_count": len(signals),
                             "sources_by_region": dict(sorted(sources_by_region.items())),

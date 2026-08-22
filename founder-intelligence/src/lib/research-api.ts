@@ -131,6 +131,22 @@ export interface ArticleDistillation {
   insight_packet?: Record<string, unknown>;
 }
 
+export interface QualitySnapshot {
+  ready: boolean;
+  readiness_status: string;
+  blocking_reasons: string[];
+  quality_ready: boolean;
+  article_count: number;
+  complete_article_count: number;
+  article_insight_completeness: number;
+  article_quality_issues: Record<string, string[]>;
+  source_distillation_coverage: number;
+  report_section_count: number;
+  report_sections_complete: number;
+  report_section_completeness: number;
+  report_quality_issues: string[];
+}
+
 export interface ToolCallReceipt {
   agent_name?: string;
   lane?: string;
@@ -215,6 +231,10 @@ export interface ReportPayload {
   as_of: string;
   covered_from: string;
   covered_until: string;
+  quality?: QualitySnapshot;
+  ready?: boolean;
+  readiness_status?: string;
+  blocking_reasons?: string[];
 }
 
 export interface MonthlyRollup {
@@ -250,6 +270,13 @@ export interface WeeklyReportSummary {
   archived?: boolean;
   archived_at?: string | null;
   archive_reason?: string | null;
+  readiness_status?: string;
+  decision_ready?: boolean;
+  blocking_reasons?: string[];
+  article_insight_completeness?: number;
+  report_section_completeness?: number;
+  complete_article_count?: number;
+  report_sections_complete?: number;
 }
 
 export interface SourceExplorerItem {
@@ -353,6 +380,15 @@ function isNumber(value: unknown): value is number {
 
 function isNullableNumber(value: unknown): value is number | null {
   return value === null || isNumber(value);
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === "boolean";
+}
+
+function isStringArrayRecord(value: unknown): value is Record<string, string[]> {
+  return isRecord(value)
+    && Object.values(value).every((candidate) => isStringArray(candidate));
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
@@ -551,7 +587,31 @@ function isArticleDistillation(value: unknown): value is ArticleDistillation {
     && isOptional(value, "key_points_original", isStringArray)
     && isOptional(value, "translation_status", isString)
     && isOptional(value, "evidence_excerpts", isStringArray)
-    && isOptional(value, "evidence_locators", isStringArray);
+    && isOptional(value, "evidence_locators", isStringArray)
+    && isOptional(value, "what_happened", isString)
+    && isOptional(value, "why_it_matters", isString)
+    && isOptional(value, "uncertainties", isStringArray)
+    && isOptional(value, "next_steps", isStringArray)
+    && isOptional(value, "quality_status", isString)
+    && isOptional(value, "quality_issues", isStringArray)
+    && isOptional(value, "insight_packet", isRecord);
+}
+
+function isQualitySnapshot(value: unknown): value is QualitySnapshot {
+  return isRecord(value)
+    && isBoolean(value.ready)
+    && isString(value.readiness_status)
+    && isStringArray(value.blocking_reasons)
+    && isBoolean(value.quality_ready)
+    && isNonNegativeInteger(value.article_count)
+    && isNonNegativeInteger(value.complete_article_count)
+    && isNumber(value.article_insight_completeness)
+    && isStringArrayRecord(value.article_quality_issues)
+    && isNumber(value.source_distillation_coverage)
+    && isNonNegativeInteger(value.report_section_count)
+    && isNonNegativeInteger(value.report_sections_complete)
+    && isNumber(value.report_section_completeness)
+    && isStringArray(value.report_quality_issues);
 }
 
 function isReportPayload(value: unknown): value is ReportPayload {
@@ -575,7 +635,11 @@ function isReportPayload(value: unknown): value is ReportPayload {
     && value.claims.every(isResearchClaim)
     && Array.isArray(value.signals)
     && value.signals.every(isResearchSignal)
-    && hasStrings(value, ["as_of", "covered_from", "covered_until"]);
+    && hasStrings(value, ["as_of", "covered_from", "covered_until"])
+    && isOptional(value, "quality", isQualitySnapshot)
+    && isOptional(value, "ready", isBoolean)
+    && isOptional(value, "readiness_status", isString)
+    && isOptional(value, "blocking_reasons", isStringArray);
 }
 
 function hasConsistentReportIdentities(value: ReportPayload): boolean {
@@ -603,6 +667,13 @@ function isWeeklyReportSummary(value: unknown): value is WeeklyReportSummary {
     && isStringArray(value.languages)
     && isStringArray(value.lane_coverage)
     && isStringArray(value.models)
+    && isOptional(value, "readiness_status", isString)
+    && isOptional(value, "decision_ready", isBoolean)
+    && isOptional(value, "blocking_reasons", isStringArray)
+    && isOptional(value, "article_insight_completeness", isNumber)
+    && isOptional(value, "report_section_completeness", isNumber)
+    && isOptional(value, "complete_article_count", isNonNegativeInteger)
+    && isOptional(value, "report_sections_complete", isNonNegativeInteger)
     && isOptional(value, "archived", (candidate) => typeof candidate === "boolean")
     && isOptional(value, "archived_at", isNullableString)
     && isOptional(value, "archive_reason", isNullableString);

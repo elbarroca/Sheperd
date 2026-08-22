@@ -6,7 +6,12 @@ from fastapi.testclient import TestClient
 
 from sheperd_research.contracts import (
     ArticleDistillation,
+    ArticleInsight,
     ClaimDraft,
+    DistillationQualityStatus,
+    ExtractionStatus,
+    InsightStatus,
+    ReportBullet,
     ResearchCadence,
     ResearchRunRequest,
     ReviewState,
@@ -131,12 +136,18 @@ def test_dashboard_exposes_read_only_run_source_and_brief_views() -> None:
     assert weekly_report["claims"][0]["claim"] == claim.claim
     assert weekly_report["signals"][0]["event_id"] == "signal-1"
     assert weekly_report["distillations"][0]["summary"] == "A persisted source distillation."
+    assert weekly_report["readiness_status"] == "review_required"
+    assert "incomplete_article_insights" in weekly_report["blocking_reasons"]
     assert client.get("/api/reports/weekly/run-1").status_code == 200
+    report_detail = client.get("/api/reports/weekly/run-1").json()
+    assert report_detail["quality"]["article_insight_completeness"] == 0.0
+    assert report_detail["readiness_status"] == "review_required"
     audit = client.get("/api/runs/run-1/audit")
     assert audit.status_code == 200
     assert "request" not in audit.json()["run"]
     assert "user:secret@example.com" not in audit.text
     assert audit.json()["metrics"]["step_count"] == 1
+    assert audit.json()["metrics"]["report_section_completeness"] == 0.0
     monthly = client.get("/api/reports/monthly")
     assert monthly.status_code == 200
     assert monthly.json()["rollups"][0]["geographies"] == ["West Coast"]
@@ -255,6 +266,66 @@ def test_weekly_summaries_are_ready_first_and_paginated() -> None:
                 review_state=ReviewState.DRAFT,
             )
         )
+
+    source = repository.record_source(
+        SourceCandidate(
+            url="https://example.com/ready",
+            title="Ready source",
+            extraction_status=ExtractionStatus.SUCCEEDED,
+        )
+    )
+    repository.record_snapshot("ready-run", source, "bounded source body")
+    claim = ClaimDraft(claim="A supported development.", source_urls=[source.url])
+    repository.record_claims("ready-run", [claim])
+    repository.record_distillation(
+        "ready-run",
+        ArticleDistillation(
+            source_url=source.url,
+            summary="A complete summary.",
+            key_points=["Point one.", "Point two."],
+            what_happened="The source reports a development.",
+            why_it_matters="It changes the operating picture.",
+            risk_assessment=ArticleInsight(
+                status=InsightStatus.NOT_OBSERVED,
+                statement="No supported risk was observed.",
+                why_it_matters="The source does not establish a risk.",
+                next_step="Check an independent source.",
+            ),
+            opportunity_assessment=ArticleInsight(
+                status=InsightStatus.NOT_OBSERVED,
+                statement="No supported opportunity was observed.",
+                why_it_matters="The source does not establish an opportunity.",
+                next_step="Check an independent source.",
+            ),
+            uncertainties=["Coverage is limited to this source."],
+            next_steps=["Review an independent source."],
+            claims=[claim],
+            quality_status=DistillationQualityStatus.COMPLETE,
+        ),
+    )
+    bullet = ReportBullet(
+        text="A supported development.",
+        source_urls=[source.url],
+        why_it_matters="It changes the operating picture.",
+        next_step="Review an independent source.",
+    )
+    repository.record_brief(
+        WeeklyBrief(
+            run_id="ready-run",
+            title="ready-run",
+            covered_from=datetime(2026, 8, 12, tzinfo=UTC),
+            covered_until=datetime(2026, 8, 19, tzinfo=UTC),
+            summary="Summary.",
+            source_urls=[source.url],
+            executive_bullets=[bullet],
+            developments=[bullet],
+            risks=[bullet],
+            opportunities=[bullet],
+            uncertainties=[bullet],
+            follow_up_questions=["What independent evidence follows?"],
+            review_state=ReviewState.DRAFT,
+        )
+    )
 
     client = TestClient(create_app(repository))
     response = client.get("/api/reports/weekly?limit=1")

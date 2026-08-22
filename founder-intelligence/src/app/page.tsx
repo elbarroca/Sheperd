@@ -52,11 +52,18 @@ function asSummary(report: WeeklyReportSummary | ReportPayload): WeeklyReportSum
     archived: report.run?.archived,
     archived_at: report.run?.archived_at,
     archive_reason: report.run?.archive_reason,
+    readiness_status: report.readiness_status,
+    decision_ready: report.readiness_status === "decision_ready" || report.ready === true,
+    blocking_reasons: report.blocking_reasons,
+    article_insight_completeness: report.quality?.article_insight_completeness,
+    report_section_completeness: report.quality?.report_section_completeness,
+    complete_article_count: report.quality?.complete_article_count,
+    report_sections_complete: report.quality?.report_sections_complete,
   };
 }
 
 function isReady(report: WeeklyReportSummary): boolean {
-  return report.run_status === "succeeded" && report.validation_status === "pass";
+  return report.decision_ready === true || report.readiness_status === "decision_ready";
 }
 
 function getScope(value: string | undefined): ArchiveScope {

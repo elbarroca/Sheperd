@@ -239,6 +239,7 @@ describe("ReportAccordion", () => {
       ...report,
       run: report.run ? { ...report.run, status: "succeeded", error: null } : null,
       validation: report.validation ? { ...report.validation, status: "pass" } : null,
+      readiness_status: "decision_ready",
     };
     const blockedReports: ReportPayload[] = [
       { ...readyReport, run: readyReport.run ? { ...readyReport.run, status: "partial" } : null },

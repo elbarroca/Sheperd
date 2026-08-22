@@ -254,11 +254,15 @@ function ReportQuality({ report, brief }: { report: ReportPayload; brief: Weekly
     ["Opportunities", brief.opportunities],
     ["Uncertainty", brief.uncertainties],
   ] as const;
-  const completeSections = sections.filter(([, bullets]) => bullets.length > 0).length;
+  const completeSections = report.quality?.report_sections_complete
+    ?? sections.filter(([, bullets]) => bullets.length > 0).length;
   const coverage = Math.round((report.validation?.citation_coverage ?? 0) * 100);
   const sectionCheck = report.validation?.checks.find((check) => check.name === "report_sections");
-  const sectionComplete = completeSections === sections.length && sectionCheck?.status !== "failed";
-  const completeArticles = report.distillations.filter((item) => item.quality_status === "complete").length;
+  const sectionComplete = report.quality?.report_section_completeness === 1
+    && sectionCheck?.status !== "failed";
+  const completeArticles = report.quality?.complete_article_count
+    ?? report.distillations.filter((item) => item.quality_status === "complete").length;
+  const articleCount = report.quality?.article_count ?? report.distillations.length;
   return (
     <div className="report-quality" aria-label="Report quality">
       <div><strong>{completeSections}/{sections.length}</strong><span>insight sections</span></div>
@@ -266,9 +270,12 @@ function ReportQuality({ report, brief }: { report: ReportPayload; brief: Weekly
       <div><strong>{report.sources.length}</strong><span>sources</span></div>
       <div><strong>{report.distillations.length}</strong><span>distillations</span></div>
       <div><strong>{report.claims.length}</strong><span>claims</span></div>
-      <div><strong>{completeArticles}/{report.distillations.length}</strong><span>complete article insights</span></div>
+      <div><strong>{completeArticles}/{articleCount}</strong><span>complete article insights</span></div>
       <div><strong>{sectionCheck?.status ?? "not recorded"}</strong><span>section validator</span></div>
-      <p>{sectionComplete ? "All insight sections are populated." : "Older or incomplete output is visibly marked; this run is not fully mapped."}</p>
+      <p>{report.readiness_status === "decision_ready" && sectionComplete
+        ? "All required insight sections and article packets are complete."
+        : "This run requires review before it can be decision-ready."}</p>
+      {report.blocking_reasons?.length ? <p className="muted">Blocking reasons: {report.blocking_reasons.join(", ")}</p> : null}
     </div>
   );
 }
@@ -361,7 +368,11 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
   const checks = report.validation?.checks ?? [];
   const runStatus = report.run?.status ?? "missing";
   const validationStatus = report.validation?.status ?? "missing";
-  const blocked = !(runStatus === "succeeded" && validationStatus === "pass");
+  const blocked = !(
+    report.readiness_status === "decision_ready"
+    && runStatus === "succeeded"
+    && validationStatus === "pass"
+  );
   const headingLabel = report.run?.archived
     ? "Archived report"
     : blocked
@@ -451,7 +462,7 @@ export function UnavailableState({ error }: { error: string }) {
 }
 
 export function ReportLink({ runId, summary }: { runId: string; summary: WeeklyReportSummary }) {
-  const ready = summary.run_status === "succeeded" && summary.validation_status === "pass";
+  const ready = summary.decision_ready === true || summary.readiness_status === "decision_ready";
   const archived = summary.archived === true || summary.archived_at != null;
   const href = `/reports/${encodeURIComponent(runId)}${archived ? "?archive_scope=archived" : ""}`;
   return (

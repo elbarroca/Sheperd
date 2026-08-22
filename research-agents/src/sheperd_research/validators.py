@@ -311,6 +311,95 @@ def validate_report_sections(
     return issues
 
 
+def quality_metrics(
+    sources: Sequence[SourceCandidate],
+    distillations: Sequence[ArticleDistillation],
+    brief: WeeklyBrief | None = None,
+) -> dict[str, object]:
+    """Compute current evidence readiness from persisted records, not status flags."""
+    extracted_sources = [
+        source
+        for source in sources
+        if source.extraction_status.value == "succeeded"
+    ]
+    required_count = max(len(extracted_sources), len(distillations))
+    distillation_counts: dict[str, int] = {}
+    for item in distillations:
+        url = normalize_url(item.source_url)
+        distillation_counts[url] = distillation_counts.get(url, 0) + 1
+
+    article_issues: dict[str, list[str]] = {}
+    for item in distillations:
+        issues = validate_article_distillation_quality(item)
+        if issues:
+            article_issues[normalize_url(item.source_url)] = issues
+    for source in extracted_sources:
+        url = normalize_url(source.url)
+        count = distillation_counts.get(url, 0)
+        if count == 0:
+            article_issues[url] = ["missing_distillation"]
+        elif count > 1:
+            article_issues[url] = ["duplicate_distillation"]
+
+    complete_count = sum(
+        1
+        for item in distillations
+        if not validate_article_distillation_quality(item)
+    )
+    known_urls = {normalize_url(source.url) for source in sources}
+    report_issues = (
+        validate_report_sections(brief, known_urls) if brief is not None else []
+    )
+    report_sections_complete = 0
+    if brief is not None:
+        for section in REPORT_BULLET_SECTIONS:
+            if not any(
+                issue == f"{section}_empty" or issue.startswith(f"{section}_")
+                for issue in report_issues
+            ) and getattr(brief, section):
+                report_sections_complete += 1
+
+    blocking_reasons: set[str] = set()
+    if article_issues:
+        blocking_reasons.add("incomplete_article_insights")
+    if any(issue.endswith("_empty") for issue in report_issues):
+        blocking_reasons.add("empty_report_section")
+    if any("unknown_citation" in issue for issue in report_issues):
+        blocking_reasons.add("missing_citation")
+    if any("missing_evidence" in issue for issue in report_issues):
+        blocking_reasons.add("missing_evidence_locator")
+
+    return {
+        "article_count": required_count,
+        "complete_article_count": complete_count,
+        "article_insight_completeness": (
+            round(complete_count / required_count, 6) if required_count else 0.0
+        ),
+        "article_quality_issues": article_issues,
+        "source_distillation_coverage": (
+            round(
+                sum(
+                    1
+                    for source in extracted_sources
+                    if normalize_url(source.url) in distillation_counts
+                )
+                / len(extracted_sources),
+                6,
+            )
+            if extracted_sources
+            else 0.0
+        ),
+        "report_section_count": len(REPORT_BULLET_SECTIONS),
+        "report_sections_complete": report_sections_complete,
+        "report_section_completeness": round(
+            report_sections_complete / len(REPORT_BULLET_SECTIONS), 6
+        ) if brief is not None else 0.0,
+        "report_quality_issues": report_issues,
+        "blocking_reasons": sorted(blocking_reasons),
+        "quality_ready": not article_issues and not report_issues,
+    }
+
+
 def with_draft_prefix(text: str) -> str:
     stripped = text.strip()
     if stripped.startswith(REQUIRED_DRAFT_PREFIX):

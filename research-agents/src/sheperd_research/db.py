@@ -28,7 +28,7 @@ from .contracts import (
     ValidationStatus,
     WeeklyBrief,
 )
-from .validators import content_hash, normalize_url
+from .validators import content_hash, normalize_url, quality_metrics
 
 MIGRATION_VERSION = "0012_article_insight_quality"
 ArchiveScope = Literal["active", "archived", "all"]
@@ -1440,9 +1440,15 @@ class InMemoryRepository:
                 "value",
                 ValidationStatus.BLOCKED.value,
             )
+            quality = quality_metrics(
+                self.get_run_sources(brief.run_id),
+                self.get_run_distillations(brief.run_id),
+                brief,
+            )
             return (
                 run_value(brief) == RunStatus.SUCCEEDED.value
                 and validation_value == ValidationStatus.PASS.value
+                and quality["quality_ready"] is True
             )
 
         values = [
@@ -1535,6 +1541,11 @@ class InMemoryRepository:
                 "archived": _is_archived(self.runs.get(brief.run_id, {})),
                 "archived_at": self.runs.get(brief.run_id, {}).get("archived_at"),
                 "archive_reason": self.runs.get(brief.run_id, {}).get("archive_reason"),
+                **quality_metrics(
+                    self.get_run_sources(brief.run_id),
+                    self.get_run_distillations(brief.run_id),
+                    brief,
+                ),
                 # Test/local repository compatibility: production uses the SQL
                 # summary query and does not hydrate these detail fields.
                 "brief": brief,
@@ -3384,6 +3395,17 @@ class PostgresRepository:
                 [
                     "rr.status = 'succeeded'",
                     "COALESCE(vc.status, 'blocked') = 'pass'",
+                    "EXISTS (SELECT 1 FROM article_distillations ad_ready "
+                    "WHERE ad_ready.run_id = wb.run_id)",
+                    "NOT EXISTS (SELECT 1 FROM article_distillations ad_incomplete "
+                    "WHERE ad_incomplete.run_id = wb.run_id "
+                    "AND COALESCE(ad_incomplete.quality_status, 'incomplete') <> 'complete')",
+                    "jsonb_array_length(COALESCE(wb.executive_bullets, '[]'::jsonb)) > 0",
+                    "jsonb_array_length(COALESCE(wb.developments, '[]'::jsonb)) > 0",
+                    "jsonb_array_length(COALESCE(wb.risks, '[]'::jsonb)) > 0",
+                    "jsonb_array_length(COALESCE(wb.opportunities, '[]'::jsonb)) > 0",
+                    "jsonb_array_length(COALESCE(wb.uncertainties, '[]'::jsonb)) > 0",
+                    "jsonb_array_length(COALESCE(wb.follow_up_questions, '[]'::jsonb)) > 0",
                 ]
             )
         params.extend((max(1, min(limit, 1000)), max(0, offset)))
@@ -3403,7 +3425,50 @@ class PostgresRepository:
                        array_agg(DISTINCT ad.model_id)
                        FILTER (WHERE ad.model_id IS NOT NULL), '{}'
                    ) || ARRAY[wb.model_id],
-                   rr.as_of, rr.archived_at, rr.archive_reason
+                   rr.as_of, rr.archived_at, rr.archive_reason,
+                   count(DISTINCT ad.distillation_id) FILTER (
+                       WHERE COALESCE(ad.quality_status, 'incomplete') = 'complete'
+                   ),
+                   CASE WHEN count(DISTINCT ad.distillation_id) > 0
+                       THEN round(
+                           count(DISTINCT ad.distillation_id) FILTER (
+                               WHERE COALESCE(ad.quality_status, 'incomplete') = 'complete'
+                           )::numeric / count(DISTINCT ad.distillation_id), 6
+                       )
+                       ELSE 0
+                   END,
+                   (
+                       CASE WHEN jsonb_array_length(
+                           COALESCE(wb.executive_bullets, '[]'::jsonb)
+                       ) > 0 THEN 1 ELSE 0 END
+                       + CASE WHEN jsonb_array_length(
+                           COALESCE(wb.developments, '[]'::jsonb)
+                       ) > 0 THEN 1 ELSE 0 END
+                       + CASE WHEN jsonb_array_length(
+                           COALESCE(wb.risks, '[]'::jsonb)
+                       ) > 0 THEN 1 ELSE 0 END
+                       + CASE WHEN jsonb_array_length(
+                           COALESCE(wb.opportunities, '[]'::jsonb)
+                       ) > 0 THEN 1 ELSE 0 END
+                       + CASE WHEN jsonb_array_length(
+                           COALESCE(wb.uncertainties, '[]'::jsonb)
+                       ) > 0 THEN 1 ELSE 0 END
+                   ),
+                   CASE WHEN rr.status = 'succeeded'
+                       AND COALESCE(vc.status, 'blocked') = 'pass'
+                       AND count(DISTINCT ad.distillation_id) > 0
+                       AND count(DISTINCT ad.distillation_id) = count(
+                           DISTINCT ad.distillation_id
+                       ) FILTER (
+                           WHERE COALESCE(ad.quality_status, 'incomplete') = 'complete'
+                       )
+                       AND jsonb_array_length(COALESCE(wb.executive_bullets, '[]'::jsonb)) > 0
+                       AND jsonb_array_length(COALESCE(wb.developments, '[]'::jsonb)) > 0
+                       AND jsonb_array_length(COALESCE(wb.risks, '[]'::jsonb)) > 0
+                       AND jsonb_array_length(COALESCE(wb.opportunities, '[]'::jsonb)) > 0
+                       AND jsonb_array_length(COALESCE(wb.uncertainties, '[]'::jsonb)) > 0
+                       AND jsonb_array_length(COALESCE(wb.follow_up_questions, '[]'::jsonb)) > 0
+                       THEN 'decision_ready' ELSE 'review_required' END
             FROM weekly_briefs wb
             JOIN research_runs rr ON rr.run_id = wb.run_id
             LEFT JOIN validation_checks vc ON vc.run_id = wb.run_id
@@ -3416,9 +3481,20 @@ class PostgresRepository:
             + " AND ".join(clauses)
             + " GROUP BY wb.run_id, wb.title, wb.covered_from, wb.covered_until, "
             "wb.review_state, rr.status, vc.status, rr.as_of, wb.model_id, "
-            "rr.archived_at, rr.archive_reason "
+            "rr.archived_at, rr.archive_reason, wb.executive_bullets, wb.developments, "
+            "wb.risks, wb.opportunities, wb.uncertainties, wb.follow_up_questions "
             "ORDER BY CASE WHEN rr.status = 'succeeded' "
-            "AND COALESCE(vc.status, 'blocked') = 'pass' THEN 0 ELSE 1 END, "
+            "AND COALESCE(vc.status, 'blocked') = 'pass' "
+            "AND count(DISTINCT ad.distillation_id) > 0 "
+            "AND count(DISTINCT ad.distillation_id) = count(DISTINCT ad.distillation_id) FILTER "
+            "(WHERE COALESCE(ad.quality_status, 'incomplete') = 'complete') "
+            "AND jsonb_array_length(COALESCE(wb.executive_bullets, '[]'::jsonb)) > 0 "
+            "AND jsonb_array_length(COALESCE(wb.developments, '[]'::jsonb)) > 0 "
+            "AND jsonb_array_length(COALESCE(wb.risks, '[]'::jsonb)) > 0 "
+            "AND jsonb_array_length(COALESCE(wb.opportunities, '[]'::jsonb)) > 0 "
+            "AND jsonb_array_length(COALESCE(wb.uncertainties, '[]'::jsonb)) > 0 "
+            "AND jsonb_array_length(COALESCE(wb.follow_up_questions, '[]'::jsonb)) > 0 "
+            "THEN 0 ELSE 1 END, "
             "wb.covered_until DESC, wb.run_id ASC LIMIT %s OFFSET %s",
             tuple(params),
         )
@@ -3426,7 +3502,8 @@ class PostgresRepository:
             "run_id", "title", "covered_from", "covered_until", "review_state",
             "run_status", "validation_status", "source_count", "distillation_count",
             "claim_count", "signal_count", "regions", "languages", "lane_coverage",
-            "models", "as_of", "archived_at", "archive_reason",
+            "models", "as_of", "archived_at", "archive_reason", "complete_article_count",
+            "article_insight_completeness", "report_sections_complete", "readiness_status",
         )
         return [
             {
@@ -3475,6 +3552,17 @@ class PostgresRepository:
                 [
                     "rr.status = 'succeeded'",
                     "COALESCE(vc.status, 'blocked') = 'pass'",
+                    "EXISTS (SELECT 1 FROM article_distillations ad_ready "
+                    "WHERE ad_ready.run_id = wb.run_id)",
+                    "NOT EXISTS (SELECT 1 FROM article_distillations ad_incomplete "
+                    "WHERE ad_incomplete.run_id = wb.run_id "
+                    "AND COALESCE(ad_incomplete.quality_status, 'incomplete') <> 'complete')",
+                    "jsonb_array_length(COALESCE(wb.executive_bullets, '[]'::jsonb)) > 0",
+                    "jsonb_array_length(COALESCE(wb.developments, '[]'::jsonb)) > 0",
+                    "jsonb_array_length(COALESCE(wb.risks, '[]'::jsonb)) > 0",
+                    "jsonb_array_length(COALESCE(wb.opportunities, '[]'::jsonb)) > 0",
+                    "jsonb_array_length(COALESCE(wb.uncertainties, '[]'::jsonb)) > 0",
+                    "jsonb_array_length(COALESCE(wb.follow_up_questions, '[]'::jsonb)) > 0",
                 ]
             )
         rows = self._execute(
