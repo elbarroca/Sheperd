@@ -79,6 +79,16 @@ function nextSteps(report: ReportPayload): string[] {
   }).slice(0, 3);
 }
 
+function readinessRatio(complete: number | undefined, total: number, label: string): string {
+  if (complete === undefined) return `${label}: Not recorded in this run`;
+  return `${complete}/${total} complete ${label}`;
+}
+
+function totalFromCompleteness(complete: number | undefined, ratio: number | undefined, fallback: number): number {
+  if (complete === undefined || ratio === undefined || ratio <= 0) return fallback;
+  return Math.max(complete, Math.round(complete / ratio));
+}
+
 function scopeHref(scope: ArchiveScope): string {
   return scope === "active" ? "/" : `/?scope=${scope}`;
 }
@@ -135,6 +145,12 @@ export default async function HomePage({
   const history = weeklyReports.filter((report) => report.run_id !== featured?.run_id);
   const featuredDetail = featured ? await getWeeklyReport(featured.run_id, scope) : null;
   const featuredNextSteps = featuredDetail?.status === "ok" ? nextSteps(featuredDetail.data) : [];
+  const articleTotal = featured ? Math.max(featured.distillation_count, featured.source_count) : 0;
+  const sectionTotal = featured ? totalFromCompleteness(
+    featured.report_sections_complete,
+    featured.report_section_completeness,
+    5,
+  ) : 0;
 
   return (
     <div className="dashboard-page">
@@ -155,7 +171,7 @@ export default async function HomePage({
       {featured ? (
         <section className="document-feature" aria-labelledby="featured-heading">
           <div>
-            <p className="eyebrow">{isReady(featured) ? "Latest decision-ready report" : "Latest archived report"}</p>
+            <p className="eyebrow">{isReady(featured) ? "Latest decision-ready report" : scope === "archived" ? "Archived failure report" : "Latest incomplete report"}</p>
             <h2 id="featured-heading">{featured.title}</h2>
             <p className="muted">{dateLabel(featured.covered_from)} to {dateLabel(featured.covered_until)}</p>
             <p className="report-as-of">As of {timestampLabel(featured.as_of)} UTC</p>
@@ -167,6 +183,9 @@ export default async function HomePage({
             <span>{featured.signal_count} signals</span>
             <span>{featured.regions.length} regions</span>
             <span>{featured.languages.length} languages</span>
+            <span>{readinessRatio(featured.complete_article_count, articleTotal, "article packets")}</span>
+            <span>{readinessRatio(featured.report_sections_complete, sectionTotal, "report sections")}</span>
+            <span>Readiness: {featured.readiness_status ?? "legacy"}</span>
           </div>
           <Link
             className="text-action"

@@ -184,4 +184,56 @@ describe("research API runtime validation", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toContain("region=us");
     expect(fetchMock.mock.calls[0]?.[0]).toContain("language=en");
   });
+
+  it("rejects malformed article insight packets in source explorer data", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      items: [{
+        source: {
+          url: "https://example.com/source",
+          title: "Source",
+          publisher: "Example",
+          published_at: null,
+          retrieved_at: "2026-08-19T00:00:00Z",
+          source_kind: "web",
+          snippet: "Snippet",
+          topics: [],
+          geographies: ["US"],
+          lane: "ports",
+          is_seed: false,
+          evidence_status: "unverified",
+        },
+        distillation: {
+          source_url: "https://example.com/source",
+          summary: "Summary",
+          key_points: ["Point one", "Point two"],
+          entities: [],
+          signals: [],
+          claims: [],
+          limitations: [],
+          published_at: null,
+          model_id: "google/gemma:free",
+          prompt_version: "distill-v6",
+          evidence_status: "mixed",
+          content_hash: "hash",
+          risk_assessment: {
+            status: 7,
+            statement: "Bad status",
+            why_it_matters: "Should be rejected",
+            next_step: "Fix backend data",
+          },
+        },
+        claims: [],
+        source_hash: "hash",
+      }],
+      page: 1,
+      page_size: 24,
+      total: 1,
+      has_more: false,
+    }));
+
+    await expect(getResearchSourceExplorer()).resolves.toEqual({
+      status: "unavailable",
+      error: "Research API returned malformed data",
+    });
+  });
 });

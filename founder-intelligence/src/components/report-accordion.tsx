@@ -279,6 +279,7 @@ function ReportQuality({ report, brief }: { report: ReportPayload; brief: Weekly
       <p>{report.readiness_status === "decision_ready" && sectionComplete
         ? "All required insight sections and article packets are complete."
         : "This run requires review before it can be decision-ready."}</p>
+      {!report.quality ? <p className="muted">Legacy quality snapshot: Not recorded in this run.</p> : null}
       {report.blocking_reasons?.length ? <p className="muted">Blocking reasons: {report.blocking_reasons.join(", ")}</p> : null}
     </div>
   );

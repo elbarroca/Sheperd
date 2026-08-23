@@ -302,4 +302,11 @@ describe("ReportAccordion", () => {
     const readyMarkup = renderToStaticMarkup(<ReportAccordion report={readyReport} />);
     expect(readyMarkup).not.toContain('role="alert"');
   });
+
+  it("labels legacy reports when no quality snapshot was recorded", () => {
+    const markup = renderToStaticMarkup(<ReportAccordion report={{ ...report, quality: undefined }} />);
+
+    expect(markup).toContain("Legacy quality snapshot");
+    expect(markup).toContain("Not recorded in this run");
+  });
 });

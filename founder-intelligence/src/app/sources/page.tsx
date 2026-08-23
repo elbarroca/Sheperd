@@ -25,8 +25,18 @@ function safeUrl(value: string): boolean {
   return value.startsWith("https://") || value.startsWith("http://");
 }
 
+function statusClass(value: string | undefined): string {
+  return (value ?? "unknown").replaceAll(/[^a-zA-Z0-9_-]/gu, "-");
+}
+
+function statusLabel(value: string | undefined): string {
+  return value
+    ? value.replaceAll("_", " ").replace(/^\w/u, (letter) => letter.toUpperCase())
+    : "Unavailable";
+}
+
 function Status({ label, value }: { label: string; value: string | undefined }) {
-  return <span className={`status-badge status-${value ?? "unknown"}`}>{label}: {value ?? "unknown"}</span>;
+  return <span className={`status-badge status-${statusClass(value)}`}>{label}: {statusLabel(value)}</span>;
 }
 
 function CitationLinks({ urls }: { urls: string[] }) {
@@ -93,7 +103,8 @@ function SourceCard({ item }: { item: SourceExplorerItem }) {
       </div>
       <p className="source-snippet">{source.normalized_snippet_en ?? source.snippet ?? "No summary snippet recorded."}</p>
       {source.normalized_snippet_en && source.normalized_snippet_en !== source.snippet ? <p className="muted">Original: {source.snippet}</p> : null}
-      {item.fulfillment ? <p className="muted">Fulfillment: {item.fulfillment.status} · {item.fulfillment.claim_count} claims · {item.fulfillment.citation_count} cited · UI {item.fulfillment.ui_displayable ? "ready" : "not ready"}{item.fulfillment.missing_fields.length ? ` · missing ${item.fulfillment.missing_fields.join(", ")}` : ""}</p> : null}
+      {source.extraction_error_code ? <p className="muted">Extraction error: {source.extraction_error_code}</p> : null}
+      {item.fulfillment ? <p className="muted">Fulfillment: {item.fulfillment.status} · {item.fulfillment.claim_count} claims · {item.fulfillment.citation_count} cited · UI {item.fulfillment.ui_displayable ? "ready" : "not ready"}{item.fulfillment.missing_fields.length ? ` · missing ${item.fulfillment.missing_fields.join(", ")}` : ""}</p> : <p className="muted">Fulfillment: legacy, not recorded in this run.</p>}
       <details className="report-section">
         <summary>Article findings</summary>
         <div className="report-section-body">
@@ -206,7 +217,7 @@ export default async function SourcesPage({
         <button type="submit">Apply filters</button>
       </form>
       <div className="explorer-toolbar">
-        <p>{pageData.total} persisted sources / page {pageData.page}</p>
+        <p>{pageData.total} persisted sources / page {pageData.page} / {PAGE_SIZE} per page</p>
         <div className="pagination" aria-label="Source pages">
           {pageData.page > 1 ? <a href={pageHref(filters, pageData.page - 1)}>Previous</a> : <span className="muted">Previous</span>}
           {pageData.has_more ? <a href={pageHref(filters, pageData.page + 1)}>Next</a> : <span className="muted">Next</span>}

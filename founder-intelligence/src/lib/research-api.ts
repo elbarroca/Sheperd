@@ -589,6 +589,13 @@ function isResearchSignal(value: unknown): value is ResearchSignal {
     && isStringArray(value.source_urls);
 }
 
+function isArticleInsight(value: unknown): value is ArticleInsight {
+  return isRecord(value)
+    && hasStrings(value, ["status", "statement", "why_it_matters", "next_step"])
+    && isOptional(value, "evidence_excerpt", isNullableString)
+    && isOptional(value, "evidence_locator", isNullableString);
+}
+
 function isArticleDistillation(value: unknown): value is ArticleDistillation {
   return isRecord(value)
     && hasStrings(value, ["source_url", "summary", "model_id", "prompt_version", "evidence_status"])
@@ -608,6 +615,12 @@ function isArticleDistillation(value: unknown): value is ArticleDistillation {
     && isOptional(value, "evidence_locators", isStringArray)
     && isOptional(value, "what_happened", isString)
     && isOptional(value, "why_it_matters", isString)
+    && isOptional(value, "risk_assessment", (candidate) =>
+      candidate === null || isArticleInsight(candidate)
+    )
+    && isOptional(value, "opportunity_assessment", (candidate) =>
+      candidate === null || isArticleInsight(candidate)
+    )
     && isOptional(value, "uncertainties", isStringArray)
     && isOptional(value, "next_steps", isStringArray)
     && isOptional(value, "quality_status", isString)
