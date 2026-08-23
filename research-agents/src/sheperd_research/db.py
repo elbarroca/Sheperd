@@ -3746,6 +3746,7 @@ class PostgresRepository:
                        ELSE 0
                    END,
                    {report_sections_complete_sql},
+                   {len(REPORT_BULLET_SECTIONS)},
                    CASE WHEN {ready_sql} THEN 'decision_ready' ELSE 'review_required' END,
                    {blocking_reasons_sql},
                    ({ready_sql}),
@@ -3780,20 +3781,24 @@ class PostgresRepository:
             "run_status", "validation_status", "source_count", "distillation_count",
             "claim_count", "signal_count", "regions", "languages", "lane_coverage",
             "models", "as_of", "archived_at", "archive_reason", "complete_article_count",
-            "article_insight_completeness", "report_sections_complete", "readiness_status",
-            "blocking_reasons", "decision_ready", "report_section_completeness",
+            "article_insight_completeness", "report_sections_complete", "report_section_count",
+            "readiness_status", "blocking_reasons", "decision_ready",
+            "report_section_completeness",
         )
         summaries: list[dict[str, object]] = []
         for row in rows:
+            raw_summary = dict(zip(fields, row[: len(fields)], strict=True))
             summary = {
-                **dict(zip(fields, row[: len(fields)], strict=True)),
+                **raw_summary,
                 "archived": row[16] is not None,
                 "regions": sorted(set(_row_strings(row[11]))),
                 "languages": sorted(set(_row_strings(row[12]))),
                 "lane_coverage": sorted(set(_row_strings(row[13]))),
                 "models": sorted(set(_row_strings(row[14]))),
-                "blocking_reasons": sorted(set(_row_strings(row[22]))),
-                "quality_ready": row[23] is True,
+                "blocking_reasons": sorted(
+                    set(_row_strings(raw_summary["blocking_reasons"]))
+                ),
+                "quality_ready": raw_summary["decision_ready"] is True,
             }
             checks = next(
                 (

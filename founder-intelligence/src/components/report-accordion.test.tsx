@@ -287,6 +287,43 @@ describe("ReportAccordion", () => {
     expect(markup).not.toContain("Decision-ready");
   });
 
+  it("does not label summaries decision-ready when canonical denominators are missing", () => {
+    const markup = renderToStaticMarkup(
+      <ReportLink
+        runId="missing-denominator-run"
+        summary={{
+          run_id: "missing-denominator-run",
+          title: "Missing denominator",
+          covered_from: "2026-08-12T00:00:00Z",
+          covered_until: "2026-08-19T00:00:00Z",
+          review_state: "approved",
+          run_status: "succeeded",
+          validation_status: "pass",
+          source_count: 2,
+          distillation_count: 2,
+          claim_count: 3,
+          signal_count: 1,
+          regions: ["global"],
+          languages: ["en"],
+          lane_coverage: ["regulatory"],
+          models: ["model"],
+          as_of: "2026-08-19T00:00:00Z",
+          readiness_status: "decision_ready",
+          decision_ready: true,
+          blocking_reasons: [],
+          quality_ready: true,
+          complete_article_count: 2,
+          article_insight_completeness: 1,
+          report_sections_complete: 5,
+          report_section_completeness: 1,
+        }}
+      />,
+    );
+
+    expect(markup).toContain("succeeded / pass");
+    expect(markup).not.toContain("Decision-ready");
+  });
+
   it("labels summaries decision-ready only with canonical completeness fields", () => {
     const markup = renderToStaticMarkup(
       <ReportLink
@@ -312,8 +349,10 @@ describe("ReportAccordion", () => {
           decision_ready: true,
           blocking_reasons: [],
           quality_ready: true,
+          article_count: 2,
           complete_article_count: 2,
           article_insight_completeness: 1,
+          report_section_count: 5,
           report_sections_complete: 5,
           report_section_completeness: 1,
         }}

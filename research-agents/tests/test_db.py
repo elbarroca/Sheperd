@@ -296,6 +296,7 @@ def test_postgres_brief_summaries_recompute_readiness_from_persisted_evidence() 
         0,
         0.0,
         5,
+        5,
         "review_required",
         ["incomplete_article_insights"],
         False,
@@ -321,6 +322,7 @@ def test_postgres_brief_summaries_recompute_readiness_from_persisted_evidence() 
     assert isinstance(blocking_reasons, list)
     assert "incomplete_article_insights" in blocking_reasons
     assert summaries[0]["quality_ready"] is False
+    assert summaries[0]["report_section_count"] == 5
     assert summaries[0]["report_section_completeness"] == 0.0
 
 
@@ -349,6 +351,7 @@ def test_postgres_brief_summaries_restore_provider_blocking_reasons() -> None:
         0,
         0.0,
         0,
+        5,
         "review_required",
         ["run_not_succeeded", "validation_not_passed"],
         False,
@@ -407,6 +410,7 @@ def test_postgres_brief_summaries_validate_report_section_text_and_counts() -> N
         1,
         1.0,
         4,
+        5,
         "review_required",
         ["empty_report_section"],
         False,
@@ -426,7 +430,52 @@ def test_postgres_brief_summaries_validate_report_section_text_and_counts() -> N
     )
     assert raw_section_count not in query
     assert summary["report_sections_complete"] == 4
+    assert summary["report_section_count"] == 5
     assert summary["report_section_completeness"] == 0.8
+
+
+def test_postgres_brief_summaries_return_production_ready_section_metrics() -> None:
+    repository = PostgresRepository(Mock())
+    covered_at = datetime(2026, 8, 19, tzinfo=UTC)
+    row: tuple[object, ...] = (
+        "ready-run",
+        "Production-shaped ready summary",
+        covered_at,
+        covered_at,
+        "approved",
+        RunStatus.SUCCEEDED.value,
+        ValidationStatus.PASS.value,
+        3,
+        3,
+        5,
+        1,
+        ["global"],
+        ["en"],
+        ["regulatory"],
+        ["google/gemma-4-26b-a4b-it:free"],
+        covered_at,
+        None,
+        None,
+        3,
+        1.0,
+        5,
+        5,
+        "decision_ready",
+        [],
+        True,
+        1.0,
+        [],
+    )
+
+    with patch.object(repository, "_execute", return_value=[row]):
+        summary = repository.list_brief_summaries(ready_only=True)[0]
+
+    assert summary["decision_ready"] is True
+    assert summary["readiness_status"] == "decision_ready"
+    assert summary["quality_ready"] is True
+    assert summary["report_sections_complete"] == 5
+    assert summary["report_section_count"] == 5
+    assert summary["report_section_completeness"] == 1.0
 
 
 def test_repositories_reject_new_oversized_evidence_excerpt_writes() -> None:

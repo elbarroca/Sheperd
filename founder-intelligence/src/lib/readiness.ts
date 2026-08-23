@@ -30,8 +30,8 @@ function isCompleteMetric(
 ): boolean {
   return isCompleteCount(complete)
     && ratio === 1
-    && (denominator === undefined
-      || (isCompleteCount(denominator) && complete === denominator));
+    && isCompleteCount(denominator)
+    && complete === denominator;
 }
 
 function hasNoBlockingReasons(reasons: string[] | undefined): boolean {
@@ -47,32 +47,28 @@ function hasQualitySnapshot(summary: ReadinessSummary): boolean {
 }
 
 export function isDecisionReadySummary(summary: ReadinessSummary): boolean {
-  const qualityComplete = hasQualitySnapshot(summary)
-    ? summary.quality_ready === true
-      && summary.quality_report_ready === true
-      && summary.quality_readiness_status === "decision_ready"
-      && hasNoBlockingReasons(summary.quality_blocking_reasons)
-      && isCompleteMetric(
-        summary.complete_article_count,
-        summary.article_insight_completeness,
-        summary.article_count,
+  const qualitySnapshotComplete = !hasQualitySnapshot(summary)
+    || ((summary.quality_report_ready === undefined || summary.quality_report_ready === true)
+      && (
+        summary.quality_readiness_status === undefined
+        || summary.quality_readiness_status === "decision_ready"
       )
-      && isCompleteMetric(
-        summary.report_sections_complete,
-        summary.report_section_completeness,
-        summary.report_section_count,
-      )
-    : summary.quality_ready === true
-      && isCompleteMetric(
-        summary.complete_article_count,
-        summary.article_insight_completeness,
-        undefined,
-      )
-      && isCompleteMetric(
-        summary.report_sections_complete,
-        summary.report_section_completeness,
-        undefined,
-      );
+      && (
+        summary.quality_blocking_reasons === undefined
+        || hasNoBlockingReasons(summary.quality_blocking_reasons)
+      ));
+  const qualityComplete = summary.quality_ready === true
+    && qualitySnapshotComplete
+    && isCompleteMetric(
+      summary.complete_article_count,
+      summary.article_insight_completeness,
+      summary.article_count,
+    )
+    && isCompleteMetric(
+      summary.report_sections_complete,
+      summary.report_section_completeness,
+      summary.report_section_count,
+    );
 
   return summary.decision_ready === true
     && summary.readiness_status === "decision_ready"

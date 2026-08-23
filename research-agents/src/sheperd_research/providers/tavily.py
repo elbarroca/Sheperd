@@ -233,12 +233,18 @@ class TavilyProvider:
         data = await self._post("search", payload)
         results = data.get("results", [])
         if not isinstance(results, list):
-            raise ProviderError("Tavily search returned invalid results")
-        parsed_sources = [
-            self._source_from_result(item, query)
-            for item in results
-            if isinstance(item, dict)
-        ]
+            raise ProviderError(
+                "Tavily search returned invalid results",
+                error_code="malformed_output",
+            )
+        parsed_sources = []
+        for item in results:
+            if not isinstance(item, dict):
+                raise ProviderError(
+                    "Tavily search returned an invalid result entry",
+                    error_code="malformed_output",
+                )
+            parsed_sources.append(self._source_from_result(item, query))
         if self._progress is not None:
             self._progress.emit(
                 "query",
@@ -262,12 +268,23 @@ class TavilyProvider:
             )
             results = data.get("results", [])
             if not isinstance(results, list):
-                raise ProviderError("Tavily extract returned invalid results")
+                raise ProviderError(
+                    "Tavily extract returned invalid results",
+                    error_code="malformed_output",
+                )
             for item in results:
                 if not isinstance(item, dict):
-                    continue
+                    raise ProviderError(
+                        "Tavily extract returned an invalid result entry",
+                        error_code="malformed_output",
+                    )
                 url = item.get("url")
                 content = item.get("raw_content")
+                if not isinstance(url, str) or not isinstance(content, str):
+                    raise ProviderError(
+                        "Tavily extract returned an invalid result entry",
+                        error_code="malformed_output",
+                    )
                 if isinstance(url, str) and isinstance(content, str) and content.strip():
                     extracted[normalize_url(url)] = content.strip()
         missing_urls = [url for url in urls if url not in extracted]
@@ -288,9 +305,15 @@ class TavilyProvider:
     def _source_from_result(item: dict[object, object], query: str) -> SourceCandidate:
         url = item.get("url")
         if not isinstance(url, str) or not url.startswith(("http://", "https://")):
-            raise ProviderError("Tavily returned a result without a valid URL")
+            raise ProviderError(
+                "Tavily returned an invalid result without a valid URL",
+                error_code="malformed_output",
+            )
         if url_policy_error(url) is not None:
-            raise ProviderError("Tavily returned a source rejected by URL policy")
+            raise ProviderError(
+                "Tavily returned an invalid result rejected by URL policy",
+                error_code="malformed_output",
+            )
         published_at = TavilyProvider._parse_datetime(item.get("published_date"))
         host = urlsplit(url).hostname or "unknown"
         return SourceCandidate(

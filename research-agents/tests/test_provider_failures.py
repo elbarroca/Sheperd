@@ -162,6 +162,24 @@ def test_tavily_malformed_response_shape_preserves_a_stable_error_code(
     assert raised.value.attempts[0]["error_code"] == "malformed_output"
 
 
+def test_tavily_malformed_nested_result_entries_are_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_client(monkeypatch, [response(200, {"results": [{"title": "Missing URL"}]})])
+    with pytest.raises(ProviderError, match="invalid result") as raised:
+        asyncio.run(TavilyProvider("secret").search("ports"))
+    assert raised.value.error_code == "malformed_output"
+
+    patch_client(monkeypatch, [response(200, {"results": [{"url": "https://example.com/article"}]})])
+    with pytest.raises(ProviderError, match="invalid result") as extract_raised:
+        asyncio.run(
+            TavilyProvider("secret").extract(
+                [SourceCandidate(url="https://example.com/article")]
+            )
+        )
+    assert extract_raised.value.error_code == "malformed_output"
+
+
 def test_tavily_rotates_to_secondary_key_after_primary_quota_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
