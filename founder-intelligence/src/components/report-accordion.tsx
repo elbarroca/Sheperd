@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { isDecisionReadySummary, readinessSummaryFromReport } from "../lib/readiness";
 import type {
   AgentStep,
   ArticleInsight,
@@ -277,20 +278,6 @@ function ReportQuality({ report }: { report: ReportPayload }) {
   );
 }
 
-function hasCompleteQuality(report: ReportPayload): boolean {
-  const quality = report.quality;
-  return quality !== undefined
-    && quality.ready === true
-    && quality.quality_ready === true
-    && quality.readiness_status === "decision_ready"
-    && quality.article_count > 0
-    && quality.complete_article_count === quality.article_count
-    && quality.article_insight_completeness === 1
-    && quality.report_section_count > 0
-    && quality.report_sections_complete === quality.report_section_count
-    && quality.report_section_completeness === 1;
-}
-
 function briefSourceUrls(brief: WeeklyBrief): string[] {
   return brief.source_urls.filter(isHttpUrl);
 }
@@ -379,12 +366,7 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
   const checks = report.validation?.checks ?? [];
   const runStatus = report.run?.status ?? "missing";
   const validationStatus = report.validation?.status ?? "missing";
-  const blocked = !(
-    report.readiness_status === "decision_ready"
-    && runStatus === "succeeded"
-    && validationStatus === "pass"
-    && hasCompleteQuality(report)
-  );
+  const blocked = !isDecisionReadySummary(readinessSummaryFromReport(report));
   const headingLabel = report.run?.archived
     ? "Archived report"
     : blocked
@@ -474,7 +456,7 @@ export function UnavailableState({ error }: { error: string }) {
 }
 
 export function ReportLink({ runId, summary }: { runId: string; summary: WeeklyReportSummary }) {
-  const ready = summary.decision_ready === true || summary.readiness_status === "decision_ready";
+  const ready = isDecisionReadySummary(summary);
   const archived = summary.archived === true || summary.archived_at != null;
   const href = `/reports/${encodeURIComponent(runId)}${archived ? "?archive_scope=archived" : ""}`;
   return (

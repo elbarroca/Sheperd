@@ -8,6 +8,7 @@ import {
   type ReportPayload,
   type WeeklyReportSummary,
 } from "@/lib/research-api";
+import { isDecisionReadySummary } from "../lib/readiness";
 import { ReportLink, UnavailableState } from "@/components/report-accordion";
 
 export const metadata: Metadata = { title: "Research briefs" };
@@ -63,7 +64,7 @@ function asSummary(report: WeeklyReportSummary | ReportPayload): WeeklyReportSum
 }
 
 function isReady(report: WeeklyReportSummary): boolean {
-  return report.decision_ready === true || report.readiness_status === "decision_ready";
+  return isDecisionReadySummary(report);
 }
 
 function getScope(value: string | undefined): ArchiveScope {

@@ -229,6 +229,7 @@ describe("production report routes", () => {
             lane: "ports",
             is_seed: false,
             evidence_status: "unverified",
+            normalized_snippet_en: "English normalized snippet",
           },
           distillation: null,
           claims: [],
@@ -255,7 +256,8 @@ describe("production report routes", () => {
 
     const markup = renderToStaticMarkup(await SourcesPage({ searchParams: Promise.resolve({}) }));
 
-    expect(markup).toContain("Snippet: Not recorded in this run.");
+    expect(markup).toContain("Snippet: English normalized snippet");
+    expect(markup).toContain("Original: Not recorded in this run.");
   });
 
   it("orders the homepage by decision readiness and exposes real readiness metrics", async () => {
@@ -311,8 +313,8 @@ describe("production report routes", () => {
             as_of: "2026-08-14T00:00:00Z",
             readiness_status: "decision_ready",
             decision_ready: true,
-            article_insight_completeness: 0.666667,
-            complete_article_count: 2,
+            article_insight_completeness: 1,
+            complete_article_count: 3,
             report_section_completeness: 1,
             report_sections_complete: 5,
           },
@@ -337,7 +339,7 @@ describe("production report routes", () => {
     const markup = renderToStaticMarkup(await HomePage());
 
     expect(markup.indexOf("Ready report")).toBeLessThan(markup.indexOf("Partial report"));
-    expect(markup).toContain("2 complete article packets (67%)");
+    expect(markup).toContain("3 complete article packets (100%)");
     expect(markup).toContain("5 complete report sections (100%)");
     expect(markup).toContain("Latest decision-ready report");
   });
@@ -390,8 +392,9 @@ describe("production report routes", () => {
 
     const markup = renderToStaticMarkup(await HomePage());
 
-    expect(markup).toContain("Article packets: Not recorded in this run");
-    expect(markup).toContain("Report sections: Not recorded in this run");
+    expect(markup).toContain("No decision-ready report yet.");
+    expect(markup).toContain("legacy-run Legacy report");
+    expect(markup).not.toContain("Latest decision-ready report");
     expect(markup).not.toContain("0/3 complete article packets");
     expect(markup).not.toContain("5 complete report sections");
   });

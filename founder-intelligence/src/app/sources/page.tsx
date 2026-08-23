@@ -84,7 +84,8 @@ function ClaimList({ claims }: { claims: ResearchClaim[] }) {
 function SourceCard({ item }: { item: SourceExplorerItem }) {
   const { source, distillation, claims } = item;
   const mergedClaims = distillation?.claims.length ? distillation.claims : claims;
-  const snippet = source.normalized_snippet_en?.trim() || source.snippet.trim();
+  const originalSnippet = source.snippet.trim() || "Not recorded in this run.";
+  const snippet = source.normalized_snippet_en?.trim() || originalSnippet;
   return (
     <article className="source-row">
       <div className="source-card-heading">
@@ -103,7 +104,7 @@ function SourceCard({ item }: { item: SourceExplorerItem }) {
         <Status label="Translation" value={distillation?.translation_status} />
       </div>
       <p className="source-snippet">Snippet: {snippet || "Not recorded in this run."}</p>
-      {source.normalized_snippet_en && source.normalized_snippet_en !== source.snippet ? <p className="muted">Original: {source.snippet}</p> : null}
+      {source.normalized_snippet_en && source.normalized_snippet_en !== source.snippet ? <p className="muted">Original: {originalSnippet}</p> : null}
       {source.extraction_error_code ? <p className="muted">Extraction error: {source.extraction_error_code}</p> : null}
       {item.fulfillment ? <p className="muted">Fulfillment: {item.fulfillment.status} · {item.fulfillment.claim_count} claims · {item.fulfillment.citation_count} cited · UI {item.fulfillment.ui_displayable ? "ready" : "not ready"}{item.fulfillment.missing_fields.length ? ` · missing ${item.fulfillment.missing_fields.join(", ")}` : ""}</p> : <p className="muted">Fulfillment: legacy, not recorded in this run.</p>}
       <details className="report-section">
