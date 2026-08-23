@@ -39,24 +39,23 @@ function hasNoBlockingReasons(reasons: string[] | undefined): boolean {
 }
 
 function hasQualitySnapshot(summary: ReadinessSummary): boolean {
-  return summary.quality_report_ready !== undefined
+  return summary.quality_ready !== undefined
+    || summary.quality_report_ready !== undefined
     || summary.quality_readiness_status !== undefined
     || summary.quality_blocking_reasons !== undefined
     || summary.article_count !== undefined
-    || summary.report_section_count !== undefined;
+    || summary.complete_article_count !== undefined
+    || summary.article_insight_completeness !== undefined
+    || summary.report_section_count !== undefined
+    || summary.report_sections_complete !== undefined
+    || summary.report_section_completeness !== undefined;
 }
 
 export function isDecisionReadySummary(summary: ReadinessSummary): boolean {
   const qualitySnapshotComplete = !hasQualitySnapshot(summary)
-    || ((summary.quality_report_ready === undefined || summary.quality_report_ready === true)
-      && (
-        summary.quality_readiness_status === undefined
-        || summary.quality_readiness_status === "decision_ready"
-      )
-      && (
-        summary.quality_blocking_reasons === undefined
-        || hasNoBlockingReasons(summary.quality_blocking_reasons)
-      ));
+    || (summary.quality_report_ready === true
+      && summary.quality_readiness_status === "decision_ready"
+      && hasNoBlockingReasons(summary.quality_blocking_reasons));
   const qualityComplete = summary.quality_ready === true
     && qualitySnapshotComplete
     && isCompleteMetric(

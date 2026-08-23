@@ -349,6 +349,9 @@ describe("ReportAccordion", () => {
           decision_ready: true,
           blocking_reasons: [],
           quality_ready: true,
+          quality_report_ready: true,
+          quality_readiness_status: "decision_ready",
+          quality_blocking_reasons: [],
           article_count: 2,
           complete_article_count: 2,
           article_insight_completeness: 1,
@@ -360,6 +363,45 @@ describe("ReportAccordion", () => {
     );
 
     expect(markup).toContain("Decision-ready");
+  });
+
+  it("blocks stale ready summaries when quality status fields are missing", () => {
+    const markup = renderToStaticMarkup(
+      <ReportLink
+        runId="stale-quality-status-run"
+        summary={{
+          run_id: "stale-quality-status-run",
+          title: "Stale quality status",
+          covered_from: "2026-08-12T00:00:00Z",
+          covered_until: "2026-08-19T00:00:00Z",
+          review_state: "approved",
+          run_status: "succeeded",
+          validation_status: "pass",
+          source_count: 2,
+          distillation_count: 2,
+          claim_count: 3,
+          signal_count: 1,
+          regions: ["global"],
+          languages: ["en"],
+          lane_coverage: ["regulatory"],
+          models: ["model"],
+          as_of: "2026-08-19T00:00:00Z",
+          readiness_status: "decision_ready",
+          decision_ready: true,
+          blocking_reasons: [],
+          quality_ready: true,
+          article_count: 2,
+          complete_article_count: 2,
+          article_insight_completeness: 1,
+          report_section_count: 5,
+          report_sections_complete: 5,
+          report_section_completeness: 1,
+        }}
+      />,
+    );
+
+    expect(markup).toContain("succeeded / pass");
+    expect(markup).not.toContain("Decision-ready");
   });
 
   it("marks failed validation as non-decision-ready", () => {

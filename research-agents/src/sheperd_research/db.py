@@ -3726,6 +3726,7 @@ class PostgresRepository:
                        FILTER (WHERE ad.model_id IS NOT NULL), '{{}}'
                    ) || ARRAY[wb.model_id],
                    rr.as_of, rr.archived_at, rr.archive_reason,
+                   count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed),
                    count(DISTINCT ad.distillation_id) FILTER (
                        WHERE EXISTS (
                            SELECT 1 FROM article_distillations adq
@@ -3733,7 +3734,7 @@ class PostgresRepository:
                              AND {article_complete_sql}
                        )
                    ),
-                   CASE WHEN count(DISTINCT ad.distillation_id) > 0
+                   CASE WHEN count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed) > 0
                        THEN round(
                            count(DISTINCT ad.distillation_id) FILTER (
                                WHERE EXISTS (
@@ -3741,7 +3742,9 @@ class PostgresRepository:
                                    WHERE adq.distillation_id = ad.distillation_id
                                      AND {article_complete_sql}
                                )
-                           )::numeric / count(DISTINCT ad.distillation_id), 6
+                           )::numeric
+                           / count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed),
+                           6
                        )
                        ELSE 0
                    END,
@@ -3780,7 +3783,8 @@ class PostgresRepository:
             "run_id", "title", "covered_from", "covered_until", "review_state",
             "run_status", "validation_status", "source_count", "distillation_count",
             "claim_count", "signal_count", "regions", "languages", "lane_coverage",
-            "models", "as_of", "archived_at", "archive_reason", "complete_article_count",
+            "models", "as_of", "archived_at", "archive_reason", "article_count",
+            "complete_article_count",
             "article_insight_completeness", "report_sections_complete", "report_section_count",
             "readiness_status", "blocking_reasons", "decision_ready",
             "report_section_completeness",

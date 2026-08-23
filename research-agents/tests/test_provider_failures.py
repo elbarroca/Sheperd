@@ -317,6 +317,36 @@ def test_tavily_malformed_search_and_extract_fail_closed(
         )
 
 
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        (
+            {"results": [{"url": "https://example.com/article", "raw_content": "   "}]},
+            "blank content",
+        ),
+        (
+            {"results": [{"url": "https://example.com/other", "raw_content": "body"}]},
+            "unrequested URL",
+        ),
+    ],
+)
+def test_tavily_malformed_extract_result_content_is_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: dict[str, object],
+    message: str,
+) -> None:
+    patch_client(monkeypatch, [response(200, payload)])
+
+    with pytest.raises(ProviderError, match=message) as raised:
+        asyncio.run(
+            TavilyProvider("secret").extract(
+                [SourceCandidate(url="https://example.com/article")]
+            )
+        )
+
+    assert raised.value.error_code == "malformed_output"
+
+
 def test_tavily_extract_chunks_batches_at_twenty_urls() -> None:
     calls: list[list[str]] = []
 

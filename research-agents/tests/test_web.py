@@ -342,6 +342,11 @@ def test_weekly_summaries_are_ready_first_and_paginated() -> None:
     assert payload["offset"] == 0
     assert payload["has_more"] is True
     assert payload["reports"][0]["run_id"] == "ready-run"
+    assert payload["reports"][0]["article_count"] == 1
+    assert payload["reports"][0]["complete_article_count"] == 1
+    assert payload["reports"][0]["quality_report_ready"] is True
+    assert payload["reports"][0]["quality_readiness_status"] == "decision_ready"
+    assert payload["reports"][0]["quality_blocking_reasons"] == []
 
     all_reports = client.get("/api/reports/weekly?limit=2").json()["reports"]
     draft_report = next(report for report in all_reports if report["run_id"] == "draft-run")
@@ -361,6 +366,7 @@ def test_summary_readiness_recomputes_from_canonical_quality_fields() -> None:
         "quality_ready": True,
         "blocking_reasons": [],
         "distillation_count": 2,
+        "article_count": 2,
         "complete_article_count": 2,
         "article_insight_completeness": 0.5,
         "report_section_count": 5,
@@ -376,6 +382,30 @@ def test_summary_readiness_recomputes_from_canonical_quality_fields() -> None:
     assert isinstance(blocking_reasons, list)
     assert "incomplete_article_insights" in blocking_reasons
     assert "empty_report_section" in blocking_reasons
+
+
+def test_summary_readiness_requires_canonical_article_count() -> None:
+    summary = {
+        "run_id": "missing-denominator-run",
+        "run_status": "succeeded",
+        "validation_status": "pass",
+        "readiness_status": "decision_ready",
+        "decision_ready": True,
+        "quality_ready": True,
+        "blocking_reasons": [],
+        "distillation_count": 2,
+        "complete_article_count": 2,
+        "article_insight_completeness": 1.0,
+        "report_section_count": 5,
+        "report_sections_complete": 5,
+        "report_section_completeness": 1.0,
+    }
+
+    result = _summary_readiness(summary)
+
+    assert result["readiness_status"] == "review_required"
+    assert result["decision_ready"] is False
+    assert "legacy_quality_evidence_missing" in result["blocking_reasons"]
 
 
 def test_summary_readiness_fails_closed_for_legacy_ready_flags() -> None:

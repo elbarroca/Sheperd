@@ -293,6 +293,7 @@ def test_postgres_brief_summaries_recompute_readiness_from_persisted_evidence() 
         covered_at,
         None,
         None,
+        1,
         0,
         0.0,
         5,
@@ -317,6 +318,7 @@ def test_postgres_brief_summaries_recompute_readiness_from_persisted_evidence() 
 
     assert summaries[0]["readiness_status"] == "review_required"
     assert summaries[0]["decision_ready"] is False
+    assert summaries[0]["article_count"] == 1
     assert summaries[0]["complete_article_count"] == 0
     blocking_reasons = summaries[0]["blocking_reasons"]
     assert isinstance(blocking_reasons, list)
@@ -348,6 +350,7 @@ def test_postgres_brief_summaries_restore_provider_blocking_reasons() -> None:
         covered_at,
         covered_at,
         "validation_failed",
+        1,
         0,
         0.0,
         0,
@@ -408,6 +411,7 @@ def test_postgres_brief_summaries_validate_report_section_text_and_counts() -> N
         None,
         None,
         1,
+        1,
         1.0,
         4,
         5,
@@ -429,6 +433,7 @@ def test_postgres_brief_summaries_validate_report_section_text_and_counts() -> N
         "                           COALESCE(wb.executive_bullets"
     )
     assert raw_section_count not in query
+    assert summary["article_count"] == 1
     assert summary["report_sections_complete"] == 4
     assert summary["report_section_count"] == 5
     assert summary["report_section_completeness"] == 0.8
@@ -457,6 +462,7 @@ def test_postgres_brief_summaries_return_production_ready_section_metrics() -> N
         None,
         None,
         3,
+        3,
         1.0,
         5,
         5,
@@ -473,6 +479,8 @@ def test_postgres_brief_summaries_return_production_ready_section_metrics() -> N
     assert summary["decision_ready"] is True
     assert summary["readiness_status"] == "decision_ready"
     assert summary["quality_ready"] is True
+    assert summary["article_count"] == 3
+    assert summary["complete_article_count"] == 3
     assert summary["report_sections_complete"] == 5
     assert summary["report_section_count"] == 5
     assert summary["report_section_completeness"] == 1.0

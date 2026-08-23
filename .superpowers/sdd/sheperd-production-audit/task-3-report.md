@@ -104,7 +104,7 @@ Backend, from `research-agents/`:
   - Final success resolved to `nvidia/nemotron-nano-9b-v2:free`.
   - Tavily search/extract succeeded through secondary key slot.
 
-- `uv run sheperd-research e2e --profile canary --allow-free-fallbacks --verbose --json` -> failed before execution.
+- `uv run sheperd-research e2e --profile canary --allow-free-fallbacks --verbose --json` -> blocked / not run.
   - CLI requires `--run-id`; the exact task-brief command is incomplete.
   - No canary E2E was run because choosing a run ID would expand beyond the exact command and the live database is missing migration `0013_run_sources`.
 

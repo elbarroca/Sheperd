@@ -317,6 +317,9 @@ describe("production report routes", () => {
             decision_ready: true,
             blocking_reasons: [],
             quality_ready: true,
+            quality_report_ready: true,
+            quality_readiness_status: "decision_ready",
+            quality_blocking_reasons: [],
             article_count: 3,
             article_insight_completeness: 1,
             complete_article_count: 3,
@@ -345,8 +348,8 @@ describe("production report routes", () => {
     const markup = renderToStaticMarkup(await HomePage());
 
     expect(markup.indexOf("Ready report")).toBeLessThan(markup.indexOf("Partial report"));
-    expect(markup).toContain("3 complete article packets (100%)");
-    expect(markup).toContain("5 complete report sections (100%)");
+    expect(markup).toContain("3/3 complete article packets (100%)");
+    expect(markup).toContain("5/5 complete report sections (100%)");
     expect(markup).toContain("Latest decision-ready report");
   });
 

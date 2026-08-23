@@ -262,6 +262,7 @@ class TavilyProvider:
             self._progress.emit("extract", "Tavily extract", url_count=len(urls))
         extracted: dict[str, str] = {}
         for start in range(0, len(urls), self.MAX_EXTRACT_URLS):
+            requested_urls = set(urls[start : start + self.MAX_EXTRACT_URLS])
             data = await self._post(
                 "extract",
                 {"urls": urls[start : start + self.MAX_EXTRACT_URLS], "include_images": False},
@@ -285,13 +286,24 @@ class TavilyProvider:
                         "Tavily extract returned an invalid result entry",
                         error_code="malformed_output",
                     )
-                if isinstance(url, str) and isinstance(content, str) and content.strip():
-                    extracted[normalize_url(url)] = content.strip()
+                normalized_url = normalize_url(url)
+                if normalized_url not in requested_urls:
+                    raise ProviderError(
+                        "Tavily extract returned content for an unrequested URL",
+                        error_code="malformed_output",
+                    )
+                if not content.strip():
+                    raise ProviderError(
+                        "Tavily extract returned blank content",
+                        error_code="malformed_output",
+                    )
+                extracted[normalized_url] = content.strip()
         missing_urls = [url for url in urls if url not in extracted]
         if missing_urls:
             raise ProviderError(
                 "Tavily extract returned incomplete content for: "
-                + ", ".join(missing_urls)
+                + ", ".join(missing_urls),
+                error_code="malformed_output",
             )
         if self._progress is not None:
             self._progress.emit(

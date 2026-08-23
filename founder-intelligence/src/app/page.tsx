@@ -101,9 +101,16 @@ function nextSteps(report: ReportPayload): string[] {
   }).slice(0, 3);
 }
 
-function readinessMetric(complete: number | undefined, ratio: number | undefined, label: string): string {
-  if (complete === undefined || ratio === undefined) return `${label}: Not recorded in this run`;
-  return `${complete} complete ${label.toLowerCase()} (${Math.round(ratio * 100)}%)`;
+function readinessMetric(
+  complete: number | undefined,
+  denominator: number | undefined,
+  ratio: number | undefined,
+  label: string,
+): string {
+  if (complete === undefined || denominator === undefined || ratio === undefined) {
+    return `${label}: Not recorded in this run`;
+  }
+  return `${complete}/${denominator} complete ${label.toLowerCase()} (${Math.round(ratio * 100)}%)`;
 }
 
 function scopeHref(scope: ArchiveScope): string {
@@ -195,8 +202,8 @@ export default async function HomePage({
             <span>{featured.signal_count} signals</span>
             <span>{featured.regions.length} regions</span>
             <span>{featured.languages.length} languages</span>
-            <span>{readinessMetric(featured.complete_article_count, featured.article_insight_completeness, "Article packets")}</span>
-            <span>{readinessMetric(featured.report_sections_complete, featured.report_section_completeness, "Report sections")}</span>
+            <span>{readinessMetric(featured.complete_article_count, featured.article_count, featured.article_insight_completeness, "Article packets")}</span>
+            <span>{readinessMetric(featured.report_sections_complete, featured.report_section_count, featured.report_section_completeness, "Report sections")}</span>
             <span>Readiness: {featured.readiness_status ?? "legacy"}</span>
           </div>
           <Link

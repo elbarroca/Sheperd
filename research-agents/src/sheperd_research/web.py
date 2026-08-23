@@ -217,13 +217,8 @@ def _summary_readiness(summary: dict[str, object]) -> dict[str, object]:
             return False
         return True
 
-    article_count = (
-        "article_count"
-        if isinstance(result.get("article_count"), int)
-        else "distillation_count"
-    )
     article_complete = complete_metric(
-        count_key=article_count,
+        count_key="article_count",
         complete_key="complete_article_count",
         ratio_key="article_insight_completeness",
         reason="incomplete_article_insights",
@@ -236,6 +231,17 @@ def _summary_readiness(summary: dict[str, object]) -> dict[str, object]:
     )
     if result.get("quality_ready") is not True:
         reasons.add("quality_review_required")
+    quality_blocking_reasons = sorted(
+        reason
+        for reason in reasons
+        if reason not in {"run_not_succeeded", "validation_not_passed"}
+    )
+    quality_report_ready = (
+        result.get("quality_ready") is True
+        and article_complete
+        and report_complete
+        and not quality_blocking_reasons
+    )
     ready = (
         result.get("run_status") == "succeeded"
         and result.get("validation_status") == "pass"
@@ -244,6 +250,11 @@ def _summary_readiness(summary: dict[str, object]) -> dict[str, object]:
         and report_complete
         and not reasons
     )
+    result["quality_report_ready"] = quality_report_ready
+    result["quality_readiness_status"] = (
+        "decision_ready" if quality_report_ready else "review_required"
+    )
+    result["quality_blocking_reasons"] = quality_blocking_reasons
     result["readiness_status"] = "decision_ready" if ready else "review_required"
     result["decision_ready"] = ready
     result["blocking_reasons"] = sorted(reasons)
