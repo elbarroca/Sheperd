@@ -227,6 +227,26 @@ def _blocked(args: argparse.Namespace, message: str) -> int:
     return 2
 
 
+def _run_error_code(error: str | None) -> str | None:
+    if not error:
+        return None
+    normalized = error.lower()
+    for marker, code in (
+        ("rate", "rate_limit"),
+        ("429", "rate_limit"),
+        ("timeout", "timeout"),
+        ("extract", "extraction_failed"),
+        ("distill", "distillation_failed"),
+        ("insight", "incomplete_article_insights"),
+        ("synthesis", "synthesis_failed"),
+        ("validation", "validation_failed"),
+        ("evidence", "missing_evidence"),
+    ):
+        if marker in normalized:
+            return code
+    return "workflow_error"
+
+
 def _capability_report(
     settings: Settings,
     models: tuple[str, ...],
@@ -462,7 +482,7 @@ def _repair_command(args: argparse.Namespace, settings: Settings) -> int:
                 "distillation_count": result.distillation_count,
                 "claim_count": result.claim_count,
                 "validation_status": result.validation_status.value,
-                "error": result.error,
+                "error": _run_error_code(result.error),
             }
         )
         return 0 if result.status is RunStatus.SUCCEEDED else 2
@@ -722,7 +742,7 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
             tool_counts=tool_counts,
             lane_counts=lane_counts,
             resolved_models=resolved_models,
-            error=result.error,
+            error_code=_run_error_code(result.error),
         )
         stage(
             "persistence",
@@ -919,7 +939,10 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
         _print_json(
             {
                 "status": "partial",
-                "message": str(error),
+                "message": (
+                    getattr(error, "error_code", None)
+                    or ("invalid_output" if isinstance(error, ValueError) else "provider_error")
+                ),
                 "error_code": getattr(error, "error_code", None) or attempt_error_code,
                 "capabilities": capabilities.as_dict() if capabilities else None,
                 "attempts": provider.call_history if provider else [],

@@ -10,7 +10,12 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from .contracts import ReviewState, ValidationReport, ValidationStatus, WeeklyBrief
-from .db import ArchiveScope, RepositoryProtocol, validation_profile_from_run
+from .db import (
+    MIGRATION_VERSION,
+    ArchiveScope,
+    RepositoryProtocol,
+    validation_profile_from_run,
+)
 from .exporters.obsidian import render_weekly_markdown
 from .source_catalog import load_source_catalog
 from .validation import validation_blocking_reasons
@@ -105,7 +110,7 @@ _PUBLIC_RUN_FIELDS = (
     "topic_set",
     "status",
     "as_of",
-    "error",
+    "error_code",
     "neon_branch_id",
     "migration_version",
     "archived_at",
@@ -154,6 +159,10 @@ def _public_run(run: dict[str, object] | None) -> dict[str, object] | None:
         topic_set = getattr(request, "topic_set", None)
     if isinstance(topic_set, str):
         public_run["topic_set"] = topic_set
+    if "error_code" not in public_run and run.get("status") in {"failed", "partial"}:
+        public_run["error_code"] = (
+            "run_failed" if run.get("status") == "failed" else "run_partial"
+        )
     profile = validation_profile_from_run(run)
     if profile is not None:
         public_run["validation_profile"] = profile
@@ -162,11 +171,24 @@ def _public_run(run: dict[str, object] | None) -> dict[str, object] | None:
 
 
 def _unavailable_response(error: Exception) -> JSONResponse:
+    if isinstance(error, RuntimeError) and str(error) in {
+        "runtime DATABASE_URL is blocked",
+        "runtime NEON_BRANCH_ID is blocked",
+    }:
+        # Preserve the existing Vercel health contract without exposing the message.
+        return JSONResponse(
+            {
+                "status": "unavailable",
+                "error": "database_unavailable",
+                "error_type": "RuntimeError",
+            },
+            status_code=503,
+        )
+    del error
     return JSONResponse(
         {
             "status": "unavailable",
-            "error": "database_unavailable",
-            "error_type": error.__class__.__name__,
+            "error_code": "database_unavailable",
         },
         status_code=503,
     )
@@ -190,15 +212,54 @@ def _readiness(
         reasons.update(validation_blocking_reasons(validation))
     if run is None or run.get("status") != "succeeded":
         reasons.add("run_not_succeeded")
+    if run is not None and run.get("migration_version") != MIGRATION_VERSION:
+        reasons.add("schema_migration_stale")
     if validation_profile_from_run(run) != "full":
         reasons.add("validation_profile_not_full")
     if brief is None or brief.review_state is not ReviewState.APPROVED:
         reasons.add("brief_not_approved")
-    ready = not reasons and quality.get("quality_ready") is True
+    article_count = quality.get("article_count")
+    complete_article_count = quality.get("complete_article_count")
+    article_complete = (
+        isinstance(article_count, int)
+        and article_count > 0
+        and complete_article_count == article_count
+        and quality.get("article_insight_completeness") == 1.0
+    )
+    report_section_count = quality.get("report_section_count")
+    report_sections_complete = quality.get("report_sections_complete")
+    report_complete = (
+        isinstance(report_section_count, int)
+        and report_section_count > 0
+        and report_sections_complete == report_section_count
+        and quality.get("report_section_completeness") == 1.0
+    )
+    quality_only_reasons = {
+        reason
+        for reason in reasons
+        if reason
+        not in {
+            "run_not_succeeded",
+            "validation_not_passed",
+            "validation_profile_not_full",
+            "brief_not_approved",
+            "schema_migration_stale",
+            "schema_migration_missing",
+        }
+    }
+    quality_report_ready = article_complete and report_complete and not quality_only_reasons
+    ready = not reasons and quality_report_ready
     return {
         "ready": ready,
         "readiness_status": "decision_ready" if ready else "review_required",
         "blocking_reasons": sorted(reasons),
+        "decision_ready": ready,
+        "quality_ready": quality_report_ready,
+        "quality_report_ready": quality_report_ready,
+        "quality_readiness_status": (
+            "quality_ready" if quality_report_ready else "review_required"
+        ),
+        "quality_blocking_reasons": sorted(quality_only_reasons),
     }
 
 
@@ -218,6 +279,11 @@ def _summary_readiness(summary: dict[str, object]) -> dict[str, object]:
         reasons.add("validation_profile_not_full")
     if result.get("review_state") != "approved":
         reasons.add("brief_not_approved")
+    if (
+        "migration_version" in result
+        and result.get("migration_version") != MIGRATION_VERSION
+    ):
+        reasons.add("schema_migration_stale")
 
     def complete_metric(
         *,
@@ -255,8 +321,6 @@ def _summary_readiness(summary: dict[str, object]) -> dict[str, object]:
         ratio_key="report_section_completeness",
         reason="empty_report_section",
     )
-    if result.get("quality_ready") is not True:
-        reasons.add("quality_review_required")
     quality_blocking_reasons = sorted(
         reason
         for reason in reasons
@@ -265,11 +329,12 @@ def _summary_readiness(summary: dict[str, object]) -> dict[str, object]:
             "validation_not_passed",
             "validation_profile_not_full",
             "brief_not_approved",
+            "schema_migration_stale",
+            "schema_migration_missing",
         }
     )
     quality_report_ready = (
-        result.get("quality_ready") is True
-        and article_complete
+        article_complete
         and report_complete
         and not quality_blocking_reasons
     )
@@ -278,14 +343,17 @@ def _summary_readiness(summary: dict[str, object]) -> dict[str, object]:
         and result.get("validation_status") == "pass"
         and result.get("validation_profile") == "full"
         and result.get("review_state") == "approved"
-        and result.get("quality_ready") is True
-        and article_complete
-        and report_complete
+        and quality_report_ready
         and not reasons
     )
+    result["quality_ready"] = quality_report_ready
     result["quality_report_ready"] = quality_report_ready
     result["quality_readiness_status"] = (
-        "decision_ready" if quality_report_ready else "review_required"
+        "decision_ready"
+        if ready
+        else "quality_ready"
+        if quality_report_ready
+        else "review_required"
     )
     result["quality_blocking_reasons"] = quality_blocking_reasons
     result["readiness_status"] = "decision_ready" if ready else "review_required"
@@ -355,6 +423,24 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
             "covered_until": selected_brief.covered_until,
         }
 
+    def schema_guard() -> JSONResponse | None:
+        try:
+            health = repository.health()
+        except Exception as error:
+            return _unavailable_response(error)
+        if health.get("status") == "pass":
+            return None
+        payload: dict[str, object] = {
+            "status": "blocked",
+            "error_code": "database_schema_blocked",
+        }
+        blocking_reasons = health.get("blocking_reasons")
+        if isinstance(blocking_reasons, list):
+            payload["blocking_reasons"] = [
+                item for item in blocking_reasons if isinstance(item, str)
+            ]
+        return JSONResponse(payload, status_code=503)
+
     @app.get("/api/health", response_class=JSONResponse)
     def api_health() -> JSONResponse:
         try:
@@ -396,6 +482,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         offset: int = Query(default=0, ge=0, le=10000),
         archive_scope: ArchiveScope = Query(default="active", max_length=8),  # noqa: B008
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         try:
             reports = repository.list_brief_summaries(
                 review_state=review,
@@ -441,6 +530,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         offset: int = Query(default=0, ge=0, le=10000),
         archive_scope: ArchiveScope = Query(default="active", max_length=8),  # noqa: B008
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         try:
             reports = repository.list_brief_summaries(
                 cadence="daily",
@@ -479,6 +571,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
 
     @app.get("/api/regions", response_class=JSONResponse)
     def api_regions() -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         return JSONResponse(
             jsonable_encoder(
                 {"regions": repository.list_regions(), "counts": repository.region_counts()}
@@ -487,21 +582,35 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
 
     @app.get("/api/audit", response_class=JSONResponse)
     def api_audit() -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         try:
-            return JSONResponse(
-                jsonable_encoder({"status": "pass", **repository.audit_summary()})
-            )
+            summary = repository.audit_summary()
         except Exception as error:
-            return JSONResponse(
-                {"status": "blocked", "error": error.__class__.__name__},
-                status_code=503,
-            )
+            return _unavailable_response(error)
+        database = summary.get("database")
+        if isinstance(database, dict) and database.get("status") != "pass":
+            payload: dict[str, object] = {
+                "status": "blocked",
+                "error_code": "database_schema_blocked",
+            }
+            reasons = database.get("blocking_reasons")
+            if isinstance(reasons, list):
+                payload["blocking_reasons"] = [
+                    item for item in reasons if isinstance(item, str)
+                ]
+            return JSONResponse(payload, status_code=503)
+        return JSONResponse(jsonable_encoder({"status": "pass", **summary}))
 
     @app.get("/api/reports/weekly/{run_id}/markdown")
     def api_weekly_markdown(
         run_id: str,
         archive_scope: ArchiveScope = Query(default="active", max_length=8),  # noqa: B008
     ) -> Response:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         brief = repository.get_brief(run_id)
         if brief is None or not _archive_visible(repository.get_run(run_id), archive_scope):
             return Response("weekly report not found", status_code=404)
@@ -534,6 +643,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         run_id: str,
         archive_scope: ArchiveScope = Query(default="active", max_length=8),  # noqa: B008
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         try:
             payload = report_payload(run_id, archive_scope=archive_scope)
         except (KeyError, ValueError):
@@ -552,6 +664,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         language: str | None = Query(default=None, max_length=12),
         evidence: str | None = Query(default=None, max_length=40),
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         try:
             rollups = repository.monthly_rollup(
                 since=since,
@@ -601,6 +716,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         page: int = Query(default=1, ge=1, le=10000),
         page_size: int = Query(default=24, ge=1, le=100),
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         try:
             payload = repository.list_source_explorer(
                 query,
@@ -623,6 +741,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
 
     @app.get("/api/sources/facets", response_class=JSONResponse)
     def api_source_facets() -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         try:
             return JSONResponse(
                 jsonable_encoder({"status": "pass", **repository.source_facets()})
@@ -679,11 +800,12 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
             if brief
             else "<p>No brief recorded.</p>"
         )
+        public_run = _public_run(run)
         body = (
             f"<h1>Run <code>{_value(run_id)}</code></h1>"
             f"<div class='card'><p>Status: <strong>{_value(run.get('status'))}</strong></p>"
             f"<p>Topic: {_value(run.get('topic_set'))}</p><p>As of: {_value(run.get('as_of'))}</p>"
-            f"<p>Error: {_value(run.get('error') or 'none')}</p></div>"
+            f"<p>Error: {_value((public_run or {}).get('error_code') or 'none')}</p></div>"
             f"<div class='card'>{brief_html}</div>"
             f"{steps_html}"
         )
@@ -774,17 +896,24 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         limit: int = Query(default=100, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         return JSONResponse(
             jsonable_encoder(
                 {
-                    "runs": repository.list_runs(
-                        topic_set=topic_set,
-                        status=status,
-                        since=since,
-                        until=until,
-                        limit=limit,
-                        offset=offset,
-                    )
+                    "runs": [
+                        public_run
+                        for run in repository.list_runs(
+                            topic_set=topic_set,
+                            status=status,
+                            since=since,
+                            until=until,
+                            limit=limit,
+                            offset=offset,
+                        )
+                        if (public_run := _public_run(run)) is not None
+                    ]
                 }
             )
         )
@@ -805,6 +934,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         limit: int = Query(default=100, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         try:
             sources = repository.list_sources(
                 query,
@@ -837,6 +969,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         limit: int = Query(default=100, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         return JSONResponse(
             jsonable_encoder(
                 {
@@ -865,6 +1000,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         limit: int = Query(default=100, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         return JSONResponse(
             jsonable_encoder(
                 {
@@ -892,6 +1030,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         limit: int = Query(default=100, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         return JSONResponse(
             jsonable_encoder(
                 {
@@ -918,6 +1059,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         limit: int = Query(default=20, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         return JSONResponse(
             jsonable_encoder(
                 {
@@ -935,6 +1079,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
 
     @app.get("/api/runs/{run_id}", response_class=JSONResponse)
     def api_run(run_id: str) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         try:
             run = repository.get_run(run_id)
             if run is None:
@@ -968,6 +1115,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
 
     @app.get("/api/runs/{run_id}/audit", response_class=JSONResponse)
     def api_run_audit(run_id: str) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         try:
             run = repository.get_run(run_id)
             if run is None:
@@ -1086,6 +1236,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
 
     @app.get("/api/briefs/{brief_id}", response_class=JSONResponse)
     def api_brief(brief_id: str) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         brief = repository.get_brief(brief_id)
         if brief is None:
             return JSONResponse({"error": "brief not found"}, status_code=404)

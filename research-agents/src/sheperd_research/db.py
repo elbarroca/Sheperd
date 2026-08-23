@@ -1524,6 +1524,7 @@ class InMemoryRepository:
                 and validation_value == ValidationStatus.PASS.value
                 and brief.review_state is ReviewState.APPROVED
                 and validation_profile_from_run(run) == "full"
+                and run.get("migration_version") == MIGRATION_VERSION
                 and quality["quality_ready"] is True
             )
 
@@ -1617,6 +1618,9 @@ class InMemoryRepository:
                     | {brief.model_id},
                 ),
                 "as_of": self.runs.get(brief.run_id, {}).get("as_of"),
+                "migration_version": self.runs.get(brief.run_id, {}).get(
+                    "migration_version"
+                ),
                 "archived": _is_archived(self.runs.get(brief.run_id, {})),
                 "archived_at": self.runs.get(brief.run_id, {}).get("archived_at"),
                 "archive_reason": self.runs.get(brief.run_id, {}).get("archive_reason"),
@@ -3558,6 +3562,10 @@ class PostgresRepository:
                 f"AND NOT starts_with({normalized}, 'not available '))"
             )
 
+        def json_array(expression: str) -> str:
+            value = f"COALESCE({expression}, '[]'::jsonb)"
+            return f"(CASE WHEN jsonb_typeof({value}) = 'array' THEN {value} ELSE '[]'::jsonb END)"
+
         def excerpt_ok(expression: str) -> str:
             return (
                 f"({text_ok(expression)} AND length({expression}) <= 320 "
@@ -3567,10 +3575,10 @@ class PostgresRepository:
         locator_ok = text_ok
         evidence_ok = (
             "EXISTS (SELECT 1 FROM jsonb_array_elements_text("
-            "COALESCE(adq.evidence_excerpts, '[]'::jsonb)) AS ex(value) "
+            f"{json_array('adq.evidence_excerpts')}) AS ex(value) "
             f"WHERE {excerpt_ok('ex.value')}) "
             "OR EXISTS (SELECT 1 FROM jsonb_array_elements_text("
-            "COALESCE(adq.evidence_locators, '[]'::jsonb)) AS loc(value) "
+            f"{json_array('adq.evidence_locators')}) AS loc(value) "
             f"WHERE {locator_ok('loc.value')} AND length(loc.value) <= 300)"
         )
 
@@ -3609,21 +3617,37 @@ class PostgresRepository:
         )
         what_happened_ok = text_ok("adq.insight_packet ->> 'what_happened'")
         why_it_matters_ok = text_ok("adq.insight_packet ->> 'why_it_matters'")
+        uncertainties_array = json_array("adq.insight_packet -> 'uncertainties'")
+        next_steps_array = json_array("adq.insight_packet -> 'next_steps'")
         article_complete_sql = (
             "COALESCE(adq.quality_status, 'incomplete') = 'complete' "
             f"AND {text_ok('adq.summary')} "
-            "AND (SELECT count(*) FROM jsonb_array_elements_text("
-            "COALESCE(adq.key_points, '[]'::jsonb)) AS kp(value) "
-            f"WHERE {text_ok('kp.value')}) >= 2 "
+            "AND jsonb_typeof(COALESCE(adq.key_points, '[]'::jsonb)) = 'array' "
+            f"AND jsonb_array_length({json_array('adq.key_points')}) >= 2 "
+            "AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+            f"{json_array('adq.key_points')}) AS kp(value) "
+            f"WHERE NOT {text_ok('kp.value')}) "
             f"AND ({evidence_ok}) "
+            "AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+            f"{json_array('adq.evidence_excerpts')}) AS ex_bad(value) "
+            f"WHERE NOT {excerpt_ok('ex_bad.value')}) "
+            "AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+            f"{json_array('adq.evidence_locators')}) AS loc_bad(value) "
+            f"WHERE NOT ({text_ok('loc_bad.value')} AND length(loc_bad.value) <= 300)) "
             f"AND {what_happened_ok} "
             f"AND {why_it_matters_ok} "
-            "AND EXISTS (SELECT 1 FROM jsonb_array_elements_text("
-            "COALESCE(adq.insight_packet -> 'uncertainties', '[]'::jsonb)) AS un(value) "
-            f"WHERE {text_ok('un.value')}) "
-            "AND EXISTS (SELECT 1 FROM jsonb_array_elements_text("
-            "COALESCE(adq.insight_packet -> 'next_steps', '[]'::jsonb)) AS ns(value) "
-            f"WHERE {text_ok('ns.value')}) "
+            "AND jsonb_typeof(COALESCE(adq.insight_packet -> "
+            "'uncertainties', '[]'::jsonb)) = 'array' "
+            f"AND jsonb_array_length({uncertainties_array}) > 0 "
+            "AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+            f"{uncertainties_array}) AS un(value) "
+            f"WHERE NOT {text_ok('un.value')}) "
+            "AND jsonb_typeof(COALESCE(adq.insight_packet -> "
+            "'next_steps', '[]'::jsonb)) = 'array' "
+            f"AND jsonb_array_length({next_steps_array}) > 0 "
+            "AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+            f"{next_steps_array}) AS ns(value) "
+            f"WHERE NOT {text_ok('ns.value')}) "
             f"AND {insight_ok('risk_assessment')} "
             f"AND {insight_ok('opportunity_assessment')} "
             f"AND {claim_ok}"
@@ -3661,7 +3685,8 @@ class PostgresRepository:
         )
 
         def report_section_ok(column: str, *, actionable: bool) -> str:
-            array_sql = f"COALESCE(wb.{column}, '[]'::jsonb)"
+            array_sql = json_array(f"wb.{column}")
+            source_urls_array = json_array("bullet.value -> 'source_urls'")
             action_required = (
                 "TRUE"
                 if actionable
@@ -3675,9 +3700,9 @@ class PostgresRepository:
                 f"AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements({array_sql}) "
                 "AS bullet(value) WHERE "
                 f"NOT {bullet_text_ok} "
-                "OR jsonb_array_length(COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) = 0 "
+                f"OR jsonb_array_length({source_urls_array}) = 0 "
                 "OR EXISTS (SELECT 1 FROM jsonb_array_elements_text("
-                "COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) AS url(value) "
+                f"{source_urls_array}) AS url(value) "
                 "WHERE NOT EXISTS (SELECT 1 FROM run_sources known "
                 "JOIN sources known_source "
                 "ON known_source.normalized_url = known.normalized_url "
@@ -3708,7 +3733,7 @@ class PostgresRepository:
             f"AND {report_section_ok('opportunities', actionable=True)} "
             f"AND {report_section_ok('uncertainties', actionable=True)} "
             "AND EXISTS (SELECT 1 FROM jsonb_array_elements_text("
-            "COALESCE(wb.follow_up_questions, '[]'::jsonb)) AS question(value) "
+            f"{json_array('wb.follow_up_questions')}) AS question(value) "
             f"WHERE {text_ok('question.value')})"
         )
         ready_sql = (
@@ -3716,6 +3741,7 @@ class PostgresRepository:
             "AND COALESCE(vc.status, 'blocked') = 'pass' "
             "AND wb.review_state = 'approved' "
             "AND COALESCE(rr.request ->> 'validation_profile', '') = 'full' "
+            f"AND rr.migration_version = '{MIGRATION_VERSION}' "
             "AND EXISTS (SELECT 1 FROM run_sources rs_exists "
             "JOIN sources s_exists ON s_exists.normalized_url = rs_exists.normalized_url "
             "WHERE rs_exists.run_id = wb.run_id AND NOT s_exists.is_seed) "
@@ -3729,6 +3755,8 @@ class PostgresRepository:
             "CASE WHEN wb.review_state <> 'approved' THEN 'brief_not_approved' END, "
             "CASE WHEN COALESCE(rr.request ->> 'validation_profile', '') <> 'full' "
             "THEN 'validation_profile_not_full' END, "
+            f"CASE WHEN rr.migration_version <> '{MIGRATION_VERSION}' "
+            "THEN 'schema_migration_stale' END, "
             f"CASE WHEN {duplicate_distillation_sql} THEN 'duplicate_distillation' END, "
             f"CASE WHEN {incomplete_article_sql} THEN 'incomplete_article_insights' END, "
             f"CASE WHEN NOT ({report_complete_sql}) THEN 'empty_report_section' END"
@@ -3850,7 +3878,8 @@ class PostgresRepository:
                            6
                        )
                        ELSE 0
-                   END
+                   END,
+                   rr.migration_version
             FROM weekly_briefs wb
             JOIN research_runs rr ON rr.run_id = wb.run_id
             LEFT JOIN validation_checks vc ON vc.run_id = wb.run_id
@@ -3864,6 +3893,7 @@ class PostgresRepository:
             + " GROUP BY wb.run_id, wb.title, wb.covered_from, wb.covered_until, "
             "wb.review_state, rr.request, rr.status, vc.status, vc.checks, rr.as_of, wb.model_id, "
             "wb.prompt_version, rr.archived_at, rr.archive_reason, "
+            "rr.migration_version, "
             "wb.executive_bullets, wb.developments, "
             "wb.risks, wb.opportunities, wb.uncertainties, wb.follow_up_questions "
             f"ORDER BY CASE WHEN {ready_sql} THEN 0 ELSE 1 END, "
@@ -3884,6 +3914,32 @@ class PostgresRepository:
         summaries: list[dict[str, object]] = []
         for row in rows:
             raw_summary = dict(zip(fields, row[: len(fields)], strict=True))
+            raw_summary["migration_version"] = (
+                row[len(fields) + 2]
+                if len(row) > len(fields) + 2
+                else MIGRATION_VERSION
+            )
+            raw_reasons = _row_strings(raw_summary["blocking_reasons"])
+            raw_summary["quality_ready"] = (
+                isinstance(raw_summary["article_count"], int)
+                and raw_summary["article_count"] > 0
+                and raw_summary["complete_article_count"]
+                == raw_summary["article_count"]
+                and _row_float(raw_summary["article_insight_completeness"]) == 1.0
+                and isinstance(raw_summary["report_sections_complete"], int)
+                and raw_summary["report_sections_complete"]
+                == raw_summary["report_section_count"]
+                and _row_float(raw_summary["report_section_completeness"]) == 1.0
+                and not any(
+                    reason
+                    in {
+                        "duplicate_distillation",
+                        "incomplete_article_insights",
+                        "empty_report_section",
+                    }
+                    for reason in raw_reasons
+                )
+            )
             summary = {
                 **raw_summary,
                 "archived": raw_summary["archived_at"] is not None,
@@ -3894,7 +3950,7 @@ class PostgresRepository:
                 "blocking_reasons": sorted(
                     set(_row_strings(raw_summary["blocking_reasons"]))
                 ),
-                "quality_ready": raw_summary["decision_ready"] is True,
+                "quality_ready": raw_summary["quality_ready"],
             }
             checks = next(
                 (
@@ -3958,6 +4014,10 @@ class PostgresRepository:
                 f"AND NOT starts_with({normalized}, 'not available '))"
             )
 
+        def json_array(expression: str) -> str:
+            value = f"COALESCE({expression}, '[]'::jsonb)"
+            return f"(CASE WHEN jsonb_typeof({value}) = 'array' THEN {value} ELSE '[]'::jsonb END)"
+
         def excerpt_ok(expression: str) -> str:
             return (
                 f"({text_ok(expression)} AND length({expression}) <= 320 "
@@ -3985,10 +4045,10 @@ class PostgresRepository:
 
         evidence_ok = (
             "EXISTS (SELECT 1 FROM jsonb_array_elements_text("
-            "COALESCE(adq.evidence_excerpts, '[]'::jsonb)) AS ex(value) "
+            f"{json_array('adq.evidence_excerpts')}) AS ex(value) "
             f"WHERE {excerpt_ok('ex.value')}) "
             "OR EXISTS (SELECT 1 FROM jsonb_array_elements_text("
-            "COALESCE(adq.evidence_locators, '[]'::jsonb)) AS loc(value) "
+            f"{json_array('adq.evidence_locators')}) AS loc(value) "
             f"WHERE {text_ok('loc.value')} AND length(loc.value) <= 300)"
         )
         claim_ok = (
@@ -4006,21 +4066,37 @@ class PostgresRepository:
         )
         what_happened_ok = text_ok("adq.insight_packet ->> 'what_happened'")
         why_it_matters_ok = text_ok("adq.insight_packet ->> 'why_it_matters'")
+        uncertainties_array = json_array("adq.insight_packet -> 'uncertainties'")
+        next_steps_array = json_array("adq.insight_packet -> 'next_steps'")
         article_complete_sql = (
             "COALESCE(adq.quality_status, 'incomplete') = 'complete' "
             f"AND {text_ok('adq.summary')} "
-            "AND (SELECT count(*) FROM jsonb_array_elements_text("
-            "COALESCE(adq.key_points, '[]'::jsonb)) AS kp(value) "
-            f"WHERE {text_ok('kp.value')}) >= 2 "
+            "AND jsonb_typeof(COALESCE(adq.key_points, '[]'::jsonb)) = 'array' "
+            f"AND jsonb_array_length({json_array('adq.key_points')}) >= 2 "
+            "AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+            f"{json_array('adq.key_points')}) AS kp(value) "
+            f"WHERE NOT {text_ok('kp.value')}) "
             f"AND ({evidence_ok}) "
+            "AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+            f"{json_array('adq.evidence_excerpts')}) AS ex_bad(value) "
+            f"WHERE NOT {excerpt_ok('ex_bad.value')}) "
+            "AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+            f"{json_array('adq.evidence_locators')}) AS loc_bad(value) "
+            f"WHERE NOT ({text_ok('loc_bad.value')} AND length(loc_bad.value) <= 300)) "
             f"AND {what_happened_ok} "
             f"AND {why_it_matters_ok} "
-            "AND EXISTS (SELECT 1 FROM jsonb_array_elements_text("
-            "COALESCE(adq.insight_packet -> 'uncertainties', '[]'::jsonb)) AS un(value) "
-            f"WHERE {text_ok('un.value')}) "
-            "AND EXISTS (SELECT 1 FROM jsonb_array_elements_text("
-            "COALESCE(adq.insight_packet -> 'next_steps', '[]'::jsonb)) AS ns(value) "
-            f"WHERE {text_ok('ns.value')}) "
+            "AND jsonb_typeof(COALESCE(adq.insight_packet -> "
+            "'uncertainties', '[]'::jsonb)) = 'array' "
+            f"AND jsonb_array_length({uncertainties_array}) > 0 "
+            "AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+            f"{uncertainties_array}) AS un(value) "
+            f"WHERE NOT {text_ok('un.value')}) "
+            "AND jsonb_typeof(COALESCE(adq.insight_packet -> "
+            "'next_steps', '[]'::jsonb)) = 'array' "
+            f"AND jsonb_array_length({next_steps_array}) > 0 "
+            "AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+            f"{next_steps_array}) AS ns(value) "
+            f"WHERE NOT {text_ok('ns.value')}) "
             f"AND {insight_ok('risk_assessment')} "
             f"AND {insight_ok('opportunity_assessment')} "
             f"AND {claim_ok}"
@@ -4058,7 +4134,8 @@ class PostgresRepository:
         )
 
         def report_section_ok(column: str, *, actionable: bool) -> str:
-            array_sql = f"COALESCE(wb.{column}, '[]'::jsonb)"
+            array_sql = json_array(f"wb.{column}")
+            source_urls_array = json_array("bullet.value -> 'source_urls'")
             action_required = (
                 "TRUE"
                 if actionable
@@ -4072,9 +4149,9 @@ class PostgresRepository:
                 f"AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements({array_sql}) "
                 "AS bullet(value) WHERE "
                 f"NOT {bullet_text_ok} "
-                "OR jsonb_array_length(COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) = 0 "
+                f"OR jsonb_array_length({source_urls_array}) = 0 "
                 "OR EXISTS (SELECT 1 FROM jsonb_array_elements_text("
-                "COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) AS url(value) "
+                f"{source_urls_array}) AS url(value) "
                 "WHERE NOT EXISTS (SELECT 1 FROM run_sources known "
                 "JOIN sources known_source "
                 "ON known_source.normalized_url = known.normalized_url "
@@ -4090,7 +4167,7 @@ class PostgresRepository:
             f"AND {report_section_ok('opportunities', actionable=True)} "
             f"AND {report_section_ok('uncertainties', actionable=True)} "
             "AND EXISTS (SELECT 1 FROM jsonb_array_elements_text("
-            "COALESCE(wb.follow_up_questions, '[]'::jsonb)) AS question(value) "
+            f"{json_array('wb.follow_up_questions')}) AS question(value) "
             f"WHERE {text_ok('question.value')})"
         )
         ready_sql = (
@@ -4098,6 +4175,7 @@ class PostgresRepository:
             "AND COALESCE(vc.status, 'blocked') = 'pass' "
             "AND wb.review_state = 'approved' "
             "AND COALESCE(rr.request ->> 'validation_profile', '') = 'full' "
+            f"AND rr.migration_version = '{MIGRATION_VERSION}' "
             "AND EXISTS (SELECT 1 FROM run_sources rs_exists "
             "JOIN sources s_exists ON s_exists.normalized_url = rs_exists.normalized_url "
             "WHERE rs_exists.run_id = wb.run_id AND NOT s_exists.is_seed) "

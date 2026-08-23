@@ -265,11 +265,144 @@ def test_db_backed_api_failures_return_redacted_unavailable_503() -> None:
         assert response.status_code == 503
         assert response.json() == {
             "status": "unavailable",
-            "error": "database_unavailable",
-            "error_type": "RuntimeError",
+            "error_code": "database_unavailable",
         }
         assert "PASSWORD_SECRET" not in response.text
         assert "run_sources" not in response.text
+
+
+def test_schema_health_guard_blocks_every_db_backed_api_surface() -> None:
+    repository = InMemoryRepository()
+    repository.health = lambda: {  # type: ignore[method-assign]
+        "status": "blocked",
+        "blocking_reasons": ["schema_migration_stale"],
+    }
+    client = TestClient(create_app(repository))
+
+    paths = (
+        "/api/reports/weekly",
+        "/api/reports/daily",
+        "/api/reports/monthly",
+        "/api/reports/weekly/run-1/markdown",
+        "/api/reports/weekly/run-1",
+        "/api/audit",
+        "/api/regions",
+        "/api/runs",
+        "/api/runs/run-1",
+        "/api/runs/run-1/audit",
+        "/api/sources",
+        "/api/sources/explorer",
+        "/api/sources/facets",
+        "/api/distillations",
+        "/api/claims",
+        "/api/signals",
+        "/api/briefs",
+        "/api/briefs/run-1",
+    )
+
+    for path in paths:
+        response = client.get(path)
+        assert response.status_code == 503, path
+        payload = response.json()
+        assert payload["status"] == "blocked", path
+        assert payload["error_code"] == "database_schema_blocked", path
+        assert "quality" not in payload, path
+        assert "readiness" not in response.text, path
+
+
+def test_api_audit_propagates_nested_database_block() -> None:
+    repository = InMemoryRepository()
+    repository.audit_summary = lambda: {  # type: ignore[method-assign]
+        "database": {
+            "status": "blocked",
+            "blocking_reasons": ["schema_migration_stale"],
+        },
+        "records": {"sources": 0},
+    }
+
+    response = TestClient(create_app(repository)).get("/api/audit")
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "blocked"
+    assert response.json()["error_code"] == "database_schema_blocked"
+
+
+def test_stale_run_migration_blocks_decision_readiness_but_keeps_quality_visible() -> None:
+    repository = InMemoryRepository()
+    run_id = "stale-schema-run"
+    source_url = "https://example.com/stale-schema"
+    repository.create_run(run_id, ResearchRunRequest(topic_set="dnd-port"))
+    repository.update_run_status(run_id, RunStatus.SUCCEEDED)
+    repository.runs[run_id]["migration_version"] = "0012_article_insight_quality"
+    repository.record_validation(ValidationReport(run_id=run_id, status=ValidationStatus.PASS))
+    source = repository.record_source(
+        SourceCandidate(url=source_url, extraction_status=ExtractionStatus.SUCCEEDED)
+    )
+    repository.record_snapshot(run_id, source, "bounded source body")
+    article = _complete_article(source_url)
+    repository.record_claims(run_id, article.claims)
+    repository.record_distillation(run_id, article)
+    repository.record_brief(
+        _complete_brief(run_id, source_url).model_copy(
+            update={"review_state": ReviewState.APPROVED}
+        )
+    )
+
+    client = TestClient(create_app(repository))
+    summary = client.get("/api/reports/weekly").json()["reports"][0]
+    detail = client.get(f"/api/reports/weekly/{run_id}").json()
+
+    assert summary["quality_ready"] is True
+    assert summary["quality_report_ready"] is True
+    assert summary["decision_ready"] is False
+    assert "schema_migration_stale" in summary["blocking_reasons"]
+    assert detail["quality"]["quality_ready"] is True
+    assert detail["decision_ready"] is False
+    assert "schema_migration_stale" in detail["blocking_reasons"]
+    assert client.get("/api/reports/weekly?ready=true").json()["count"] == 0
+
+
+def test_quality_readiness_ignores_decision_gates() -> None:
+    result = _summary_readiness(
+        {
+            "run_id": "quality-only-run",
+            "run_status": "succeeded",
+            "validation_status": "pass",
+            "review_state": "draft",
+            "validation_profile": "canary",
+            "quality_ready": False,
+            "blocking_reasons": [],
+            "article_count": 1,
+            "complete_article_count": 1,
+            "article_insight_completeness": 1.0,
+            "report_section_count": 5,
+            "report_sections_complete": 5,
+            "report_section_completeness": 1.0,
+        }
+    )
+
+    assert result["quality_ready"] is True
+    assert result["quality_report_ready"] is True
+    assert result["quality_readiness_status"] == "quality_ready"
+    assert result["decision_ready"] is False
+    assert "brief_not_approved" in result["blocking_reasons"]
+
+
+def test_public_run_surfaces_omit_legacy_raw_error_text() -> None:
+    repository = InMemoryRepository()
+    repository.create_run("secret-error-run", ResearchRunRequest(topic_set="dnd-port"))
+    repository.update_run_status(
+        "secret-error-run", RunStatus.FAILED, "PASSWORD_SECRET raw provider response"
+    )
+    client = TestClient(create_app(repository))
+
+    detail = client.get("/api/runs/secret-error-run")
+    listing = client.get("/api/runs")
+
+    assert detail.status_code == 200
+    assert listing.status_code == 200
+    assert "PASSWORD_SECRET" not in detail.text
+    assert "PASSWORD_SECRET" not in listing.text
 
 
 def test_api_sources_honors_offset_pagination() -> None:

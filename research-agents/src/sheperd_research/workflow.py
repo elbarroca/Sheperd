@@ -279,10 +279,58 @@ class ResearchWorkflow:
         self, run_id: str, status: RunStatus, error: str | None = None
     ) -> str | None:
         try:
-            self.repository.update_run_status(run_id, status, error)
+            self.repository.update_run_status(
+                run_id, status, self._error_code(error)
+            )
         except Exception as status_error:
             return f"status update failed: {status_error.__class__.__name__}"
         return None
+
+    @staticmethod
+    def _error_code(error: BaseException | str | None) -> str | None:
+        if error is None:
+            return None
+        explicit = getattr(error, "error_code", None)
+        if isinstance(explicit, str) and explicit:
+            return explicit
+        if isinstance(error, TimeoutError):
+            return "timeout"
+        if isinstance(error, ValueError):
+            return "invalid_output"
+        if isinstance(error, ProviderError):
+            return "provider_error"
+        if isinstance(error, str):
+            normalized = error.lower()
+            known_codes = {
+                "budget_exceeded",
+                "extraction_failed",
+                "incomplete_article_insights",
+                "invalid_output",
+                "missing_evidence",
+                "partial_run",
+                "persistence_error",
+                "provider",
+                "provider_error",
+                "rate_limit",
+                "synthesis_failed",
+                "timeout",
+                "validation_failed",
+                "workflow_error",
+            }
+            if normalized in known_codes:
+                return normalized
+            for marker, code in (
+                ("budget", "budget_exceeded"),
+                ("validation", "validation_failed"),
+                ("extraction", "extraction_failed"),
+                ("synthesis", "synthesis_failed"),
+                ("status update", "persistence_error"),
+                ("timeout", "timeout"),
+            ):
+                if marker in normalized:
+                    return code
+            return "workflow_error"
+        return "workflow_error"
 
     def _record_step(
         self,
@@ -513,14 +561,16 @@ class ResearchWorkflow:
                 if partial_reasons or brief is None or validation_failed
                 else RunStatus.SUCCEEDED
             )
-            error = "; ".join(partial_reasons) if partial_reasons else None
+            error = "partial_run" if partial_reasons else None
             if error is None and validation_failed:
                 error = (
-                    "validation missing"
+                    "validation_missing"
                     if validation is None
-                    else f"validation: {validation.status.value}"
+                    else "validation_failed"
                 )
-            self.repository.update_run_status(run_id, status, error)
+            self.repository.update_run_status(
+                run_id, status, self._error_code(error)
+            )
             self._emit(
                 "finish" if status is RunStatus.SUCCEEDED else "error",
                 "Research run finished",
@@ -569,11 +619,15 @@ class ResearchWorkflow:
                 lane_statuses=final_state.get("lane_statuses", {}),
             )
         except TimeoutError:
-            message = f"workflow exceeded {self.max_run_seconds}s wall-clock budget"
-            status_error = self._safe_update_run_status(run_id, RunStatus.FAILED, message)
+            message = "workflow exceeded wall-clock budget"
+            status_error = self._safe_update_run_status(
+                run_id, RunStatus.FAILED, self._error_code(message)
+            )
             if status_error:
                 message = f"{message}; {status_error}"
-            self._emit("error", "Research run stopped", run_id=run_id, error=message)
+            self._emit(
+                "error", "Research run stopped", run_id=run_id, error="timeout"
+            )
             return RunResult(
                 run_id=run_id,
                 status=RunStatus.FAILED,
@@ -582,11 +636,18 @@ class ResearchWorkflow:
             )
 
         except ProviderError as error:
-            message = str(error)
-            status_error = self._safe_update_run_status(run_id, RunStatus.FAILED, message)
+            message = str(error) or "provider error"
+            status_error = self._safe_update_run_status(
+                run_id, RunStatus.FAILED, self._error_code(error)
+            )
             if status_error:
                 message = f"{message}; {status_error}"
-            self._emit("error", "Research run stopped", run_id=run_id, error=message)
+            self._emit(
+                "error",
+                "Research run stopped",
+                run_id=run_id,
+                error=self._error_code(error) or "provider_error",
+            )
             return RunResult(
                 run_id=run_id,
                 status=RunStatus.FAILED,
@@ -595,10 +656,17 @@ class ResearchWorkflow:
             )
         except Exception as error:
             message = str(error) or error.__class__.__name__
-            status_error = self._safe_update_run_status(run_id, RunStatus.FAILED, message)
+            status_error = self._safe_update_run_status(
+                run_id, RunStatus.FAILED, self._error_code(error)
+            )
             if status_error:
                 message = f"{message}; {status_error}"
-            self._emit("error", "Research run stopped", run_id=run_id, error=message)
+            self._emit(
+                "error",
+                "Research run stopped",
+                run_id=run_id,
+                error=self._error_code(error) or "workflow_error",
+            )
             return RunResult(
                 run_id=run_id,
                 status=RunStatus.FAILED,
@@ -690,7 +758,7 @@ class ResearchWorkflow:
                 and validation.status is ValidationStatus.PASS
                 else RunStatus.FAILED
             )
-            error = None if status is RunStatus.SUCCEEDED else "repair validation did not pass"
+            error = None if status is RunStatus.SUCCEEDED else "validation_failed"
             self.repository.update_run_status(run_id, status, error)
             return RunResult(
                 run_id=run_id,
@@ -707,7 +775,9 @@ class ResearchWorkflow:
             )
         except Exception as error:
             message = str(error) or error.__class__.__name__
-            self._safe_update_run_status(run_id, RunStatus.FAILED, message)
+            self._safe_update_run_status(
+                run_id, RunStatus.FAILED, self._error_code(error)
+            )
             return RunResult(
                 run_id=run_id,
                 status=RunStatus.FAILED,
@@ -960,11 +1030,12 @@ class ResearchWorkflow:
                 metadata,
             )
         except ProviderError as error:
+            error_code = self._error_code(error) or "provider_error"
             self._emit(
                 "error",
                 "Discovery agent failed",
                 lane=lane.name,
-                error=str(error),
+                error=error_code,
             )
             raw_attempts = getattr(error, "attempts", [])
             if isinstance(raw_attempts, list):
@@ -1006,12 +1077,14 @@ class ResearchWorkflow:
         lane_statuses: dict[str, str] = {}
         lane_content: dict[str, str] = {}
         lane_errors: list[str] = []
+        lane_failures: list[str] = []
         for lane_name, sources, content, error, duration_ms, metadata in lane_results:
             lane_sources[lane_name] = sources
             lane_content.update(content)
             lane_statuses[lane_name] = "failed" if error else "succeeded"
             if error:
-                lane_errors.append(f"{lane_name}: {error}")
+                lane_failures.append(f"{lane_name}: {error}")
+                lane_errors.append(f"{lane_name}: {self._error_code(error)}")
             raw_attempts = metadata.get("attempts")
             attempts = raw_attempts if isinstance(raw_attempts, list) else []
             attempt_error_code = next(
@@ -1022,7 +1095,11 @@ class ResearchWorkflow:
                 ),
                 None,
             )
-            step_metadata = {"source_count": len(sources), "error": error, **metadata}
+            step_metadata = {
+                "source_count": len(sources),
+                "error": self._error_code(error),
+                **metadata,
+            }
             if "agent_call" in metadata:
                 step_metadata["call"] = metadata["agent_call"]
             self._record_step(
@@ -1084,7 +1161,10 @@ class ResearchWorkflow:
             error_code="provider" if lane_errors else None,
         )
         if lane_errors:
-            raise ProviderError("; ".join(lane_errors))
+            raise ProviderError(
+                "; ".join(lane_failures),
+                error_code="provider",
+            )
         return {
             "sources": unique,
             "content": {
@@ -1254,7 +1334,7 @@ class ResearchWorkflow:
                     "extracted_count": len(content),
                     "missing_agent_extractions": len(missing),
                     "seed_only_count": len(sources) - len(extractable_sources),
-                    "error": str(provider_error),
+                    "error": self._error_code(provider_error) or "provider_error",
                 },
                 started_at=started_at,
                 input_payload=[source.url for source in extractable_sources],
@@ -1310,7 +1390,7 @@ class ResearchWorkflow:
             except (ProviderError, ValueError) as error:
                 return (
                     None,
-                    str(error) or error.__class__.__name__,
+                    self._error_code(error) or "distillation_failed",
                     annotate(self._llm_metadata()),
                 )
 
@@ -1359,7 +1439,7 @@ class ResearchWorkflow:
             if distillation is not None:
                 distillations.append(distillation)
             elif error:
-                errors.append(f"distillation: {error}")
+                errors.append(self._error_code(error) or "distillation_failed")
         claims = [claim for item in distillations for claim in item.claims]
         attempts: list[dict[str, object]] = []
         record_attempt = 1
@@ -1440,7 +1520,7 @@ class ResearchWorkflow:
             error_code="provider-or-schema" if errors else None,
         )
         if errors:
-            raise ProviderError("; ".join(errors))
+            raise ProviderError("distillation_failed", error_code="distillation_failed")
         return {
             "distillations": distillations,
             "claims": claims,
@@ -1473,7 +1553,7 @@ class ResearchWorkflow:
         critic_error: str | None = None
         if isinstance(self.llm, CriticLike) and claims:
             if not self._reserve_llm_call(sum(len(claim.claim) for claim in claims)):
-                critic_error = "critic: llm budget exceeded"
+                critic_error = "budget_exceeded"
             else:
                 try:
                     revised = await self.llm.critic(
@@ -1486,7 +1566,7 @@ class ResearchWorkflow:
                     critic_call = self._llm_metadata()
                 except (ProviderError, ValueError) as error:
                     critic_call = self._llm_metadata()
-                    critic_error = f"critic: {error}"
+                    critic_error = self._error_code(error) or "critic_failed"
         revised = self._protect_seed_claims(revised, state.get("sources", []))
         revised_by_source: dict[str, list[ClaimDraft]] = defaultdict(list)
         for claim in revised:
@@ -1600,11 +1680,7 @@ class ResearchWorkflow:
         }
         if incomplete_articles:
             raise ProviderError(
-                "synthesis: incomplete article insight packets for "
-                + ", ".join(
-                    f"{url} ({', '.join(issues)})"
-                    for url, issues in sorted(incomplete_articles.items())
-                )
+                "incomplete_article_insights", error_code="incomplete_article_insights"
             )
         source_urls = {
             normalize_url(source.url)
@@ -1648,9 +1724,9 @@ class ResearchWorkflow:
         synthesis_call: dict[str, object] = {}
         synthesis_error: str | None = None
         if not distillations or not claims:
-            synthesis_error = "synthesis: no retained or freshly extracted evidence"
+            synthesis_error = "missing_evidence"
         elif not self._reserve_llm_call(sum(len(item.summary) for item in distillations)):
-            synthesis_error = "synthesis: llm budget exceeded"
+            synthesis_error = "budget_exceeded"
         else:
             try:
                 since = self._run_since(request, state["topic"])
@@ -1687,7 +1763,7 @@ class ResearchWorkflow:
                 )
             except (ProviderError, ValueError) as error:
                 synthesis_call = self._llm_metadata()
-                synthesis_error = f"synthesis: {error}"
+                synthesis_error = self._error_code(error) or "synthesis_failed"
                 brief = None
         self._record_step(
             state["run_id"],
@@ -1713,7 +1789,12 @@ class ResearchWorkflow:
             error_code="provider" if synthesis_error else None,
         )
         if synthesis_error:
-            raise ProviderError(synthesis_error)
+            if synthesis_error == "missing_evidence":
+                raise ProviderError(
+                    "no retained or freshly extracted evidence",
+                    error_code=synthesis_error,
+                )
+            raise ProviderError(synthesis_error, error_code=synthesis_error)
         return {"brief": brief, "partial_reasons": list(state.get("partial_reasons", []))}
 
     async def _validate(self, state: GraphState) -> dict[str, ValidationReport]:
