@@ -33,7 +33,12 @@ from .contracts import (
     ValidationReport,
     ValidationStatus,
 )
-from .db import PostgresRepository, _redact_audit_metadata, run_migrations
+from .db import (
+    MIGRATION_VERSION,
+    PostgresRepository,
+    _redact_audit_metadata,
+    run_migrations,
+)
 from .diagnostics import (
     mcp_check,
     run_doctor,
@@ -654,7 +659,19 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
         )
         repository = _database(settings)
         health = repository.health()
-        stage("database", "pass", migration_version=health.get("migration_version"))
+        migration_version = health.get("migration_version")
+        if health.get("status") != "pass" or migration_version != MIGRATION_VERSION:
+            stage(
+                "database",
+                "blocked",
+                error_code="schema_migration_stale",
+                migration_version=migration_version,
+                expected_migration_version=MIGRATION_VERSION,
+            )
+            repository.close()
+            _print_json({"status": "blocked", "stages": stages})
+            return 2
+        stage("database", "pass", migration_version=migration_version)
     except (RuntimeError, ValueError) as error:
         stage("database", "blocked", message=error.__class__.__name__)
         _print_json({"status": "blocked", "stages": stages})
