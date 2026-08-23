@@ -236,4 +236,62 @@ describe("research API runtime validation", () => {
       error: "Research API returned malformed data",
     });
   });
+
+  it("rejects supported article insights without evidence", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      items: [{
+        source: {
+          url: "https://example.com/source",
+          title: "Source",
+          publisher: "Example",
+          published_at: null,
+          retrieved_at: "2026-08-19T00:00:00Z",
+          source_kind: "web",
+          snippet: "Snippet",
+          topics: [],
+          geographies: ["US"],
+          lane: "ports",
+          is_seed: false,
+          evidence_status: "unverified",
+        },
+        distillation: {
+          source_url: "https://example.com/source",
+          summary: "Summary",
+          key_points: ["Point one", "Point two"],
+          entities: [],
+          signals: [],
+          claims: [],
+          limitations: [],
+          published_at: null,
+          model_id: "google/gemma:free",
+          prompt_version: "distill-v6",
+          evidence_status: "mixed",
+          content_hash: "hash",
+          risk_assessment: {
+            status: "supported",
+            statement: "Supported risk",
+            why_it_matters: "Requires evidence",
+            next_step: "Add locator or excerpt",
+          },
+          opportunity_assessment: {
+            status: "not_observed",
+            statement: "No opening observed",
+            why_it_matters: "No action yet",
+            next_step: "Check next run",
+          },
+        },
+        claims: [],
+        source_hash: "hash",
+      }],
+      page: 1,
+      page_size: 24,
+      total: 1,
+      has_more: false,
+    }));
+
+    await expect(getResearchSourceExplorer()).resolves.toEqual({
+      status: "unavailable",
+      error: "Research API returned malformed data",
+    });
+  });
 });

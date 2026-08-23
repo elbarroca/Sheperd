@@ -590,10 +590,17 @@ function isResearchSignal(value: unknown): value is ResearchSignal {
 }
 
 function isArticleInsight(value: unknown): value is ArticleInsight {
-  return isRecord(value)
+  if (!(
+    isRecord(value)
     && hasStrings(value, ["status", "statement", "why_it_matters", "next_step"])
     && isOptional(value, "evidence_excerpt", isNullableString)
-    && isOptional(value, "evidence_locator", isNullableString);
+    && isOptional(value, "evidence_locator", isNullableString)
+  )) return false;
+  if (value.status !== "supported") return true;
+  return Boolean(
+    typeof value.evidence_excerpt === "string" && value.evidence_excerpt.trim()
+    || typeof value.evidence_locator === "string" && value.evidence_locator.trim(),
+  );
 }
 
 function isArticleDistillation(value: unknown): value is ArticleDistillation {

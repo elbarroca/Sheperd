@@ -79,14 +79,9 @@ function nextSteps(report: ReportPayload): string[] {
   }).slice(0, 3);
 }
 
-function readinessRatio(complete: number | undefined, total: number, label: string): string {
-  if (complete === undefined) return `${label}: Not recorded in this run`;
-  return `${complete}/${total} complete ${label}`;
-}
-
-function totalFromCompleteness(complete: number | undefined, ratio: number | undefined, fallback: number): number {
-  if (complete === undefined || ratio === undefined || ratio <= 0) return fallback;
-  return Math.max(complete, Math.round(complete / ratio));
+function readinessMetric(complete: number | undefined, ratio: number | undefined, label: string): string {
+  if (complete === undefined || ratio === undefined) return `${label}: Not recorded in this run`;
+  return `${complete} complete ${label.toLowerCase()} (${Math.round(ratio * 100)}%)`;
 }
 
 function scopeHref(scope: ArchiveScope): string {
@@ -145,12 +140,6 @@ export default async function HomePage({
   const history = weeklyReports.filter((report) => report.run_id !== featured?.run_id);
   const featuredDetail = featured ? await getWeeklyReport(featured.run_id, scope) : null;
   const featuredNextSteps = featuredDetail?.status === "ok" ? nextSteps(featuredDetail.data) : [];
-  const articleTotal = featured ? Math.max(featured.distillation_count, featured.source_count) : 0;
-  const sectionTotal = featured ? totalFromCompleteness(
-    featured.report_sections_complete,
-    featured.report_section_completeness,
-    5,
-  ) : 0;
 
   return (
     <div className="dashboard-page">
@@ -183,8 +172,8 @@ export default async function HomePage({
             <span>{featured.signal_count} signals</span>
             <span>{featured.regions.length} regions</span>
             <span>{featured.languages.length} languages</span>
-            <span>{readinessRatio(featured.complete_article_count, articleTotal, "article packets")}</span>
-            <span>{readinessRatio(featured.report_sections_complete, sectionTotal, "report sections")}</span>
+            <span>{readinessMetric(featured.complete_article_count, featured.article_insight_completeness, "Article packets")}</span>
+            <span>{readinessMetric(featured.report_sections_complete, featured.report_section_completeness, "Report sections")}</span>
             <span>Readiness: {featured.readiness_status ?? "legacy"}</span>
           </div>
           <Link

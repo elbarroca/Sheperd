@@ -211,6 +211,53 @@ describe("production report routes", () => {
     expect(markup).toContain("hash");
   });
 
+  it("renders empty source snippets as not recorded", async () => {
+    api.getResearchSourceExplorer.mockResolvedValue({
+      status: "ok",
+      data: {
+        items: [{
+          source: {
+            url: "https://example.com/empty-snippet",
+            title: "Empty snippet source",
+            publisher: "Example",
+            published_at: null,
+            retrieved_at: "2026-08-19T00:00:00Z",
+            source_kind: "web",
+            snippet: "",
+            topics: [],
+            geographies: ["US"],
+            lane: "ports",
+            is_seed: false,
+            evidence_status: "unverified",
+          },
+          distillation: null,
+          claims: [],
+          source_hash: null,
+        }],
+        page: 1,
+        page_size: 24,
+        total: 1,
+        has_more: false,
+      },
+    });
+    api.getResearchSourceFacets.mockResolvedValue({
+      status: "ok",
+      data: {
+        regions: [],
+        languages: [],
+        freshness: [],
+        authority: [],
+        source_types: [],
+        lanes: [],
+        evidence_states: [],
+      },
+    });
+
+    const markup = renderToStaticMarkup(await SourcesPage({ searchParams: Promise.resolve({}) }));
+
+    expect(markup).toContain("Snippet: Not recorded in this run.");
+  });
+
   it("orders the homepage by decision readiness and exposes real readiness metrics", async () => {
     api.getResearchHealth.mockResolvedValue({
       status: "ok",
@@ -290,8 +337,62 @@ describe("production report routes", () => {
     const markup = renderToStaticMarkup(await HomePage());
 
     expect(markup.indexOf("Ready report")).toBeLessThan(markup.indexOf("Partial report"));
-    expect(markup).toContain("2/3 complete article packets");
-    expect(markup).toContain("5/5 complete report sections");
+    expect(markup).toContain("2 complete article packets (67%)");
+    expect(markup).toContain("5 complete report sections (100%)");
     expect(markup).toContain("Latest decision-ready report");
+  });
+
+  it("renders unknown homepage readiness metrics as not recorded", async () => {
+    api.getResearchHealth.mockResolvedValue({
+      status: "ok",
+      data: { status: "pass", migration_version: "0010", branch_id: "main", database: "neondb" },
+    });
+    api.getDailyReports.mockResolvedValue({ status: "ok", data: { reports: [], count: 0 } });
+    api.getWeeklyReports.mockResolvedValue({
+      status: "ok",
+      data: {
+        reports: [{
+          run_id: "legacy-run",
+          title: "Legacy report",
+          covered_from: "2026-08-08",
+          covered_until: "2026-08-14",
+          review_state: "approved",
+          run_status: "succeeded",
+          validation_status: "pass",
+          source_count: 3,
+          distillation_count: 3,
+          claim_count: 5,
+          signal_count: 2,
+          regions: ["us"],
+          languages: ["en"],
+          lane_coverage: ["ports"],
+          models: ["model"],
+          as_of: "2026-08-14T00:00:00Z",
+          readiness_status: "decision_ready",
+          decision_ready: true,
+        }],
+        count: 1,
+      },
+    });
+    api.getWeeklyReport.mockResolvedValue({
+      status: "ok",
+      data: {
+        ...validReport,
+        brief: {
+          ...validReport.brief,
+          summary: "Legacy summary",
+          risks: [],
+          opportunities: [],
+          uncertainties: [],
+        },
+      },
+    });
+
+    const markup = renderToStaticMarkup(await HomePage());
+
+    expect(markup).toContain("Article packets: Not recorded in this run");
+    expect(markup).toContain("Report sections: Not recorded in this run");
+    expect(markup).not.toContain("0/3 complete article packets");
+    expect(markup).not.toContain("5 complete report sections");
   });
 });

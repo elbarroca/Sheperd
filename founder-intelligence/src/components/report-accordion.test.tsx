@@ -274,7 +274,8 @@ describe("ReportAccordion", () => {
     expect(markup).toContain("What this run tells us");
     expect(markup).toContain("Check the next port update before changing routing.");
     expect(markup).toContain("Which primary source confirms the timing?");
-    expect(markup).toContain("2/5");
+    expect(markup).toContain("Legacy quality snapshot");
+    expect(markup).toContain("not recorded");
   });
 
   it("blocks every state except succeeded with pass validation", () => {
@@ -283,6 +284,21 @@ describe("ReportAccordion", () => {
       run: report.run ? { ...report.run, status: "succeeded", error: null } : null,
       validation: report.validation ? { ...report.validation, status: "pass" } : null,
       readiness_status: "decision_ready",
+      quality: {
+        ready: true,
+        readiness_status: "decision_ready",
+        blocking_reasons: [],
+        quality_ready: true,
+        article_count: 1,
+        complete_article_count: 1,
+        article_insight_completeness: 1,
+        article_quality_issues: {},
+        source_distillation_coverage: 1,
+        report_section_count: 5,
+        report_sections_complete: 5,
+        report_section_completeness: 1,
+        report_quality_issues: [],
+      },
     };
     const blockedReports: ReportPayload[] = [
       { ...readyReport, run: readyReport.run ? { ...readyReport.run, status: "partial" } : null },
@@ -308,5 +324,24 @@ describe("ReportAccordion", () => {
 
     expect(markup).toContain("Legacy quality snapshot");
     expect(markup).toContain("Not recorded in this run");
+  });
+
+  it("blocks legacy decision-ready reports when quality completeness is missing", () => {
+    const markup = renderToStaticMarkup(
+      <ReportAccordion
+        report={{
+          ...report,
+          run: report.run ? { ...report.run, status: "succeeded", error: null } : null,
+          validation: report.validation ? { ...report.validation, status: "pass" } : null,
+          readiness_status: "decision_ready",
+          ready: true,
+          quality: undefined,
+        }}
+      />,
+    );
+
+    expect(markup).toContain("Review required");
+    expect(markup).toContain("Legacy quality snapshot");
+    expect(markup).not.toContain("Decision-ready report");
   });
 });

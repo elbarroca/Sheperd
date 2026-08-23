@@ -250,31 +250,23 @@ function SourceEvidence({ report }: { report: ReportPayload }) {
   );
 }
 
-function ReportQuality({ report, brief }: { report: ReportPayload; brief: WeeklyBrief }) {
-  const sections = [
-    ["Executive", brief.executive_bullets],
-    ["Developments", brief.developments],
-    ["Risks", brief.risks],
-    ["Opportunities", brief.opportunities],
-    ["Uncertainty", brief.uncertainties],
-  ] as const;
-  const completeSections = report.quality?.report_sections_complete
-    ?? sections.filter(([, bullets]) => bullets.length > 0).length;
+function ReportQuality({ report }: { report: ReportPayload }) {
+  const completeSections = report.quality?.report_sections_complete;
+  const sectionCount = report.quality?.report_section_count;
   const coverage = Math.round((report.validation?.citation_coverage ?? 0) * 100);
   const sectionCheck = report.validation?.checks.find((check) => check.name === "report_sections");
   const sectionComplete = report.quality?.report_section_completeness === 1
     && sectionCheck?.status !== "failed";
-  const completeArticles = report.quality?.complete_article_count
-    ?? report.distillations.filter((item) => item.quality_status === "complete").length;
-  const articleCount = report.quality?.article_count ?? report.distillations.length;
+  const completeArticles = report.quality?.complete_article_count;
+  const articleCount = report.quality?.article_count;
   return (
     <div className="report-quality" aria-label="Report quality">
-      <div><strong>{completeSections}/{sections.length}</strong><span>insight sections</span></div>
+      <div><strong>{completeSections === undefined || sectionCount === undefined ? "not recorded" : `${completeSections}/${sectionCount}`}</strong><span>insight sections</span></div>
       <div><strong>{coverage}%</strong><span>citation coverage</span></div>
       <div><strong>{report.sources.length}</strong><span>sources</span></div>
       <div><strong>{report.distillations.length}</strong><span>distillations</span></div>
       <div><strong>{report.claims.length}</strong><span>claims</span></div>
-      <div><strong>{completeArticles}/{articleCount}</strong><span>complete article insights</span></div>
+      <div><strong>{completeArticles === undefined || articleCount === undefined ? "not recorded" : `${completeArticles}/${articleCount}`}</strong><span>complete article insights</span></div>
       <div><strong>{sectionCheck?.status ?? "not recorded"}</strong><span>section validator</span></div>
       <p>{report.readiness_status === "decision_ready" && sectionComplete
         ? "All required insight sections and article packets are complete."
@@ -283,6 +275,20 @@ function ReportQuality({ report, brief }: { report: ReportPayload; brief: Weekly
       {report.blocking_reasons?.length ? <p className="muted">Blocking reasons: {report.blocking_reasons.join(", ")}</p> : null}
     </div>
   );
+}
+
+function hasCompleteQuality(report: ReportPayload): boolean {
+  const quality = report.quality;
+  return quality !== undefined
+    && quality.ready === true
+    && quality.quality_ready === true
+    && quality.readiness_status === "decision_ready"
+    && quality.article_count > 0
+    && quality.complete_article_count === quality.article_count
+    && quality.article_insight_completeness === 1
+    && quality.report_section_count > 0
+    && quality.report_sections_complete === quality.report_section_count
+    && quality.report_section_completeness === 1;
 }
 
 function briefSourceUrls(brief: WeeklyBrief): string[] {
@@ -377,6 +383,7 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
     report.readiness_status === "decision_ready"
     && runStatus === "succeeded"
     && validationStatus === "pass"
+    && hasCompleteQuality(report)
   );
   const headingLabel = report.run?.archived
     ? "Archived report"
@@ -425,7 +432,7 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
         <BulletList bullets={brief.developments} />
         <p className="lane-line">Coverage: {report.lane_coverage.join(", ") || "none recorded"}</p>
       </Section>
-      <ReportQuality report={report} brief={brief} />
+      <ReportQuality report={report} />
       <Section title="3. Risks / exposure and impact"><BulletList bullets={brief.risks} emptyLabel="No structured risk insight was recorded in this run." /></Section>
       <Section title="4. Opportunities / openings and next moves"><BulletList bullets={brief.opportunities} emptyLabel="No structured opportunity insight was recorded in this run." /></Section>
       <Section title="5. Uncertainty and follow-up research">
