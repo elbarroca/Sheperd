@@ -248,6 +248,24 @@ class ArticleDistillation(ContractModel):
             raise ValueError("source_language must be ISO-639-1/2 or und")
         return normalized
 
+    @field_validator("evidence_excerpts")
+    @classmethod
+    def validate_evidence_excerpts(cls, value: list[str]) -> list[str]:
+        for excerpt in value:
+            if len(excerpt) > 320 or len(excerpt.split()) > 40:
+                raise ValueError(
+                    "evidence_excerpts entries must be at most 320 characters and 40 words"
+                )
+        return value
+
+    @field_validator("evidence_locators")
+    @classmethod
+    def validate_evidence_locators(cls, value: list[str]) -> list[str]:
+        for locator in value:
+            if len(locator) > 300:
+                raise ValueError("evidence_locators entries must be at most 300 characters")
+        return value
+
     @model_validator(mode="after")
     def populate_insight_packet(self) -> Self:
         if not self.insight_packet:

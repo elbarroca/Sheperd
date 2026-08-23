@@ -172,6 +172,45 @@ def test_validation_requires_europe_geography() -> None:
     )
 
 
+def test_validation_blocking_reasons_cover_strict_gate_failures() -> None:
+    source = SourceCandidate(
+        url="https://example.com/failed-source",
+        extraction_status=ExtractionStatus.FAILED,
+        geographies=["Mexico"],
+        lane="regulatory",
+        region="north_america",
+        language_code="en",
+    )
+    report = build_validation_report(
+        "strict-gates",
+        [source],
+        [],
+        datetime(2026, 8, 19, tzinfo=UTC),
+        "openrouter/paid-model",
+        {"regulatory": "failed"},
+        ["hash-1"],
+        minimum_sources=2,
+        minimum_claims=1,
+        tool_call_count=0,
+        required_tool_lanes={"regulatory": False},
+        distillations=[],
+        required_geographies={"Europe"},
+        required_lanes={"regulatory", "us-ports"},
+    )
+
+    assert {
+        "insufficient_sources",
+        "insufficient_claims",
+        "extraction_failed",
+        "incomplete_geography_coverage",
+        "incomplete_lane_coverage",
+        "model_policy_failed",
+        "missing_tool_receipts",
+        "missing_required_tool_calls",
+    }.issubset(report.blocking_reasons)
+    assert "stale_validation" not in report.blocking_reasons
+
+
 def test_legacy_incomplete_distillation_cannot_remain_pass() -> None:
     sources = _sources()
     claims = [

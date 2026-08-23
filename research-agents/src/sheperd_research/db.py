@@ -3442,25 +3442,11 @@ class PostgresRepository:
         if run_status_value is not None:
             clauses.append("rr.status = %s")
             params.append(run_status_value)
-        if ready_only:
-            clauses.extend(
-                [
-                    "rr.status = 'succeeded'",
-                    "COALESCE(vc.status, 'blocked') = 'pass'",
-                    "EXISTS (SELECT 1 FROM article_distillations ad_ready "
-                    "WHERE ad_ready.run_id = wb.run_id)",
-                    "NOT EXISTS (SELECT 1 FROM article_distillations ad_incomplete "
-                    "WHERE ad_incomplete.run_id = wb.run_id "
-                    "AND COALESCE(ad_incomplete.quality_status, 'incomplete') <> 'complete')",
-                    "jsonb_array_length(COALESCE(wb.executive_bullets, '[]'::jsonb)) > 0",
-                    "jsonb_array_length(COALESCE(wb.developments, '[]'::jsonb)) > 0",
-                    "jsonb_array_length(COALESCE(wb.risks, '[]'::jsonb)) > 0",
-                    "jsonb_array_length(COALESCE(wb.opportunities, '[]'::jsonb)) > 0",
-                    "jsonb_array_length(COALESCE(wb.uncertainties, '[]'::jsonb)) > 0",
-                    "jsonb_array_length(COALESCE(wb.follow_up_questions, '[]'::jsonb)) > 0",
-                ]
-            )
-        params.extend((max(1, min(limit, 1000)), max(0, offset)))
+        bounded_limit = max(1, min(limit, 1000))
+        bounded_offset = max(0, offset)
+        query_limit = 1000 if ready_only else bounded_limit
+        query_offset = 0 if ready_only else bounded_offset
+        params.extend((query_limit, query_offset))
         rows = self._execute(
             """
             SELECT wb.run_id, wb.title, wb.covered_from, wb.covered_until,
@@ -3557,8 +3543,9 @@ class PostgresRepository:
             "models", "as_of", "archived_at", "archive_reason", "complete_article_count",
             "article_insight_completeness", "report_sections_complete", "readiness_status",
         )
-        return [
-            {
+        summaries: list[dict[str, object]] = []
+        for row in rows:
+            summary = {
                 **dict(zip(fields, row, strict=True)),
                 "archived": row[16] is not None,
                 "regions": sorted(set(_row_strings(row[11]))),
@@ -3566,8 +3553,30 @@ class PostgresRepository:
                 "lane_coverage": sorted(set(_row_strings(row[13]))),
                 "models": sorted(set(_row_strings(row[14]))),
             }
-            for row in rows
-        ]
+            run_id = cast(str, summary["run_id"])
+            brief = self.get_brief(run_id)
+            quality = quality_metrics(
+                self.get_run_sources(run_id),
+                self.get_run_distillations(run_id),
+                brief,
+            )
+            decision_ready = (
+                summary["run_status"] == RunStatus.SUCCEEDED.value
+                and summary["validation_status"] == ValidationStatus.PASS.value
+                and quality["quality_ready"] is True
+            )
+            summary.update(quality)
+            summary["readiness_status"] = (
+                "decision_ready" if decision_ready else "review_required"
+            )
+            summary["decision_ready"] = decision_ready
+            summaries.append(summary)
+        if ready_only:
+            summaries = [
+                summary for summary in summaries if summary["decision_ready"] is True
+            ]
+            return summaries[bounded_offset : bounded_offset + bounded_limit]
+        return summaries
 
     def count_brief_summaries(
         self,
@@ -3580,6 +3589,20 @@ class PostgresRepository:
         ready_only: bool = False,
         archive_scope: ArchiveScope = "active",
     ) -> int:
+        if ready_only:
+            return len(
+                self.list_brief_summaries(
+                    review_state=review_state,
+                    cadence=cadence,
+                    since=since,
+                    until=until,
+                    run_status=run_status,
+                    ready_only=True,
+                    archive_scope=archive_scope,
+                    limit=1000,
+                )
+            )
+
         clauses = ["TRUE"]
         params: list[object] = []
         if review_state is not None:
@@ -3599,24 +3622,6 @@ class PostgresRepository:
         if run_status_value is not None:
             clauses.append("rr.status = %s")
             params.append(run_status_value)
-        if ready_only:
-            clauses.extend(
-                [
-                    "rr.status = 'succeeded'",
-                    "COALESCE(vc.status, 'blocked') = 'pass'",
-                    "EXISTS (SELECT 1 FROM article_distillations ad_ready "
-                    "WHERE ad_ready.run_id = wb.run_id)",
-                    "NOT EXISTS (SELECT 1 FROM article_distillations ad_incomplete "
-                    "WHERE ad_incomplete.run_id = wb.run_id "
-                    "AND COALESCE(ad_incomplete.quality_status, 'incomplete') <> 'complete')",
-                    "jsonb_array_length(COALESCE(wb.executive_bullets, '[]'::jsonb)) > 0",
-                    "jsonb_array_length(COALESCE(wb.developments, '[]'::jsonb)) > 0",
-                    "jsonb_array_length(COALESCE(wb.risks, '[]'::jsonb)) > 0",
-                    "jsonb_array_length(COALESCE(wb.opportunities, '[]'::jsonb)) > 0",
-                    "jsonb_array_length(COALESCE(wb.uncertainties, '[]'::jsonb)) > 0",
-                    "jsonb_array_length(COALESCE(wb.follow_up_questions, '[]'::jsonb)) > 0",
-                ]
-            )
         rows = self._execute(
             "SELECT count(*) FROM weekly_briefs wb "
             "JOIN research_runs rr ON rr.run_id = wb.run_id "

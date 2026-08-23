@@ -254,6 +254,7 @@ def validate_article_distillation_quality(
         issues.append("claims_incomplete")
     else:
         for index, claim in enumerate(distillation.claims, start=1):
+            _required_insight_text(claim.claim, f"claim_{index}", issues)
             if not claim.source_urls:
                 issues.append(f"claim_{index}_missing_citation")
             if (
@@ -266,6 +267,10 @@ def validate_article_distillation_quality(
         for item in [*distillation.evidence_excerpts, *distillation.evidence_locators]
     ):
         issues.append("missing_evidence_locator")
+    if any(_is_placeholder(item) for item in distillation.evidence_excerpts):
+        issues.append("placeholder_evidence_excerpt")
+    if any(_is_placeholder(item) for item in distillation.evidence_locators):
+        issues.append("placeholder_evidence_locator")
     _required_insight_text(distillation.what_happened, "what_happened", issues)
     _required_insight_text(distillation.why_it_matters, "why_it_matters", issues)
     if not distillation.uncertainties or not all(

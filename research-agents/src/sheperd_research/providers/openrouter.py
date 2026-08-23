@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
 from datetime import datetime
 from time import monotonic
@@ -17,7 +17,7 @@ from langchain.agents.structured_output import ToolStrategy
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool, StructuredTool
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from ..contracts import (
     ArticleDistillation,
@@ -135,6 +135,24 @@ class ArticleOutput(BaseModel):
     translation_status: TranslationStatus = TranslationStatus.NOT_NEEDED
     evidence_excerpts: list[str] = Field(default_factory=list, max_length=8)
     evidence_locators: list[str] = Field(default_factory=list, max_length=8)
+
+    @field_validator("evidence_excerpts")
+    @classmethod
+    def validate_evidence_excerpts(cls, value: list[str]) -> list[str]:
+        for excerpt in value:
+            if len(excerpt) > 320 or len(excerpt.split()) > 40:
+                raise ValueError(
+                    "evidence_excerpts entries must be at most 320 characters and 40 words"
+                )
+        return value
+
+    @field_validator("evidence_locators")
+    @classmethod
+    def validate_evidence_locators(cls, value: list[str]) -> list[str]:
+        for locator in value:
+            if len(locator) > 300:
+                raise ValueError("evidence_locators entries must be at most 300 characters")
+        return value
 
 
 class AgentReportBullet(BaseModel):
@@ -908,6 +926,7 @@ class OpenRouterProvider:
         tool_provider_metadata_by_input: dict[str, dict[str, object]] | None = None,
         tool_failure_sink: list[dict[str, object]] | None = None,
         runtime_tool_receipts: list[dict[str, object]] | None = None,
+        validate_output: Callable[[OutputT], None] | None = None,
     ) -> OutputT:
         last_error: BaseException | None = None
         last_error_code: str | None = None
@@ -1020,6 +1039,8 @@ class OpenRouterProvider:
                     output = schema.model_validate(
                         self._structured_response(result, operation)
                     )
+                    if validate_output is not None:
+                        validate_output(output)
                     raw = self._last_message(result)
                     metadata = self._metadata_from_raw(raw)
                     resolved_model = self._require_resolved_model(metadata, model_name)
@@ -1133,6 +1154,7 @@ class OpenRouterProvider:
         tool_provider_metadata_by_input: dict[str, dict[str, object]] | None = None,
         tool_failure_sink: list[dict[str, object]] | None = None,
         runtime_tool_receipts: list[dict[str, object]] | None = None,
+        validate_output: Callable[[OutputT], None] | None = None,
     ) -> OutputT:
         return await self._invoke_agent(
             schema,
@@ -1146,6 +1168,7 @@ class OpenRouterProvider:
             tool_provider_metadata_by_input=tool_provider_metadata_by_input,
             tool_failure_sink=tool_failure_sink,
             runtime_tool_receipts=runtime_tool_receipts,
+            validate_output=validate_output,
         )
 
     async def discover_lane(
@@ -1608,21 +1631,19 @@ class OpenRouterProvider:
             f"SOURCE URL: {source.url}\nTITLE: {source.title}\n"
             f"PUBLISHER: {source.publisher}\nCONTENT:\n{content[:MAX_SOURCE_CONTENT_CHARS]}"
         )
-        try:
-            output = await self._invoke_structured(
-                ArticleOutput,
-                prompt,
-                prompt_version=prompt_version,
-                operation="distillation",
-            )
-            metadata = self.current_call_metadata()
+
+        def article_from_output(
+            output: ArticleOutput,
+            *,
+            model_id: str,
+        ) -> ArticleDistillation:
             translation_status = output.translation_status
             if (
                 output.source_language not in {"en", "und"}
                 and translation_status is TranslationStatus.NOT_NEEDED
             ):
                 translation_status = TranslationStatus.FAILED
-            distillation = ArticleDistillation(
+            return ArticleDistillation(
                 source_url=source.url,
                 summary=output.summary,
                 key_points=output.key_points[:MAX_KEY_POINTS_PER_SOURCE],
@@ -1631,10 +1652,7 @@ class OpenRouterProvider:
                 claims=output.claims[:MAX_CLAIMS_PER_SOURCE],
                 limitations=output.limitations,
                 published_at=source.published_at,
-                model_id=self._require_resolved_model(
-                    metadata,
-                    str(metadata.get("requested_model", self.model_name)),
-                ),
+                model_id=model_id,
                 prompt_version=prompt_version,
                 source_language=output.source_language,
                 summary_original=output.summary_original or output.summary,
@@ -1654,6 +1672,32 @@ class OpenRouterProvider:
                     if output.source_language not in {"en", "und"}
                     and translation_status is TranslationStatus.FAILED
                     else EvidenceStatus.MIXED
+                ),
+            )
+
+        def validate_article_output(output: ArticleOutput) -> None:
+            quality_issues = validate_article_distillation_quality(
+                article_from_output(output, model_id=self.model_name)
+            )
+            if quality_issues:
+                raise ValueError(
+                    "malformed article insight packet: " + ", ".join(quality_issues)
+                )
+
+        try:
+            output = await self._invoke_structured(
+                ArticleOutput,
+                prompt,
+                prompt_version=prompt_version,
+                operation="distillation",
+                validate_output=validate_article_output,
+            )
+            metadata = self.current_call_metadata()
+            distillation = article_from_output(
+                output,
+                model_id=self._require_resolved_model(
+                    metadata,
+                    str(metadata.get("requested_model", self.model_name)),
                 ),
             )
             quality_issues = validate_article_distillation_quality(distillation)

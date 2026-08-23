@@ -35,10 +35,23 @@ REQUIRED_REGIONS = frozenset(
 
 _CHECK_REASON_MAP = {
     "article_insight_completeness": "incomplete_article_insights",
-    "source_distillation_completeness": "incomplete_source_distillation",
+    "agent_tool_calls": "missing_tool_receipts",
     "citation_coverage": "missing_citation",
-    "report_sections": "empty_report_section",
+    "content_hashes": "duplicate_source_hash",
     "evidence_quality": "missing_evidence_locator",
+    "extraction_status": "extraction_failed",
+    "free_model": "model_policy_failed",
+    "geography_coverage": "incomplete_geography_coverage",
+    "lane_coverage": "incomplete_lane_coverage",
+    "minimum_claims": "insufficient_claims",
+    "minimum_sources": "insufficient_sources",
+    "publication_dates": "invalid_publication_dates",
+    "regional_coverage": "incomplete_regional_coverage",
+    "report_sections": "empty_report_section",
+    "required_tool_calls": "missing_required_tool_calls",
+    "seed_verified_claims": "seed_only_verified_claim",
+    "source_distillation_completeness": "incomplete_source_distillation",
+    "verified_claims": "unsupported_verified_claim",
 }
 
 
@@ -56,6 +69,8 @@ def validation_blocking_reasons(report: ValidationReport) -> list[str]:
             reasons.add("missing_citation")
         if "evidence" in check.message.lower() and check.name != "evidence_quality":
             reasons.add("missing_evidence_locator")
+        if "provider" in check.message.lower() or "tool" in check.message.lower():
+            reasons.add("provider_observability_failed")
     if (
         getattr(report, "status", ValidationStatus.BLOCKED) is not ValidationStatus.PASS
         and not reasons

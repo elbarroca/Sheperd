@@ -11,7 +11,9 @@ from psycopg import OperationalError
 from sheperd_research.contracts import (
     ArticleDistillation,
     ClaimDraft,
+    DistillationQualityStatus,
     EvidenceStatus,
+    ExtractionStatus,
     ReportBullet,
     ResearchRunRequest,
     RunStatus,
@@ -19,6 +21,7 @@ from sheperd_research.contracts import (
     SourceCandidate,
     ValidationReport,
     ValidationStatus,
+    WeeklyBrief,
 )
 from sheperd_research.db import InMemoryRepository, PostgresRepository, run_migrations
 
@@ -266,6 +269,93 @@ def test_repositories_redact_raw_step_metadata_before_persistence() -> None:
     assert "prompt" not in persisted
     assert "reasoning" not in persisted
     assert "api_key" not in persisted
+
+
+def test_postgres_brief_summaries_recompute_readiness_from_persisted_evidence() -> None:
+    repository = PostgresRepository(Mock())
+    source_url = "https://example.com/postgres-summary"
+    covered_at = datetime(2026, 8, 19, tzinfo=UTC)
+    row = (
+        "run-1",
+        "Stored ready summary",
+        covered_at,
+        covered_at,
+        "draft",
+        RunStatus.SUCCEEDED.value,
+        ValidationStatus.PASS.value,
+        1,
+        1,
+        1,
+        0,
+        ["global"],
+        ["en"],
+        ["regulatory"],
+        ["google/gemma-4-26b-a4b-it:free"],
+        covered_at,
+        None,
+        None,
+        1,
+        1.0,
+        5,
+        "decision_ready",
+    )
+    brief = WeeklyBrief(
+        run_id="run-1",
+        title="Stored ready summary",
+        covered_from=covered_at,
+        covered_until=covered_at,
+        summary="Brief summary.",
+        executive_bullets=[ReportBullet(text="Executive.", source_urls=[source_url])],
+        developments=[ReportBullet(text="Development.", source_urls=[source_url])],
+        risks=[
+            ReportBullet(
+                text="Risk.",
+                source_urls=[source_url],
+                why_it_matters="Risk context.",
+                next_step="Monitor the source.",
+            )
+        ],
+        opportunities=[
+            ReportBullet(
+                text="Opportunity.",
+                source_urls=[source_url],
+                why_it_matters="Opportunity context.",
+                next_step="Monitor the source.",
+            )
+        ],
+        uncertainties=[
+            ReportBullet(
+                text="Uncertainty.",
+                source_urls=[source_url],
+                why_it_matters="Uncertainty context.",
+                next_step="Monitor the source.",
+            )
+        ],
+        follow_up_questions=["What should be verified next?"],
+    )
+    source = SourceCandidate(
+        url=source_url,
+        extraction_status=ExtractionStatus.SUCCEEDED,
+    )
+    incomplete_distillation = ArticleDistillation(
+        source_url=source_url,
+        summary="unknown",
+        key_points=["Point one", "Point two"],
+        quality_status=DistillationQualityStatus.COMPLETE,
+    )
+
+    with (
+        patch.object(repository, "_execute", return_value=[row]),
+        patch.object(repository, "get_brief", return_value=brief),
+        patch.object(repository, "get_run_sources", return_value=[source]),
+        patch.object(repository, "get_run_distillations", return_value=[incomplete_distillation]),
+    ):
+        summaries = repository.list_brief_summaries()
+
+    assert summaries[0]["readiness_status"] == "review_required"
+    assert summaries[0]["decision_ready"] is False
+    assert summaries[0]["complete_article_count"] == 0
+    assert "incomplete_article_insights" in summaries[0]["blocking_reasons"]
 
 
 def test_validation_revalidation_replaces_report_metadata_without_replacing_steps() -> None:

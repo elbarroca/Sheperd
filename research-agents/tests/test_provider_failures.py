@@ -452,6 +452,54 @@ def test_malformed_distillation_retries_with_a_corrective_prompt(
     assert [item["attempt"] for item in provider.call_history] == [1, 2]
 
 
+def test_semantic_article_quality_failure_retries_with_a_corrective_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompts: list[str] = []
+    source_url = "https://example.com/article"
+    malformed_article = {
+        **valid_article_response(source_url),
+        "claims": [{"claim": "unknown", "source_urls": [source_url]}],
+        "evidence_excerpts": ["tbd"],
+        "evidence_locators": ["unknown"],
+    }
+    outcomes: list[dict[str, object]] = [
+        {
+            "structured_response": malformed_article,
+            "messages": [RawResponse()],
+        },
+        {
+            "structured_response": valid_article_response(source_url),
+            "messages": [RawResponse()],
+        },
+    ]
+
+    class SequenceAgent:
+        async def ainvoke(
+            self,
+            payload: dict[str, object],
+            **_: object,
+        ) -> dict[str, object]:
+            messages = payload["messages"]
+            assert isinstance(messages, list)
+            prompts.append(str(messages[0]))
+            return outcomes.pop(0)
+
+    provider = _stub_provider()
+    provider._model_for = lambda _: object()
+    monkeypatch.setattr(openrouter_module, "create_agent", lambda **_: SequenceAgent())
+
+    result = asyncio.run(
+        provider.distill(SourceCandidate(url=source_url), "source body")
+    )
+
+    assert result.quality_status.value == "complete"
+    assert len(prompts) == 2
+    assert "CORRECTIVE RETRY" in prompts[1]
+    assert [item["attempt"] for item in provider.call_history] == [1, 2]
+    assert provider.call_history[0]["error_code"] == "malformed_output"
+
+
 def test_openrouter_distillation_prompt_is_source_bound(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
