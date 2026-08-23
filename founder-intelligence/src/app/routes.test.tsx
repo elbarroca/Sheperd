@@ -304,6 +304,7 @@ describe("production report routes", () => {
             review_state: "approved",
             run_status: "succeeded",
             validation_status: "pass",
+            validation_profile: "full",
             source_count: 3,
             distillation_count: 3,
             claim_count: 5,

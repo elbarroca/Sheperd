@@ -392,8 +392,10 @@ def test_uncertain_risk_or_opportunity_is_not_an_explicit_evidence_gap() -> None
 
     issues = validate_article_distillation_quality(distillation)
 
-    assert "invalid_risk_assessment_status" in issues
-    assert "invalid_opportunity_assessment_status" in issues
+    assert "invalid_risk_assessment_status" not in issues
+    assert "invalid_opportunity_assessment_status" not in issues
+    assert "risk_assessment_missing_evidence" not in issues
+    assert "opportunity_assessment_missing_evidence" not in issues
 
 
 def test_article_fulfillment_reports_persistence_and_missing_quality() -> None:
@@ -427,6 +429,46 @@ def test_article_fulfillment_marks_extracted_only_sources() -> None:
 
     assert fulfillment["status"] == "extracted_only"
     assert fulfillment["missing_fields"] == ["distillation"]
+
+
+def test_article_fulfillment_marks_duplicate_distillations_incomplete() -> None:
+    distillation = ArticleDistillation(
+        source_url="https://example.com/article",
+        summary="Summary",
+        key_points=["Point one", "Point two"],
+        claims=[ClaimDraft(claim="A claim.", source_urls=["https://example.com/article"])],
+        what_happened="The source reports a development.",
+        why_it_matters="It changes the operating picture.",
+        risk_assessment=ArticleInsight(
+            status=InsightStatus.NOT_OBSERVED,
+            statement="No supported risk was observed.",
+            why_it_matters="The source does not establish a risk.",
+            next_step="Check another source.",
+        ),
+        opportunity_assessment=ArticleInsight(
+            status=InsightStatus.NOT_OBSERVED,
+            statement="No supported opportunity was observed.",
+            why_it_matters="The source does not establish an opportunity.",
+            next_step="Check another source.",
+        ),
+        uncertainties=["The source has limited scope."],
+        next_steps=["Check another source."],
+        evidence_locators=["paragraph 2"],
+        quality_status=DistillationQualityStatus.COMPLETE,
+    )
+
+    fulfillment = article_fulfillment(
+        distillation.source_url,
+        source_persisted=True,
+        extracted=True,
+        distillation=distillation,
+        distillation_count=2,
+    )
+
+    assert fulfillment["status"] == "incomplete"
+    assert fulfillment["complete"] is False
+    assert "duplicate_distillation" in fulfillment["missing_fields"]
+    assert "duplicate_distillation" in fulfillment["quality_issues"]
 
 
 def test_placeholder_article_fields_are_incomplete() -> None:

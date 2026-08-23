@@ -6,6 +6,43 @@ Blocked for production readiness. The scoped integration defects and remaining T
 
 No shared branch push, production promotion, report approval, or report export was performed.
 
+## Whole-branch review fixes, 2026-08-23
+
+### Static status
+
+- Backend health now fails closed when the applied schema migration is missing or not exactly `0013_run_sources`. `/api/health` returns HTTP 503 with structured blocked health for stale schema and redacted unavailable 503 for runtime database errors.
+- Weekly, daily, report detail, run audit, monthly, and source API database failures now return redacted structured HTTP 503 responses. Raw `UndefinedTable`, SQL text, table names, credentials, and exception messages are not exposed.
+- Top-level `decision_ready` now requires `validation_profile=full`, succeeded run, pass validation, complete evidence/report quality, and `brief.review_state=approved`. Canary and global-canary remain evidence output only.
+- Detail, list, and audit readiness use the same stable quality blocker derivation for article/report quality, duplicate distillations, missing citations/evidence, provider validation errors, and stale validation.
+- `InsightStatus.UNCERTAIN` is supported as an explicit evidence-gap state. It is not a supported claim and does not require evidence excerpt/locator.
+- Duplicate article distillations for the same source/run mark fulfillment incomplete with `duplicate_distillation`; frontend fulfillment text renders the issue.
+- Draft briefs remain visible, but the UI no longer labels them decision-ready. Review-gated export remains separate.
+
+### Verification, 2026-08-23
+
+Backend, from `research-agents/`:
+
+- `uv run ruff check .` -> pass.
+- `uv run mypy src` -> pass, no issues in 23 source files.
+- `uv run pytest` -> pass, 223 tests.
+- `uv lock --check` -> pass, 67 packages resolved.
+
+Frontend, from `founder-intelligence/`:
+
+- `pnpm lint` -> pass.
+- `pnpm typecheck` -> pass.
+- `pnpm test` -> pass, 3 files / 39 tests.
+- `pnpm build` -> pass, Next 16.2.10 production build.
+
+Local frontend caveat remains: pnpm warns that the shell is Node `v26.0.0` while the project declares Node `24.x`; commands exited 0.
+
+### Runtime status
+
+- No Neon migration was run.
+- No live providers were called.
+- No deploy, push, report approval, or export was performed.
+- Runtime production readiness remains blocked until the target database applies `0013_run_sources`, provider health/capacity is rechecked, host MCP checks are available, a valid canary run ID is supplied for E2E, and protected preview/API access is verified.
+
 ## Checkout
 
 - Repository: `/Users/barroca888/Downloads/Dev/Partners/Mikey/SheperD`

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -225,6 +226,52 @@ def test_dashboard_exposes_read_only_run_source_and_brief_views() -> None:
     assert [report["run_id"] for report in daily.json()["reports"]] == ["daily-run"]
 
 
+def test_blocked_health_returns_structured_503_without_secrets() -> None:
+    repository = InMemoryRepository()
+    repository.health = lambda: {  # type: ignore[method-assign]
+        "status": "blocked",
+        "database": "neondb",
+        "migration_version": "0012_article_insight_quality",
+        "expected_migration_version": "0013_run_sources",
+        "blocking_reasons": ["schema_migration_stale"],
+    }
+
+    response = TestClient(create_app(repository)).get("/api/health")
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["status"] == "blocked"
+    assert payload["expected_migration_version"] == "0013_run_sources"
+    assert "schema_migration_stale" in payload["blocking_reasons"]
+    assert "secret" not in response.text.lower()
+
+
+def test_db_backed_api_failures_return_redacted_unavailable_503() -> None:
+    repository = InMemoryRepository()
+    secret_error = RuntimeError("UndefinedTable: relation run_sources with PASSWORD_SECRET")
+
+    client = TestClient(create_app(repository))
+
+    with patch.object(repository, "list_brief_summaries", side_effect=secret_error):
+        weekly = client.get("/api/reports/weekly")
+    with patch.object(repository, "count_brief_summaries", side_effect=secret_error):
+        daily = client.get("/api/reports/daily")
+    with patch.object(repository, "get_brief", side_effect=secret_error):
+        report = client.get("/api/reports/weekly/run-1")
+    with patch.object(repository, "list_source_explorer", side_effect=secret_error):
+        sources = client.get("/api/sources/explorer")
+
+    for response in (weekly, daily, report, sources):
+        assert response.status_code == 503
+        assert response.json() == {
+            "status": "unavailable",
+            "error": "database_unavailable",
+            "error_type": "RuntimeError",
+        }
+        assert "PASSWORD_SECRET" not in response.text
+        assert "run_sources" not in response.text
+
+
 def test_api_sources_honors_offset_pagination() -> None:
     repository = InMemoryRepository()
     repository.record_source(SourceCandidate(url="https://example.com/one", title="One"))
@@ -381,7 +428,7 @@ def test_weekly_summaries_are_ready_first_and_paginated() -> None:
             opportunities=[bullet],
             uncertainties=[bullet],
             follow_up_questions=["What independent evidence follows?"],
-            review_state=ReviewState.DRAFT,
+            review_state=ReviewState.APPROVED,
         )
     )
 
@@ -409,11 +456,70 @@ def test_weekly_summaries_are_ready_first_and_paginated() -> None:
     assert "empty_report_section" in draft_report["blocking_reasons"]
 
 
+def test_canary_profile_never_becomes_decision_ready() -> None:
+    repository = InMemoryRepository()
+    run_id = "canary-ready-run"
+    source_url = "https://example.com/canary-ready"
+    repository.create_run(
+        run_id,
+        ResearchRunRequest(topic_set="dnd-port", validation_profile="canary"),
+    )
+    repository.update_run_status(run_id, RunStatus.SUCCEEDED)
+    repository.record_validation(ValidationReport(run_id=run_id, status=ValidationStatus.PASS))
+    source = repository.record_source(
+        SourceCandidate(url=source_url, extraction_status=ExtractionStatus.SUCCEEDED)
+    )
+    repository.record_snapshot(run_id, source, "bounded source body")
+    article = _complete_article(source_url)
+    repository.record_claims(run_id, article.claims)
+    repository.record_distillation(run_id, article)
+    repository.record_brief(
+        _complete_brief(run_id, source_url).model_copy(
+            update={"review_state": ReviewState.APPROVED}
+        )
+    )
+
+    report = TestClient(create_app(repository)).get("/api/reports/weekly").json()["reports"][0]
+
+    assert report["validation_profile"] == "canary"
+    assert report["quality_report_ready"] is True
+    assert report["readiness_status"] == "review_required"
+    assert report["decision_ready"] is False
+    assert "validation_profile_not_full" in report["blocking_reasons"]
+
+
+def test_draft_report_keeps_evidence_ready_but_not_decision_ready() -> None:
+    repository = InMemoryRepository()
+    run_id = "draft-ready-run"
+    source_url = "https://example.com/draft-ready"
+    repository.create_run(run_id, ResearchRunRequest(topic_set="dnd-port"))
+    repository.update_run_status(run_id, RunStatus.SUCCEEDED)
+    repository.record_validation(ValidationReport(run_id=run_id, status=ValidationStatus.PASS))
+    source = repository.record_source(
+        SourceCandidate(url=source_url, extraction_status=ExtractionStatus.SUCCEEDED)
+    )
+    repository.record_snapshot(run_id, source, "bounded source body")
+    article = _complete_article(source_url)
+    repository.record_claims(run_id, article.claims)
+    repository.record_distillation(run_id, article)
+    repository.record_brief(_complete_brief(run_id, source_url))
+
+    detail = TestClient(create_app(repository)).get(f"/api/reports/weekly/{run_id}").json()
+
+    assert detail["quality"]["quality_ready"] is True
+    assert detail["quality"]["ready"] is False
+    assert detail["readiness_status"] == "review_required"
+    assert detail["ready"] is False
+    assert "brief_not_approved" in detail["blocking_reasons"]
+
+
 def test_summary_readiness_recomputes_from_canonical_quality_fields() -> None:
     summary = {
         "run_id": "stale-ready-run",
         "run_status": "succeeded",
         "validation_status": "pass",
+        "review_state": "approved",
+        "validation_profile": "full",
         "readiness_status": "decision_ready",
         "decision_ready": True,
         "quality_ready": True,
@@ -442,6 +548,8 @@ def test_summary_readiness_requires_canonical_article_count() -> None:
         "run_id": "missing-denominator-run",
         "run_status": "succeeded",
         "validation_status": "pass",
+        "review_state": "approved",
+        "validation_profile": "full",
         "readiness_status": "decision_ready",
         "decision_ready": True,
         "quality_ready": True,
@@ -467,6 +575,8 @@ def test_summary_readiness_accepts_decimal_complete_ratios() -> None:
             "run_id": "decimal-ready-run",
             "run_status": "succeeded",
             "validation_status": "pass",
+            "review_state": "approved",
+            "validation_profile": "full",
             "readiness_status": "decision_ready",
             "decision_ready": True,
             "quality_ready": True,
@@ -486,12 +596,42 @@ def test_summary_readiness_accepts_decimal_complete_ratios() -> None:
     assert result["report_section_completeness"] == 1.0
 
 
+def test_summary_readiness_requires_full_profile_and_approved_review() -> None:
+    ready_summary = {
+        "run_id": "profile-gated-run",
+        "run_status": "succeeded",
+        "validation_status": "pass",
+        "review_state": "approved",
+        "validation_profile": "full",
+        "readiness_status": "decision_ready",
+        "decision_ready": True,
+        "quality_ready": True,
+        "blocking_reasons": [],
+        "article_count": 1,
+        "complete_article_count": 1,
+        "article_insight_completeness": 1.0,
+        "report_section_count": 5,
+        "report_sections_complete": 5,
+        "report_section_completeness": 1.0,
+    }
+
+    canary = _summary_readiness({**ready_summary, "validation_profile": "canary"})
+    draft = _summary_readiness({**ready_summary, "review_state": "draft"})
+
+    assert canary["decision_ready"] is False
+    assert "validation_profile_not_full" in canary["blocking_reasons"]
+    assert draft["decision_ready"] is False
+    assert "brief_not_approved" in draft["blocking_reasons"]
+
+
 def test_summary_readiness_fails_closed_for_legacy_ready_flags() -> None:
     result = _summary_readiness(
         {
             "run_id": "legacy-ready-run",
             "run_status": "succeeded",
             "validation_status": "pass",
+            "review_state": "approved",
+            "validation_profile": "full",
             "readiness_status": "decision_ready",
             "decision_ready": True,
             "quality_ready": True,
@@ -584,7 +724,11 @@ def test_list_detail_and_audit_readiness_scope_non_seed_persisted_sources() -> N
     repository.record_claims(run_id, complete_article.claims)
     repository.record_distillation(run_id, complete_article)
     repository.record_distillation(run_id, _complete_article("https://example.com/orphan"))
-    repository.record_brief(_complete_brief(run_id, source_url))
+    repository.record_brief(
+        _complete_brief(run_id, source_url).model_copy(
+            update={"review_state": ReviewState.APPROVED}
+        )
+    )
 
     client = TestClient(create_app(repository))
     list_report = client.get("/api/reports/weekly").json()["reports"][0]

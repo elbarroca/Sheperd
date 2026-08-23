@@ -30,6 +30,7 @@ const report: ReportPayload = {
     error: "validation: blocked",
     neon_branch_id: "main",
     migration_version: "0008_audit_surfaces",
+    validation_profile: "full",
   },
   validation: {
     run_id: "blocked-run",
@@ -185,6 +186,49 @@ describe("ReportAccordion", () => {
     expect(markup).toContain("missing claims_incomplete");
   });
 
+  it("renders duplicate distillation fulfillment issues", () => {
+    const markup = renderToStaticMarkup(
+      <ReportAccordion
+        report={{
+          ...report,
+          quality: {
+            ready: false,
+            readiness_status: "review_required",
+            blocking_reasons: ["incomplete_article_insights", "duplicate_distillation"],
+            quality_ready: false,
+            article_count: 1,
+            complete_article_count: 0,
+            article_insight_completeness: 0,
+            article_quality_issues: { "https://example.com/source": ["duplicate_distillation"] },
+            source_distillation_coverage: 1,
+            report_section_count: 5,
+            report_sections_complete: 0,
+            report_section_completeness: 0,
+            report_quality_issues: [],
+            article_fulfillment: [{
+              source_url: "https://example.com/source",
+              status: "incomplete",
+              complete: false,
+              source_persisted: true,
+              extracted: true,
+              distillation_persisted: true,
+              claims_persisted: true,
+              claim_count: 1,
+              citation_count: 1,
+              citation_complete: true,
+              ui_displayable: true,
+              missing_fields: ["duplicate_distillation"],
+              quality_issues: ["duplicate_distillation"],
+            }],
+          },
+        }}
+      />,
+    );
+
+    expect(markup).toContain("Fulfillment: incomplete");
+    expect(markup).toContain("missing duplicate_distillation");
+  });
+
   it("renders report summaries as compact rows and labels archived reports", () => {
     const markup = renderToStaticMarkup(
       <ReportLink
@@ -230,6 +274,7 @@ describe("ReportAccordion", () => {
           review_state: "approved",
           run_status: "succeeded",
           validation_status: "pass",
+          validation_profile: "full",
           source_count: 2,
           distillation_count: 2,
           claim_count: 3,
@@ -263,6 +308,7 @@ describe("ReportAccordion", () => {
           review_state: "approved",
           run_status: "succeeded",
           validation_status: "pass",
+          validation_profile: "full",
           source_count: 2,
           distillation_count: 2,
           claim_count: 3,
@@ -336,6 +382,7 @@ describe("ReportAccordion", () => {
           review_state: "approved",
           run_status: "succeeded",
           validation_status: "pass",
+          validation_profile: "full",
           source_count: 2,
           distillation_count: 2,
           claim_count: 3,
@@ -363,6 +410,56 @@ describe("ReportAccordion", () => {
     );
 
     expect(markup).toContain("Decision-ready");
+  });
+
+  it("does not label canary or draft summaries decision-ready", () => {
+    const baseSummary = {
+      run_id: "gated-run",
+      title: "Gated summary",
+      covered_from: "2026-08-12T00:00:00Z",
+      covered_until: "2026-08-19T00:00:00Z",
+      review_state: "approved",
+      run_status: "succeeded",
+      validation_status: "pass",
+      source_count: 2,
+      distillation_count: 2,
+      claim_count: 3,
+      signal_count: 1,
+      regions: ["global"],
+      languages: ["en"],
+      lane_coverage: ["regulatory"],
+      models: ["model"],
+      as_of: "2026-08-19T00:00:00Z",
+      readiness_status: "decision_ready",
+      decision_ready: true,
+      blocking_reasons: [],
+      quality_ready: true,
+      quality_report_ready: true,
+      quality_readiness_status: "decision_ready",
+      quality_blocking_reasons: [],
+      article_count: 2,
+      complete_article_count: 2,
+      article_insight_completeness: 1,
+      report_section_count: 5,
+      report_sections_complete: 5,
+      report_section_completeness: 1,
+      validation_profile: "full",
+    };
+    const canary = renderToStaticMarkup(
+      <ReportLink
+        runId="canary-run"
+        summary={{ ...baseSummary, run_id: "canary-run", validation_profile: "canary" }}
+      />,
+    );
+    const draft = renderToStaticMarkup(
+      <ReportLink
+        runId="draft-run"
+        summary={{ ...baseSummary, run_id: "draft-run", review_state: "draft" }}
+      />,
+    );
+
+    expect(canary).not.toContain("Decision-ready");
+    expect(draft).not.toContain("Decision-ready");
   });
 
   it("blocks stale ready summaries when quality status fields are missing", () => {
@@ -467,6 +564,7 @@ describe("ReportAccordion", () => {
   it("blocks every state except succeeded with pass validation", () => {
     const readyReport: ReportPayload = {
       ...report,
+      brief: { ...report.brief, review_state: "approved" },
       run: report.run ? { ...report.run, status: "succeeded", error: null } : null,
       validation: report.validation ? { ...report.validation, status: "pass" } : null,
       ready: true,

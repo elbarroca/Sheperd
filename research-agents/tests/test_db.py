@@ -112,6 +112,38 @@ def test_migrations_enforce_the_exact_gemma_database_policy() -> None:
     assert "IS DISTINCT FROM 'google/gemma-4-26b-a4b-it:free'" in strict_migration
 
 
+def test_postgres_health_blocks_stale_or_missing_schema_migration() -> None:
+    repository = PostgresRepository(Mock(), neon_branch_id="branch-1")
+
+    with patch.object(
+        repository,
+        "_execute",
+        side_effect=[
+            [("neondb", "schema_migrations", "16.0")],
+            [("0012_article_insight_quality",)],
+        ],
+    ):
+        stale = repository.health()
+
+    assert stale["status"] == "blocked"
+    assert stale["database"] == "neondb"
+    assert stale["migration_version"] == "0012_article_insight_quality"
+    assert stale["expected_migration_version"] == "0013_run_sources"
+    assert "schema_migration_stale" in stale["blocking_reasons"]
+    assert "user" not in stale
+
+    with patch.object(
+        repository,
+        "_execute",
+        return_value=[("neondb", None, "16.0")],
+    ):
+        missing = repository.health()
+
+    assert missing["status"] == "blocked"
+    assert missing["migration_version"] is None
+    assert "schema_migration_missing" in missing["blocking_reasons"]
+
+
 def test_repository_filters_and_exposes_run_artifacts() -> None:
     repository = InMemoryRepository()
     request = ResearchRunRequest(
@@ -280,6 +312,7 @@ def test_postgres_brief_summaries_recompute_readiness_from_persisted_evidence() 
         covered_at,
         covered_at,
         "draft",
+        "full",
         RunStatus.SUCCEEDED.value,
         ValidationStatus.PASS.value,
         1,
@@ -337,6 +370,7 @@ def test_postgres_brief_summaries_restore_provider_blocking_reasons() -> None:
         covered_at,
         covered_at,
         "draft",
+        "full",
         RunStatus.FAILED.value,
         ValidationStatus.FAILED.value,
         1,
@@ -397,6 +431,7 @@ def test_postgres_brief_summaries_validate_report_section_text_and_counts() -> N
         covered_at,
         covered_at,
         "draft",
+        "full",
         RunStatus.SUCCEEDED.value,
         ValidationStatus.PASS.value,
         1,
@@ -448,6 +483,7 @@ def test_postgres_brief_summaries_return_production_ready_section_metrics() -> N
         covered_at,
         covered_at,
         "approved",
+        "full",
         RunStatus.SUCCEEDED.value,
         ValidationStatus.PASS.value,
         3,
@@ -496,6 +532,7 @@ def test_postgres_brief_summaries_scope_article_completeness_to_non_seed_sources
         covered_at,
         covered_at,
         "approved",
+        "full",
         RunStatus.SUCCEEDED.value,
         ValidationStatus.PASS.value,
         1,

@@ -4,6 +4,8 @@ type ReadinessSummary = Pick<
   WeeklyReportSummary,
   | "run_status"
   | "validation_status"
+  | "validation_profile"
+  | "review_state"
   | "readiness_status"
   | "decision_ready"
   | "quality_ready"
@@ -73,6 +75,8 @@ export function isDecisionReadySummary(summary: ReadinessSummary): boolean {
     && summary.readiness_status === "decision_ready"
     && summary.run_status === "succeeded"
     && summary.validation_status === "pass"
+    && summary.validation_profile === "full"
+    && summary.review_state === "approved"
     && hasNoBlockingReasons(summary.blocking_reasons)
     && qualityComplete;
 }
@@ -82,6 +86,8 @@ export function readinessSummaryFromReport(report: ReportPayload): ReadinessSumm
   return {
     run_status: report.run?.status ?? "missing",
     validation_status: report.validation?.status ?? "missing",
+    validation_profile: report.run?.validation_profile,
+    review_state: report.brief.review_state,
     readiness_status: report.readiness_status,
     decision_ready: report.ready,
     blocking_reasons: report.blocking_reasons,

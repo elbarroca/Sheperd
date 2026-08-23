@@ -12,4 +12,8 @@ def test_vercel_app_fails_closed_without_runtime_database(monkeypatch) -> None:
     response = client.get("/api/health")
 
     assert response.status_code == 503
-    assert response.json() == {"status": "blocked", "error": "RuntimeError"}
+    assert response.json() == {
+        "status": "unavailable",
+        "error": "database_unavailable",
+        "error_type": "RuntimeError",
+    }

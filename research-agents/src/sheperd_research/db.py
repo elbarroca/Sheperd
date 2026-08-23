@@ -254,6 +254,25 @@ def _is_archived(run: dict[str, object]) -> bool:
     return run.get("archived_at") is not None
 
 
+def validation_profile_from_run(run: dict[str, object] | None) -> str | None:
+    if run is None:
+        return None
+    request = run.get("request")
+    if isinstance(request, ResearchRunRequest):
+        return request.validation_profile
+    if isinstance(request, dict):
+        value = request.get("validation_profile")
+        return value if isinstance(value, str) else None
+    if isinstance(request, str):
+        try:
+            payload = json.loads(request)
+        except json.JSONDecodeError:
+            return None
+        value = payload.get("validation_profile") if isinstance(payload, dict) else None
+        return value if isinstance(value, str) else None
+    return None
+
+
 def _safe_audit_string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -1083,6 +1102,11 @@ class InMemoryRepository:
                 ),
                 None,
             )
+            distillation_count = sum(
+                1
+                for (run_id, url) in self.distillations
+                if url == normalized_url and run_id in self.runs
+            )
             claims = [
                 claim
                 for (run_id, _, _), claim in self.claims.items()
@@ -1104,6 +1128,7 @@ class InMemoryRepository:
                         extracted=source.extraction_status.value == "succeeded",
                         distillation=distillation,
                         claims=claims,
+                        distillation_count=distillation_count,
                     ),
                 }
             )
@@ -1482,6 +1507,7 @@ class InMemoryRepository:
             return value if isinstance(value, str) else None
 
         def is_ready(brief: WeeklyBrief) -> bool:
+            run = self.runs.get(brief.run_id, {})
             validation = self.validations.get(brief.run_id)
             validation_value = getattr(
                 getattr(validation, "status", ValidationStatus.BLOCKED),
@@ -1496,6 +1522,8 @@ class InMemoryRepository:
             return (
                 run_value(brief) == RunStatus.SUCCEEDED.value
                 and validation_value == ValidationStatus.PASS.value
+                and brief.review_state is ReviewState.APPROVED
+                and validation_profile_from_run(run) == "full"
                 and quality["quality_ready"] is True
             )
 
@@ -1562,6 +1590,9 @@ class InMemoryRepository:
                 "covered_from": brief.covered_from,
                 "covered_until": brief.covered_until,
                 "review_state": brief.review_state.value,
+                "validation_profile": validation_profile_from_run(
+                    self.runs.get(brief.run_id, {})
+                ),
                 "run_status": self.runs.get(brief.run_id, {}).get("status"),
                 "validation_status": getattr(
                     self.validations.get(brief.run_id), "status", ValidationStatus.BLOCKED
@@ -3329,6 +3360,7 @@ class PostgresRepository:
         urls = [normalize_url(source.url) for source in sources]
         snapshots: dict[str, str] = {}
         distillations: dict[str, ArticleDistillation] = {}
+        distillation_counts: dict[str, int] = {}
         claims_by_url: dict[str, list[ClaimDraft]] = defaultdict(list)
         if urls:
             snapshot_rows = self._execute(
@@ -3356,6 +3388,14 @@ class PostgresRepository:
             for row in distillation_rows:
                 normalized_url = cast(str, row[0])
                 distillations[normalized_url] = _article_distillation_from_row(row)
+            distillation_count_rows = self._execute(
+                "SELECT normalized_url, count(*) FROM article_distillations "
+                "WHERE normalized_url = ANY(%s) GROUP BY normalized_url",
+                (urls,),
+            )
+            distillation_counts = {
+                cast(str, row[0]): cast(int, row[1]) for row in distillation_count_rows
+            }
             claim_rows = self._execute(
                 "SELECT claim_text, evidence_status, confidence, source_urls, "
                 "support_locator, conflicts, original_claim, evidence_excerpt, "
@@ -3402,6 +3442,7 @@ class PostgresRepository:
                         extracted=source.extraction_status.value == "succeeded",
                         distillation=distillation,
                         claims=source_claims,
+                        distillation_count=distillation_counts.get(normalized_url, 0),
                     ),
                 }
             )
@@ -3542,7 +3583,7 @@ class PostgresRepository:
             excerpt = f"{insight} ->> 'evidence_excerpt'"
             locator = f"{insight} ->> 'evidence_locator'"
             return (
-                f"({status} IN ('supported', 'not_observed') "
+                f"({status} IN ('supported', 'not_observed', 'uncertain') "
                 f"AND {text_ok(statement)} "
                 f"AND {text_ok(why)} "
                 f"AND {text_ok(next_step)} "
@@ -3599,8 +3640,17 @@ class PostgresRepository:
             "AND NOT EXISTS (SELECT 1 FROM article_distillations adm "
             "WHERE adm.run_id = wb.run_id AND adm.normalized_url = rsq.normalized_url))"
         )
+        duplicate_distillation_sql = (
+            "EXISTS (SELECT 1 FROM article_distillations addq "
+            "JOIN run_sources rsaddq ON rsaddq.run_id = addq.run_id "
+            "AND rsaddq.normalized_url = addq.normalized_url "
+            "JOIN sources saddq ON saddq.normalized_url = addq.normalized_url "
+            "WHERE addq.run_id = wb.run_id AND NOT saddq.is_seed "
+            "GROUP BY addq.run_id, addq.normalized_url HAVING count(*) > 1)"
+        )
         incomplete_article_sql = (
-            f"({relationship_issue_sql}) OR EXISTS (SELECT 1 FROM article_distillations adq "
+            f"({relationship_issue_sql}) OR ({duplicate_distillation_sql}) "
+            "OR EXISTS (SELECT 1 FROM article_distillations adq "
             "WHERE adq.run_id = wb.run_id "
             "AND EXISTS (SELECT 1 FROM run_sources rsadq "
             "JOIN sources sadq ON sadq.normalized_url = rsadq.normalized_url "
@@ -3664,6 +3714,8 @@ class PostgresRepository:
         ready_sql = (
             "rr.status = 'succeeded' "
             "AND COALESCE(vc.status, 'blocked') = 'pass' "
+            "AND wb.review_state = 'approved' "
+            "AND COALESCE(rr.request ->> 'validation_profile', '') = 'full' "
             "AND EXISTS (SELECT 1 FROM run_sources rs_exists "
             "JOIN sources s_exists ON s_exists.normalized_url = rs_exists.normalized_url "
             "WHERE rs_exists.run_id = wb.run_id AND NOT s_exists.is_seed) "
@@ -3674,6 +3726,10 @@ class PostgresRepository:
             "ARRAY_REMOVE(ARRAY["
             "CASE WHEN rr.status <> 'succeeded' THEN 'run_not_succeeded' END, "
             "CASE WHEN COALESCE(vc.status, 'blocked') <> 'pass' THEN 'validation_not_passed' END, "
+            "CASE WHEN wb.review_state <> 'approved' THEN 'brief_not_approved' END, "
+            "CASE WHEN COALESCE(rr.request ->> 'validation_profile', '') <> 'full' "
+            "THEN 'validation_profile_not_full' END, "
+            f"CASE WHEN {duplicate_distillation_sql} THEN 'duplicate_distillation' END, "
             f"CASE WHEN {incomplete_article_sql} THEN 'incomplete_article_insights' END, "
             f"CASE WHEN NOT ({report_complete_sql}) THEN 'empty_report_section' END"
             "], NULL)"
@@ -3709,7 +3765,8 @@ class PostgresRepository:
         rows = self._execute(
             f"""
             SELECT wb.run_id, wb.title, wb.covered_from, wb.covered_until,
-                   wb.review_state, rr.status, COALESCE(vc.status, 'blocked'),
+                   wb.review_state, COALESCE(rr.request ->> 'validation_profile', ''),
+                   rr.status, COALESCE(vc.status, 'blocked'),
                    count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed),
                    count(DISTINCT ad.distillation_id),
                    count(DISTINCT c.claim_id), count(DISTINCT se.event_id),
@@ -3805,7 +3862,7 @@ class PostgresRepository:
             WHERE """
             + " AND ".join(clauses)
             + " GROUP BY wb.run_id, wb.title, wb.covered_from, wb.covered_until, "
-            "wb.review_state, rr.status, vc.status, vc.checks, rr.as_of, wb.model_id, "
+            "wb.review_state, rr.request, rr.status, vc.status, vc.checks, rr.as_of, wb.model_id, "
             "wb.prompt_version, rr.archived_at, rr.archive_reason, "
             "wb.executive_bullets, wb.developments, "
             "wb.risks, wb.opportunities, wb.uncertainties, wb.follow_up_questions "
@@ -3815,7 +3872,8 @@ class PostgresRepository:
         )
         fields = (
             "run_id", "title", "covered_from", "covered_until", "review_state",
-            "run_status", "validation_status", "source_count", "distillation_count",
+            "validation_profile", "run_status", "validation_status", "source_count",
+            "distillation_count",
             "claim_count", "signal_count", "regions", "languages", "lane_coverage",
             "models", "as_of", "archived_at", "archive_reason", "article_count",
             "complete_article_count",
@@ -3828,11 +3886,11 @@ class PostgresRepository:
             raw_summary = dict(zip(fields, row[: len(fields)], strict=True))
             summary = {
                 **raw_summary,
-                "archived": row[16] is not None,
-                "regions": sorted(set(_row_strings(row[11]))),
-                "languages": sorted(set(_row_strings(row[12]))),
-                "lane_coverage": sorted(set(_row_strings(row[13]))),
-                "models": sorted(set(_row_strings(row[14]))),
+                "archived": raw_summary["archived_at"] is not None,
+                "regions": sorted(set(_row_strings(raw_summary["regions"]))),
+                "languages": sorted(set(_row_strings(raw_summary["languages"]))),
+                "lane_coverage": sorted(set(_row_strings(raw_summary["lane_coverage"]))),
+                "models": sorted(set(_row_strings(raw_summary["models"]))),
                 "blocking_reasons": sorted(
                     set(_row_strings(raw_summary["blocking_reasons"]))
                 ),
@@ -3915,7 +3973,7 @@ class PostgresRepository:
             excerpt = f"{insight} ->> 'evidence_excerpt'"
             locator = f"{insight} ->> 'evidence_locator'"
             return (
-                f"({status} IN ('supported', 'not_observed') "
+                f"({status} IN ('supported', 'not_observed', 'uncertain') "
                 f"AND {text_ok(statement)} "
                 f"AND {text_ok(why)} "
                 f"AND {text_ok(next_step)} "
@@ -3979,8 +4037,17 @@ class PostgresRepository:
             "AND NOT EXISTS (SELECT 1 FROM article_distillations adm "
             "WHERE adm.run_id = wb.run_id AND adm.normalized_url = rsq.normalized_url))"
         )
+        duplicate_distillation_sql = (
+            "EXISTS (SELECT 1 FROM article_distillations addq "
+            "JOIN run_sources rsaddq ON rsaddq.run_id = addq.run_id "
+            "AND rsaddq.normalized_url = addq.normalized_url "
+            "JOIN sources saddq ON saddq.normalized_url = addq.normalized_url "
+            "WHERE addq.run_id = wb.run_id AND NOT saddq.is_seed "
+            "GROUP BY addq.run_id, addq.normalized_url HAVING count(*) > 1)"
+        )
         incomplete_article_sql = (
-            f"({relationship_issue_sql}) OR EXISTS (SELECT 1 FROM article_distillations adq "
+            f"({relationship_issue_sql}) OR ({duplicate_distillation_sql}) "
+            "OR EXISTS (SELECT 1 FROM article_distillations adq "
             "WHERE adq.run_id = wb.run_id "
             "AND EXISTS (SELECT 1 FROM run_sources rsadq "
             "JOIN sources sadq ON sadq.normalized_url = rsadq.normalized_url "
@@ -4029,6 +4096,8 @@ class PostgresRepository:
         ready_sql = (
             "rr.status = 'succeeded' "
             "AND COALESCE(vc.status, 'blocked') = 'pass' "
+            "AND wb.review_state = 'approved' "
+            "AND COALESCE(rr.request ->> 'validation_profile', '') = 'full' "
             "AND EXISTS (SELECT 1 FROM run_sources rs_exists "
             "JOIN sources s_exists ON s_exists.normalized_url = rs_exists.normalized_url "
             "WHERE rs_exists.run_id = wb.run_id AND NOT s_exists.is_seed) "
@@ -4157,19 +4226,29 @@ class PostgresRepository:
 
     def health(self) -> dict[str, object]:
         rows = self._execute(
-            "SELECT current_database(), current_user, "
-            "(SELECT max(version) FROM schema_migrations), current_setting('server_version')"
+            "SELECT current_database(), to_regclass('public.schema_migrations')::text, "
+            "current_setting('server_version')"
         )
         if not rows:
             raise RuntimeError("database health query returned no row")
         row = rows[0]
+        migration_version: object | None = None
+        blocking_reasons: list[str] = []
+        if row[1] is None:
+            blocking_reasons.append("schema_migration_missing")
+        else:
+            version_rows = self._execute("SELECT max(version) FROM schema_migrations")
+            migration_version = version_rows[0][0] if version_rows else None
+            if migration_version != MIGRATION_VERSION:
+                blocking_reasons.append("schema_migration_stale")
         return {
-            "status": "pass",
+            "status": "blocked" if blocking_reasons else "pass",
             "database": row[0],
-            "user": row[1],
-            "migration_version": row[2] or MIGRATION_VERSION,
+            "migration_version": migration_version,
+            "expected_migration_version": MIGRATION_VERSION,
             "branch_id": self.neon_branch_id,
-            "server_version": row[3],
+            "server_version": row[2],
+            "blocking_reasons": blocking_reasons,
         }
 
     def audit_summary(self) -> dict[str, object]:

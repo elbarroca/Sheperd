@@ -315,7 +315,11 @@ def validate_article_distillation_quality(
         if insight is None:
             issues.append(f"missing_{name}")
             continue
-        if insight.status not in {InsightStatus.SUPPORTED, InsightStatus.NOT_OBSERVED}:
+        if insight.status not in {
+            InsightStatus.SUPPORTED,
+            InsightStatus.NOT_OBSERVED,
+            InsightStatus.UNCERTAIN,
+        }:
             issues.append(f"invalid_{name}_status")
         _required_insight_text(insight.statement, f"{name}_statement", issues)
         _required_insight_text(
@@ -351,6 +355,7 @@ def article_fulfillment(
     extracted: bool,
     distillation: ArticleDistillation | None,
     claims: Sequence[ClaimDraft] | None = None,
+    distillation_count: int | None = None,
 ) -> dict[str, object]:
     """Project the source-to-UI fulfillment state from canonical records."""
     missing_fields: list[str] = []
@@ -364,6 +369,14 @@ def article_fulfillment(
     else:
         quality_issues = validate_article_distillation_quality(distillation)
         missing_fields.extend(quality_issues)
+    persisted_distillations = (
+        distillation_count
+        if distillation_count is not None
+        else (1 if distillation is not None else 0)
+    )
+    if persisted_distillations > 1:
+        quality_issues.append("duplicate_distillation")
+        missing_fields.append("duplicate_distillation")
 
     linked_claims = list(claims) if claims is not None else (
         distillation.claims if distillation is not None else []
@@ -395,6 +408,39 @@ def article_fulfillment(
         "missing_fields": sorted(set(missing_fields)),
         "quality_issues": sorted(set(quality_issues)),
     }
+
+
+def quality_blocking_reasons(
+    article_issues: dict[str, list[str]],
+    report_issues: Sequence[str],
+) -> list[str]:
+    reasons: set[str] = set()
+    flattened_article_issues = {
+        issue for issues in article_issues.values() for issue in issues
+    }
+    if article_issues:
+        reasons.add("incomplete_article_insights")
+    if "duplicate_distillation" in flattened_article_issues:
+        reasons.add("duplicate_distillation")
+    if any(
+        "missing_evidence" in issue
+        or "missing_evidence_locator" in issue
+        or "placeholder_evidence" in issue
+        for issue in flattened_article_issues
+    ):
+        reasons.add("missing_evidence_locator")
+    if any(
+        "missing_citation" in issue or issue == "claims_incomplete"
+        for issue in flattened_article_issues
+    ):
+        reasons.add("missing_citation")
+    if any(issue.endswith("_empty") for issue in report_issues):
+        reasons.add("empty_report_section")
+    if any("unknown_citation" in issue for issue in report_issues):
+        reasons.add("missing_citation")
+    if any("missing_evidence" in issue for issue in report_issues):
+        reasons.add("missing_evidence_locator")
+    return sorted(reasons)
 
 
 def _readiness_source_by_url(
@@ -509,6 +555,7 @@ def quality_metrics(
                 else False
             ),
             distillation=distillation_by_url.get(url),
+            distillation_count=all_distillation_counts.get(url, 0),
         )
         for url in sorted(fulfillment_urls)
     ]
@@ -524,16 +571,6 @@ def quality_metrics(
                 for issue in report_issues
             ) and getattr(brief, section):
                 report_sections_complete += 1
-
-    blocking_reasons: set[str] = set()
-    if article_issues:
-        blocking_reasons.add("incomplete_article_insights")
-    if any(issue.endswith("_empty") for issue in report_issues):
-        blocking_reasons.add("empty_report_section")
-    if any("unknown_citation" in issue for issue in report_issues):
-        blocking_reasons.add("missing_citation")
-    if any("missing_evidence" in issue for issue in report_issues):
-        blocking_reasons.add("missing_evidence_locator")
 
     return {
         "article_count": required_count,
@@ -562,7 +599,7 @@ def quality_metrics(
             report_sections_complete / len(REPORT_BULLET_SECTIONS), 6
         ) if brief is not None else 0.0,
         "report_quality_issues": report_issues,
-        "blocking_reasons": sorted(blocking_reasons),
+        "blocking_reasons": quality_blocking_reasons(article_issues, report_issues),
         "quality_ready": not article_issues and not report_issues,
     }
 

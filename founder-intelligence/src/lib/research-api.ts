@@ -229,6 +229,7 @@ export interface ReportPayload {
     error: string | null;
     neon_branch_id: string | null;
     migration_version: string | null;
+    validation_profile?: string;
     archived?: boolean;
     archived_at?: string | null;
     archive_reason?: string | null;
@@ -275,6 +276,7 @@ export interface WeeklyReportSummary {
   review_state: string;
   run_status: string;
   validation_status: string;
+  validation_profile?: string | null;
   source_count: number;
   distillation_count: number;
   claim_count: number;
@@ -365,9 +367,11 @@ interface SourceFacetsResponse extends SourceFacets {
 
 export interface ResearchHealth {
   status: string;
-  migration_version: string;
+  migration_version: string | null;
+  expected_migration_version?: string;
   branch_id: string | null;
   database: string;
+  blocking_reasons?: string[];
 }
 
 export type ResearchResponse<T> =
@@ -518,6 +522,7 @@ function isReportRun(value: unknown): boolean {
     && isNullableString(value.error)
     && isNullableString(value.neon_branch_id)
     && isNullableString(value.migration_version)
+    && isOptional(value, "validation_profile", isString)
     && isOptional(value, "archived", (candidate) => typeof candidate === "boolean")
     && isOptional(value, "archived_at", isNullableString)
     && isOptional(value, "archive_reason", isNullableString);
@@ -777,6 +782,9 @@ function isWeeklyReportSummary(value: unknown): value is WeeklyReportSummary {
     && isStringArray(value.lane_coverage)
     && isStringArray(value.models)
     && isOptional(value, "readiness_status", isString)
+    && isOptional(value, "validation_profile", (candidate) =>
+      candidate === null || isString(candidate)
+    )
     && isOptional(value, "decision_ready", isBoolean)
     && isOptional(value, "quality_ready", isBoolean)
     && isOptional(value, "quality_report_ready", isBoolean)
@@ -803,10 +811,12 @@ function isReportForRun(value: unknown, runId: string): value is ReportPayload {
 
 function isHealthPayload(value: unknown): value is ResearchHealth {
   return isRecord(value)
-    && value.status === "pass"
-    && isString(value.migration_version)
+    && (value.status === "pass" || value.status === "blocked")
+    && isNullableString(value.migration_version)
+    && isOptional(value, "expected_migration_version", isString)
     && isNullableString(value.branch_id)
-    && isString(value.database);
+    && isString(value.database)
+    && isOptional(value, "blocking_reasons", isStringArray);
 }
 
 function isWeeklyResponse(value: unknown): value is WeeklyResponse {
