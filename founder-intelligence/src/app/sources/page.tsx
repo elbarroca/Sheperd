@@ -26,17 +26,22 @@ function safeUrl(value: string): boolean {
 }
 
 function statusClass(value: string | undefined): string {
-  return (value ?? "unknown").replaceAll(/[^a-zA-Z0-9_-]/gu, "-");
+  return (value?.trim() || "unknown").replaceAll(/[^a-zA-Z0-9_-]/gu, "-");
 }
 
 function statusLabel(value: string | undefined): string {
-  return value
-    ? value.replaceAll("_", " ").replace(/^\w/u, (letter) => letter.toUpperCase())
-    : "Unavailable";
+  const status = value?.trim();
+  return status
+    ? status.replaceAll("_", " ").replace(/^\w/u, (letter) => letter.toUpperCase())
+    : "Not recorded in this run.";
 }
 
 function Status({ label, value }: { label: string; value: string | undefined }) {
   return <span className={`status-badge status-${statusClass(value)}`}>{label}: {statusLabel(value)}</span>;
+}
+
+function recorded(value: string | undefined): string {
+  return value?.trim() || "Not recorded in this run.";
 }
 
 function CitationLinks({ urls }: { urls: string[] }) {
@@ -52,11 +57,11 @@ function Insight({ label, value }: { label: string; value?: ArticleInsight | nul
   return (
     <div>
       <div className="bullet-meta"><strong>{label}</strong><Status label="Status" value={value.status} /></div>
-      <p>{value.statement}</p>
-      <p><strong>Why it matters:</strong> {value.why_it_matters}</p>
-      <p><strong>Next step:</strong> {value.next_step}</p>
-      {value.evidence_excerpt ? <small>Evidence: {value.evidence_excerpt}</small> : null}
-      {value.evidence_locator ? <small>Locator: {value.evidence_locator}</small> : null}
+      <p>{recorded(value.statement)}</p>
+      <p><strong>Why it matters:</strong> {recorded(value.why_it_matters)}</p>
+      <p><strong>Next step:</strong> {recorded(value.next_step)}</p>
+      {value.evidence_excerpt?.trim() ? <small>Evidence: {value.evidence_excerpt.trim()}</small> : null}
+      {value.evidence_locator?.trim() ? <small>Locator: {value.evidence_locator.trim()}</small> : null}
     </div>
   );
 }

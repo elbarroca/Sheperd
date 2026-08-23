@@ -33,6 +33,13 @@ function timestampLabel(value: string | undefined): string {
 
 function asSummary(report: WeeklyReportSummary | ReportPayload): WeeklyReportSummary {
   if (!("brief" in report)) return report;
+  const quality = report.quality;
+  const blockingReasons = quality && report.blocking_reasons !== undefined
+    ? [...new Set([...report.blocking_reasons, ...quality.blocking_reasons])]
+    : report.blocking_reasons;
+  const readinessStatus = quality && report.readiness_status !== quality.readiness_status
+    ? "review_required"
+    : report.readiness_status;
   return {
     run_id: report.brief.run_id,
     title: report.brief.title,
@@ -53,13 +60,23 @@ function asSummary(report: WeeklyReportSummary | ReportPayload): WeeklyReportSum
     archived: report.run?.archived,
     archived_at: report.run?.archived_at,
     archive_reason: report.run?.archive_reason,
-    readiness_status: report.readiness_status,
-    decision_ready: report.readiness_status === "decision_ready" || report.ready === true,
-    blocking_reasons: report.blocking_reasons,
-    article_insight_completeness: report.quality?.article_insight_completeness,
-    report_section_completeness: report.quality?.report_section_completeness,
-    complete_article_count: report.quality?.complete_article_count,
-    report_sections_complete: report.quality?.report_sections_complete,
+    readiness_status: readinessStatus,
+    decision_ready: report.ready,
+    quality_report_ready: quality?.ready,
+    quality_ready: quality
+      ? quality.ready === true
+        && quality.quality_ready === true
+        && quality.readiness_status === "decision_ready"
+      : undefined,
+    quality_readiness_status: quality?.readiness_status,
+    quality_blocking_reasons: quality?.blocking_reasons,
+    blocking_reasons: blockingReasons,
+    article_count: quality?.article_count,
+    article_insight_completeness: quality?.article_insight_completeness,
+    report_section_completeness: quality?.report_section_completeness,
+    complete_article_count: quality?.complete_article_count,
+    report_section_count: quality?.report_section_count,
+    report_sections_complete: quality?.report_sections_complete,
   };
 }
 

@@ -140,12 +140,12 @@ describe("production report routes", () => {
               status: "supported",
               statement: "Costs may rise for affected cargo.",
               why_it_matters: "The fee affects the next shipment window.",
-              next_step: "Check the tariff schedule.",
+              next_step: "   ",
               evidence_excerpt: "fee effective immediately",
               evidence_locator: "paragraph 4",
             },
             opportunity_assessment: {
-              status: "not_observed",
+              status: "   ",
               statement: "No new opening was observed.",
               why_it_matters: "There is no expansion signal to act on.",
               next_step: "Recheck on the next weekly run.",
@@ -199,8 +199,10 @@ describe("production report routes", () => {
     expect(markup).toContain("English summary");
     expect(markup).toContain("Original summary");
     expect(markup).toContain("Costs may rise for affected cargo.");
+    expect(markup).toContain("Next step:");
+    expect(markup).toContain("Not recorded in this run.");
     expect(markup).toContain("No new opening was observed.");
-    expect(markup).toContain("Not observed");
+    expect(markup).toContain("Status: Not recorded in this run.");
     expect(markup).toContain("A cited claim");
     expect(markup).toContain("paragraph 4");
     expect(markup).toContain("Fulfillment: incomplete");
@@ -313,6 +315,8 @@ describe("production report routes", () => {
             as_of: "2026-08-14T00:00:00Z",
             readiness_status: "decision_ready",
             decision_ready: true,
+            blocking_reasons: [],
+            quality_ready: true,
             article_insight_completeness: 1,
             complete_article_count: 3,
             report_section_completeness: 1,
@@ -342,6 +346,83 @@ describe("production report routes", () => {
     expect(markup).toContain("3 complete article packets (100%)");
     expect(markup).toContain("5 complete report sections (100%)");
     expect(markup).toContain("Latest decision-ready report");
+  });
+
+  it("keeps full report payload summaries incomplete when completeness denominators contradict stale ready flags", async () => {
+    api.getResearchHealth.mockResolvedValue({
+      status: "ok",
+      data: { status: "pass", migration_version: "0010", branch_id: "main", database: "neondb" },
+    });
+    api.getDailyReports.mockResolvedValue({ status: "ok", data: { reports: [], count: 0 } });
+    api.getWeeklyReports.mockResolvedValue({
+      status: "ok",
+      data: {
+        reports: [{
+          ...validReport,
+          brief: {
+            ...validReport.brief,
+            title: "Stale ready report",
+            summary: "Ready flag is stale.",
+            source_urls: [],
+            limitations: [],
+            review_state: "approved",
+            evidence_status: "mixed",
+            model_id: "model",
+            prompt_version: "weekly-brief-v6",
+            executive_bullets: [],
+            developments: [],
+            risks: [],
+            opportunities: [],
+            uncertainties: [],
+            follow_up_questions: [],
+          },
+          run: {
+            run_id: "run-1",
+            status: "succeeded",
+            as_of: "2026-08-14T00:00:00Z",
+            error: null,
+            neon_branch_id: "main",
+            migration_version: "0013_run_sources",
+          },
+          validation: { run_id: "run-1", status: "pass", citation_coverage: 1, lane_coverage: [], checks: [] },
+          lane_coverage: [],
+          models: ["model"],
+          steps: [],
+          sources: [],
+          source_hashes: [],
+          distillations: [],
+          claims: [],
+          signals: [],
+          as_of: "2026-08-14T00:00:00Z",
+          covered_from: "2026-08-08",
+          covered_until: "2026-08-14",
+          ready: true,
+          readiness_status: "decision_ready",
+          blocking_reasons: [],
+          quality: {
+            ready: true,
+            readiness_status: "decision_ready",
+            blocking_reasons: [],
+            quality_ready: true,
+            article_count: 2,
+            complete_article_count: 1,
+            article_insight_completeness: 1,
+            article_quality_issues: {},
+            source_distillation_coverage: 1,
+            report_section_count: 6,
+            report_sections_complete: 5,
+            report_section_completeness: 1,
+            report_quality_issues: [],
+          },
+        }],
+        count: 1,
+      },
+    });
+
+    const markup = renderToStaticMarkup(await HomePage());
+
+    expect(markup).toContain("No decision-ready report yet.");
+    expect(markup).not.toContain("Latest decision-ready report");
   });
 
   it("renders unknown homepage readiness metrics as not recorded", async () => {

@@ -256,8 +256,7 @@ function ReportQuality({ report }: { report: ReportPayload }) {
   const sectionCount = report.quality?.report_section_count;
   const coverage = Math.round((report.validation?.citation_coverage ?? 0) * 100);
   const sectionCheck = report.validation?.checks.find((check) => check.name === "report_sections");
-  const sectionComplete = report.quality?.report_section_completeness === 1
-    && sectionCheck?.status !== "failed";
+  const decisionReady = isDecisionReadySummary(readinessSummaryFromReport(report));
   const completeArticles = report.quality?.complete_article_count;
   const articleCount = report.quality?.article_count;
   return (
@@ -269,7 +268,7 @@ function ReportQuality({ report }: { report: ReportPayload }) {
       <div><strong>{report.claims.length}</strong><span>claims</span></div>
       <div><strong>{completeArticles === undefined || articleCount === undefined ? "not recorded" : `${completeArticles}/${articleCount}`}</strong><span>complete article insights</span></div>
       <div><strong>{sectionCheck?.status ?? "not recorded"}</strong><span>section validator</span></div>
-      <p>{report.readiness_status === "decision_ready" && sectionComplete
+      <p>{decisionReady
         ? "All required insight sections and article packets are complete."
         : "This run requires review before it can be decision-ready."}</p>
       {!report.quality ? <p className="muted">Legacy quality snapshot: Not recorded in this run.</p> : null}
