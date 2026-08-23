@@ -53,6 +53,19 @@ _CHECK_REASON_MAP = {
     "source_distillation_completeness": "incomplete_source_distillation",
     "verified_claims": "unsupported_verified_claim",
 }
+_PROVIDER_ERROR_REASON_MAP = {
+    "authentication": "provider_authentication_failed",
+    "malformed_output": "provider_malformed_output",
+    "missing_tool_call": "missing_required_tool_calls",
+    "model_unavailable": "provider_model_unavailable",
+    "payg_limit": "provider_usage_limited",
+    "plan_usage_limit": "provider_usage_limited",
+    "provider_error": "provider_failed",
+    "provider_unavailable": "provider_unavailable",
+    "rate_limit": "provider_rate_limit",
+    "timeout": "provider_timeout",
+    "tool_failure": "provider_tool_failure",
+}
 
 
 def validation_blocking_reasons(report: ValidationReport) -> list[str]:
@@ -71,6 +84,13 @@ def validation_blocking_reasons(report: ValidationReport) -> list[str]:
             reasons.add("missing_evidence_locator")
         if "provider" in check.message.lower() or "tool" in check.message.lower():
             reasons.add("provider_observability_failed")
+        check_text = " ".join(
+            str(value)
+            for value in (check.name, check.message, check.observed, check.expected)
+        )
+        for error_code, stable_reason in _PROVIDER_ERROR_REASON_MAP.items():
+            if error_code in check_text:
+                reasons.add(stable_reason)
     if (
         getattr(report, "status", ValidationStatus.BLOCKED) is not ValidationStatus.PASS
         and not reasons

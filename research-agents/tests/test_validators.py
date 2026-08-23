@@ -18,6 +18,7 @@ from sheperd_research.validators import (
     can_extract_url,
     deduplicate_sources,
     normalize_url,
+    quality_metrics,
     validate_article_distillation_quality,
     validate_claim_citations,
     validate_report_sections,
@@ -194,9 +195,11 @@ def test_complete_article_packet_requires_evidence_locator_or_excerpt() -> None:
 def test_placeholder_claim_and_evidence_entries_are_incomplete() -> None:
     insight = ArticleInsight(
         status=InsightStatus.NOT_OBSERVED,
-        statement="No supported risk was observed in this source.",
-        why_it_matters="The source does not establish a risk.",
-        next_step="Review an independent source.",
+        statement="unknown",
+        why_it_matters="tbd",
+        next_step="unsupported",
+        evidence_excerpt="unknown",
+        evidence_locator="tbd",
     )
     distillation = ArticleDistillation(
         source_url="https://example.com/placeholder-evidence",
@@ -225,14 +228,68 @@ def test_placeholder_claim_and_evidence_entries_are_incomplete() -> None:
     assert "missing_evidence_locator" in issues
     assert "placeholder_evidence_excerpt" in issues
     assert "placeholder_evidence_locator" in issues
+    assert "missing_risk_assessment_statement" in issues
+    assert "missing_risk_assessment_why_it_matters" in issues
+    assert "missing_risk_assessment_next_step" in issues
+    assert "risk_assessment_placeholder_evidence_excerpt" in issues
+    assert "risk_assessment_placeholder_evidence_locator" in issues
 
 
-def test_article_evidence_entries_are_bounded_before_persistence() -> None:
-    with pytest.raises(ValueError, match="evidence_excerpts entries"):
-        ArticleDistillation(
-            source_url="https://example.com/long-excerpt",
-            evidence_excerpts=["word " * 41],
-        )
+def test_legacy_article_evidence_entries_load_but_are_incomplete() -> None:
+    distillation = ArticleDistillation(
+        source_url="https://example.com/long-excerpt",
+        summary="Legacy summary.",
+        evidence_excerpts=["word " * 41],
+    )
+
+    assert "evidence_excerpt_too_long" in validate_article_distillation_quality(
+        distillation
+    )
+
+
+def test_quality_metrics_fail_failed_extraction_and_orphaned_distillation() -> None:
+    complete = ArticleDistillation(
+        source_url="https://example.com/orphan",
+        summary="Summary",
+        key_points=["Point one", "Point two"],
+        what_happened="The source reports a development.",
+        why_it_matters="The development may matter operationally.",
+        risk_assessment=ArticleInsight(
+            status=InsightStatus.NOT_OBSERVED,
+            statement="No supported risk was observed in this source.",
+            why_it_matters="The source does not establish a risk.",
+            next_step="Review an independent source.",
+        ),
+        opportunity_assessment=ArticleInsight(
+            status=InsightStatus.NOT_OBSERVED,
+            statement="No supported opportunity was observed in this source.",
+            why_it_matters="The source does not establish an opportunity.",
+            next_step="Review an independent source.",
+        ),
+        uncertainties=["The source has limited scope."],
+        next_steps=["Compare another source."],
+        evidence_excerpts=["The source reports a development."],
+        claims=[
+            ClaimDraft(
+                claim="The source reports a development.",
+                source_urls=["https://example.com/orphan"],
+            )
+        ],
+        quality_status=DistillationQualityStatus.COMPLETE,
+    )
+
+    metrics = quality_metrics(
+        [SourceCandidate(url="https://example.com/failed", extraction_status="failed")],
+        [complete],
+    )
+
+    assert metrics["quality_ready"] is False
+    assert metrics["article_quality_issues"]["https://example.com/failed"] == [
+        "extraction_failed"
+    ]
+    assert "orphaned_distillation" in metrics["article_quality_issues"][
+        "https://example.com/orphan"
+    ]
 
 
 def test_uncertain_risk_or_opportunity_is_not_an_explicit_evidence_gap() -> None:

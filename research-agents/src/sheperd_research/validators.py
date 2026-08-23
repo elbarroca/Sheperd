@@ -234,6 +234,14 @@ def _required_insight_text(value: str, field: str, issues: list[str]) -> None:
         issues.append(f"missing_{field}")
 
 
+def _is_valid_evidence_excerpt(value: str) -> bool:
+    return len(value) <= 320 and len(value.split()) <= 40
+
+
+def _is_valid_evidence_locator(value: str) -> bool:
+    return len(value) <= 300
+
+
 def validate_article_distillation_quality(
     distillation: ArticleDistillation,
 ) -> list[str]:
@@ -255,11 +263,23 @@ def validate_article_distillation_quality(
     else:
         for index, claim in enumerate(distillation.claims, start=1):
             _required_insight_text(claim.claim, f"claim_{index}", issues)
+            if claim.evidence_excerpt is not None:
+                if _is_placeholder(claim.evidence_excerpt):
+                    issues.append(f"claim_{index}_placeholder_evidence_excerpt")
+                if not _is_valid_evidence_excerpt(claim.evidence_excerpt):
+                    issues.append(f"claim_{index}_evidence_excerpt_too_long")
+            if claim.support_locator is not None and _is_placeholder(claim.support_locator):
+                issues.append(f"claim_{index}_placeholder_support_locator")
             if not claim.source_urls:
                 issues.append(f"claim_{index}_missing_citation")
             if (
                 claim.evidence_status.value == "verified"
-                and not (claim.evidence_excerpt or claim.support_locator)
+                and not (
+                    claim.evidence_excerpt
+                    and not _is_placeholder(claim.evidence_excerpt)
+                    or claim.support_locator
+                    and not _is_placeholder(claim.support_locator)
+                )
             ):
                 issues.append(f"claim_{index}_missing_evidence")
     if not any(
@@ -269,8 +289,12 @@ def validate_article_distillation_quality(
         issues.append("missing_evidence_locator")
     if any(_is_placeholder(item) for item in distillation.evidence_excerpts):
         issues.append("placeholder_evidence_excerpt")
+    if any(not _is_valid_evidence_excerpt(item) for item in distillation.evidence_excerpts):
+        issues.append("evidence_excerpt_too_long")
     if any(_is_placeholder(item) for item in distillation.evidence_locators):
         issues.append("placeholder_evidence_locator")
+    if any(not _is_valid_evidence_locator(item) for item in distillation.evidence_locators):
+        issues.append("evidence_locator_too_long")
     _required_insight_text(distillation.what_happened, "what_happened", issues)
     _required_insight_text(distillation.why_it_matters, "why_it_matters", issues)
     if not distillation.uncertainties or not all(
@@ -298,10 +322,23 @@ def validate_article_distillation_quality(
             insight.why_it_matters, f"{name}_why_it_matters", issues
         )
         _required_insight_text(insight.next_step, f"{name}_next_step", issues)
+        if insight.evidence_excerpt is not None:
+            if _is_placeholder(insight.evidence_excerpt):
+                issues.append(f"{name}_placeholder_evidence_excerpt")
+            if not _is_valid_evidence_excerpt(insight.evidence_excerpt):
+                issues.append(f"{name}_evidence_excerpt_too_long")
+        if insight.evidence_locator is not None and _is_placeholder(
+            insight.evidence_locator
+        ):
+            issues.append(f"{name}_placeholder_evidence_locator")
         if (
             insight.status is InsightStatus.SUPPORTED
-            and not insight.evidence_excerpt
-            and not insight.evidence_locator
+            and not (
+                insight.evidence_excerpt
+                and not _is_placeholder(insight.evidence_excerpt)
+                or insight.evidence_locator
+                and not _is_placeholder(insight.evidence_locator)
+            )
         ):
             issues.append(f"{name}_missing_evidence")
     return issues
@@ -404,6 +441,11 @@ def quality_metrics(
         for source in sources
         if source.extraction_status.value == "succeeded"
     ]
+    extraction_issue_sources = [
+        source
+        for source in sources
+        if source.extraction_status.value != "succeeded"
+    ]
     required_count = max(len(extracted_sources), len(distillations))
     distillation_counts: dict[str, int] = {}
     for item in distillations:
@@ -412,9 +454,16 @@ def quality_metrics(
 
     article_issues: dict[str, list[str]] = {}
     for item in distillations:
+        url = normalize_url(item.source_url)
         issues = validate_article_distillation_quality(item)
+        if url not in {normalize_url(source.url) for source in sources}:
+            issues.append("orphaned_distillation")
         if issues:
-            article_issues[normalize_url(item.source_url)] = issues
+            article_issues[url] = issues
+    for source in extraction_issue_sources:
+        article_issues[normalize_url(source.url)] = [
+            f"extraction_{source.extraction_status.value}"
+        ]
     for source in extracted_sources:
         url = normalize_url(source.url)
         count = distillation_counts.get(url, 0)

@@ -9,6 +9,8 @@ from sheperd_research.contracts import (
     ExtractionStatus,
     ReportBullet,
     SourceCandidate,
+    ValidationCheck,
+    ValidationReport,
     ValidationStatus,
     WeeklyBrief,
 )
@@ -209,6 +211,28 @@ def test_validation_blocking_reasons_cover_strict_gate_failures() -> None:
         "missing_required_tool_calls",
     }.issubset(report.blocking_reasons)
     assert "stale_validation" not in report.blocking_reasons
+
+
+def test_validation_blocking_reasons_expose_provider_error_codes() -> None:
+    report = ValidationReport(
+        run_id="provider-errors",
+        status=ValidationStatus.FAILED,
+        checks=[
+            ValidationCheck(
+                name="provider_attempt",
+                status=ValidationStatus.FAILED,
+                observed="rate_limit timeout provider_unavailable",
+                expected="provider success",
+                message="provider failed",
+            )
+        ],
+    )
+
+    assert {
+        "provider_rate_limit",
+        "provider_timeout",
+        "provider_unavailable",
+    }.issubset(validation_blocking_reasons(report))
 
 
 def test_legacy_incomplete_distillation_cannot_remain_pass() -> None:
