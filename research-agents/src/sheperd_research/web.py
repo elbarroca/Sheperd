@@ -14,7 +14,7 @@ from .db import ArchiveScope, RepositoryProtocol
 from .exporters.obsidian import render_weekly_markdown
 from .source_catalog import load_source_catalog
 from .validation import validation_blocking_reasons
-from .validators import quality_metrics, validate_article_distillation_quality
+from .validators import quality_metrics
 
 
 def _value(value: object) -> str:
@@ -942,9 +942,19 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         )
         quality = quality_metrics(sources, distillations, brief)
         readiness = _readiness(run, validation_report, quality)
+        article_count = (
+            quality["article_count"] if isinstance(quality["article_count"], int) else 0
+        )
+        complete_article_count = (
+            quality["complete_article_count"]
+            if isinstance(quality["complete_article_count"], int)
+            else 0
+        )
         article_quality = Counter(
-            "complete" if not validate_article_distillation_quality(item) else "incomplete"
-            for item in distillations
+            {
+                "complete": complete_article_count,
+                "incomplete": article_count - complete_article_count,
+            }
         )
         extraction_success_rate = (
             extraction.get("succeeded", 0) / len(sources) if sources else 0.0
@@ -981,14 +991,12 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                         "source_count": len(sources),
                         "source_hash_count": len(source_hashes),
                             "distillation_count": len(distillations),
+                            "article_count": article_count,
                             "article_insight_quality": dict(sorted(article_quality.items())),
                             "article_insight_complete_count": article_quality.get("complete", 0),
-                            "article_insight_completeness": round(
-                                article_quality.get("complete", 0) / len(distillations),
-                                6,
-                            )
-                            if distillations
-                            else 0.0,
+                            "article_insight_completeness": quality[
+                                "article_insight_completeness"
+                            ],
                             "report_section_completeness": quality["report_section_completeness"],
                             "source_distillation_coverage": quality["source_distillation_coverage"],
                             "article_quality_issues": quality["article_quality_issues"],

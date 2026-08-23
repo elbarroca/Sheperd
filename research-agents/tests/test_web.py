@@ -16,6 +16,7 @@ from sheperd_research.contracts import (
     ResearchCadence,
     ResearchRunRequest,
     ReviewState,
+    RunStatus,
     SignalEvent,
     SourceCandidate,
     ValidationReport,
@@ -24,6 +25,57 @@ from sheperd_research.contracts import (
 )
 from sheperd_research.db import InMemoryRepository
 from sheperd_research.web import _summary_readiness, create_app
+
+
+def _complete_article(source_url: str) -> ArticleDistillation:
+    insight = ArticleInsight(
+        status=InsightStatus.NOT_OBSERVED,
+        statement="No supported risk was observed.",
+        why_it_matters="The source does not establish a risk.",
+        next_step="Check an independent source.",
+    )
+    claim = ClaimDraft(
+        claim="A supported development.",
+        source_urls=[source_url],
+    )
+    return ArticleDistillation(
+        source_url=source_url,
+        summary="A complete summary.",
+        key_points=["Point one.", "Point two."],
+        what_happened="The source reports a development.",
+        why_it_matters="It changes the operating picture.",
+        risk_assessment=insight,
+        opportunity_assessment=insight,
+        uncertainties=["Coverage is limited to this source."],
+        next_steps=["Review an independent source."],
+        evidence_excerpts=["A supported development."],
+        claims=[claim],
+        quality_status=DistillationQualityStatus.COMPLETE,
+    )
+
+
+def _complete_brief(run_id: str, source_url: str) -> WeeklyBrief:
+    bullet = ReportBullet(
+        text="A supported development.",
+        source_urls=[source_url],
+        why_it_matters="It changes the operating picture.",
+        next_step="Review an independent source.",
+    )
+    return WeeklyBrief(
+        run_id=run_id,
+        title="Ready brief",
+        covered_from=datetime(2026, 8, 12, tzinfo=UTC),
+        covered_until=datetime(2026, 8, 19, tzinfo=UTC),
+        summary="Summary.",
+        source_urls=[source_url],
+        executive_bullets=[bullet],
+        developments=[bullet],
+        risks=[bullet],
+        opportunities=[bullet],
+        uncertainties=[bullet],
+        follow_up_questions=["What independent evidence follows?"],
+        review_state=ReviewState.DRAFT,
+    )
 
 
 def test_dashboard_exposes_read_only_run_source_and_brief_views() -> None:
@@ -503,3 +555,71 @@ def test_markdown_preview_contains_evidence_without_raw_body() -> None:
     assert "Article summary." in response.text
     assert "Short evidence." in response.text
     assert "SECRET RAW ARTICLE BODY" not in response.text
+
+
+def test_list_detail_and_audit_readiness_scope_non_seed_persisted_sources() -> None:
+    repository = InMemoryRepository()
+    run_id = "scope-run"
+    source_url = "https://example.com/non-seed"
+    repository.create_run(run_id, ResearchRunRequest(topic_set="dnd-port"))
+    repository.update_run_status(run_id, RunStatus.SUCCEEDED)
+    repository.record_validation(ValidationReport(run_id=run_id, status=ValidationStatus.PASS))
+    source = SourceCandidate(
+        url=source_url,
+        extraction_status=ExtractionStatus.SUCCEEDED,
+    )
+    duplicate_source = SourceCandidate(
+        url="https://example.com/non-seed?utm_source=duplicate",
+        extraction_status=ExtractionStatus.SUCCEEDED,
+    )
+    seed = SourceCandidate(
+        url="https://user:secret@example.com/seed",
+        is_seed=True,
+        extraction_status=ExtractionStatus.SUCCEEDED,
+    )
+    repository.record_snapshot(run_id, source, "NON_SEED_RAW_BODY")
+    repository.record_snapshot(run_id, duplicate_source, "DUPLICATE_RAW_BODY")
+    repository.record_snapshot(run_id, seed, "SEED_RAW_BODY")
+    complete_article = _complete_article(source_url)
+    repository.record_claims(run_id, complete_article.claims)
+    repository.record_distillation(run_id, complete_article)
+    repository.record_distillation(run_id, _complete_article("https://example.com/orphan"))
+    repository.record_brief(_complete_brief(run_id, source_url))
+
+    client = TestClient(create_app(repository))
+    list_report = client.get("/api/reports/weekly").json()["reports"][0]
+    detail = client.get(f"/api/reports/weekly/{run_id}").json()
+    audit_response = client.get(f"/api/runs/{run_id}/audit")
+    audit = audit_response.json()
+
+    expected = {
+        "article_count": 1,
+        "complete_article_count": 1,
+        "article_insight_completeness": 1.0,
+        "source_distillation_coverage": 1.0,
+        "readiness_status": "decision_ready",
+    }
+    assert {key: list_report[key] for key in expected} == expected
+    assert {key: detail["quality"][key] for key in expected if key != "readiness_status"} == {
+        key: value for key, value in expected.items() if key != "readiness_status"
+    }
+    assert detail["readiness_status"] == expected["readiness_status"]
+    assert {
+        "article_count": audit["metrics"]["article_count"],
+        "complete_article_count": audit["metrics"]["article_insight_complete_count"],
+        "article_insight_completeness": audit["metrics"]["article_insight_completeness"],
+        "source_distillation_coverage": audit["metrics"]["source_distillation_coverage"],
+        "readiness_status": audit["readiness_status"],
+    } == expected
+    assert audit["metrics"]["distillation_count"] == 2
+    assert any(
+        item["status"] == "orphaned"
+        for item in detail["quality"]["article_fulfillment"]
+    )
+    for response in (
+        client.get("/api/reports/weekly"),
+        client.get(f"/api/reports/weekly/{run_id}"),
+        audit_response,
+    ):
+        assert "user:secret@example.com" not in response.text
+        assert "RAW_BODY" not in response.text

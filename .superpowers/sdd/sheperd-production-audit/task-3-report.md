@@ -41,6 +41,12 @@ No shared branch push, production promotion, report approval, or report export w
    - Tavily incomplete extract errors report missing URL counts only, not full missing URLs.
    - Article insight completeness now counts completed non-seed source URLs against the same non-seed `run_sources` denominator; seed, orphan, and duplicate distillations cannot inflate completeness.
 
+6. Cross-surface readiness scope
+   - `quality_metrics()` now scopes readiness to unique non-seed persisted sources while preserving seed and orphan evidence rows in fulfillment payloads.
+   - Weekly list summaries, report detail payloads, and run audit metrics now use the same article count, completed article count, article insight completeness, and source-distillation coverage.
+   - Postgres summary SQL and ready-only count SQL ignore seed sources and orphan distillations for readiness while preserving raw source/distillation evidence counts.
+   - Added regression coverage for one non-seed source, one seed source, one orphan distillation, and duplicate source records; list, detail, and audit must agree on readiness/counts.
+
 ## Red tests confirmed
 
 - `uv run pytest tests/test_db.py::test_postgres_brief_summaries_return_production_ready_section_metrics tests/test_provider_failures.py::test_tavily_malformed_nested_result_entries_are_explicit -q` failed before implementation:
@@ -53,10 +59,12 @@ No shared branch push, production promotion, report approval, or report export w
 ## Focused verification
 
 - `uv run pytest tests/test_web.py::test_summary_readiness_accepts_decimal_complete_ratios tests/test_provider_failures.py::test_tavily_malformed_nested_result_urls_are_redacted tests/test_provider_failures.py::test_tavily_incomplete_extract_errors_redact_missing_urls tests/test_db.py::test_postgres_brief_summaries_scope_article_completeness_to_non_seed_sources -q` -> pass, 4 tests.
+- `uv run pytest tests/test_validators.py -q tests/test_web.py -q tests/test_db.py -q` -> pass, 60 tests.
 - `pnpm test -- src/components/report-accordion.test.tsx` -> pass, 15 tests.
 - `uv run ruff check .` -> pass.
 - `uv run mypy src` -> pass, no issues in 23 source files.
-- `uv run pytest` -> pass, 214 tests.
+- `uv run mypy src tests` -> blocked by 111 legacy test-typing errors across 13 test files; production source typecheck passed.
+- `uv run pytest` -> pass, 216 tests.
 - `uv lock --check` -> pass, 67 packages resolved.
 - `pnpm lint` -> pass.
 - `pnpm typecheck` -> pass.
@@ -69,7 +77,7 @@ Backend, from `research-agents/`:
 
 - `uv run ruff check .` -> pass.
 - `uv run mypy src` -> pass, no issues in 23 source files.
-- `uv run pytest` -> pass, 214 tests.
+- `uv run pytest` -> pass, 216 tests.
 - `uv lock --check` -> pass, 67 packages resolved.
 
 Frontend, from `founder-intelligence/`:

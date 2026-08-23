@@ -397,6 +397,17 @@ def article_fulfillment(
     }
 
 
+def _readiness_source_by_url(
+    sources: Sequence[SourceCandidate],
+) -> dict[str, SourceCandidate]:
+    scoped: dict[str, SourceCandidate] = {}
+    for source in sources:
+        url = normalize_url(source.url)
+        if not source.is_seed and url not in scoped:
+            scoped[url] = source
+    return scoped
+
+
 def validate_report_sections(
     brief: WeeklyBrief,
     known_urls: set[str],
@@ -438,28 +449,32 @@ def quality_metrics(
     brief: WeeklyBrief | None = None,
 ) -> dict[str, object]:
     """Compute current evidence readiness from persisted records, not status flags."""
+    readiness_sources = _readiness_source_by_url(sources)
     extracted_sources = [
         source
-        for source in sources
+        for source in readiness_sources.values()
         if source.extraction_status.value == "succeeded"
     ]
     extraction_issue_sources = [
         source
-        for source in sources
+        for source in readiness_sources.values()
         if source.extraction_status.value != "succeeded"
     ]
-    required_count = max(len(extracted_sources), len(distillations))
+    required_count = len(readiness_sources)
+    all_distillation_counts: dict[str, int] = {}
     distillation_counts: dict[str, int] = {}
+    readiness_distillations: dict[str, ArticleDistillation] = {}
     for item in distillations:
         url = normalize_url(item.source_url)
-        distillation_counts[url] = distillation_counts.get(url, 0) + 1
+        all_distillation_counts[url] = all_distillation_counts.get(url, 0) + 1
+        if url in readiness_sources:
+            distillation_counts[url] = distillation_counts.get(url, 0) + 1
+            readiness_distillations.setdefault(url, item)
 
     article_issues: dict[str, list[str]] = {}
-    for item in distillations:
+    for item in readiness_distillations.values():
         url = normalize_url(item.source_url)
         issues = validate_article_distillation_quality(item)
-        if url not in {normalize_url(source.url) for source in sources}:
-            issues.append("orphaned_distillation")
         if issues:
             article_issues[url] = issues
     for source in extraction_issue_sources:
@@ -476,11 +491,11 @@ def quality_metrics(
 
     complete_count = sum(
         1
-        for item in distillations
-        if not validate_article_distillation_quality(item)
+        for url, item in readiness_distillations.items()
+        if distillation_counts[url] == 1 and not validate_article_distillation_quality(item)
     )
     source_by_url = {normalize_url(source.url): source for source in sources}
-    fulfillment_urls = set(source_by_url) | set(distillation_counts)
+    fulfillment_urls = set(source_by_url) | set(all_distillation_counts)
     distillation_by_url = {
         normalize_url(item.source_url): item for item in distillations
     }
@@ -497,7 +512,7 @@ def quality_metrics(
         )
         for url in sorted(fulfillment_urls)
     ]
-    known_urls = {normalize_url(source.url) for source in sources}
+    known_urls = set(readiness_sources)
     report_issues = (
         validate_report_sections(brief, known_urls) if brief is not None else []
     )
@@ -532,13 +547,13 @@ def quality_metrics(
             round(
                 sum(
                     1
-                    for source in extracted_sources
-                    if normalize_url(source.url) in distillation_counts
+                    for url in readiness_sources
+                    if url in distillation_counts
                 )
-                / len(extracted_sources),
+                / required_count,
                 6,
             )
-            if extracted_sources
+            if required_count
             else 0.0
         ),
         "report_section_count": len(REPORT_BULLET_SECTIONS),

@@ -9,6 +9,7 @@ from sheperd_research.contracts import (
     ArticleInsight,
     ClaimDraft,
     DistillationQualityStatus,
+    ExtractionStatus,
     InsightStatus,
     ReportBullet,
     SourceCandidate,
@@ -280,17 +281,86 @@ def test_quality_metrics_fail_failed_extraction_and_orphaned_distillation() -> N
     )
 
     metrics = quality_metrics(
-        [SourceCandidate(url="https://example.com/failed", extraction_status="failed")],
+        [
+            SourceCandidate(
+                url="https://example.com/failed",
+                extraction_status=ExtractionStatus.FAILED,
+            )
+        ],
         [complete],
     )
 
     assert metrics["quality_ready"] is False
-    assert metrics["article_quality_issues"]["https://example.com/failed"] == [
-        "extraction_failed"
-    ]
-    assert "orphaned_distillation" in metrics["article_quality_issues"][
-        "https://example.com/orphan"
-    ]
+    assert metrics["article_count"] == 1
+    article_issues = metrics["article_quality_issues"]
+    assert isinstance(article_issues, dict)
+    assert article_issues["https://example.com/failed"] == ["extraction_failed"]
+    assert "https://example.com/orphan" not in article_issues
+    fulfillment = metrics["article_fulfillment"]
+    assert isinstance(fulfillment, list)
+    assert any(
+        isinstance(item, dict) and item.get("status") == "orphaned"
+        for item in fulfillment
+    )
+
+
+def test_quality_metrics_scopes_readiness_to_unique_non_seed_persisted_sources() -> None:
+    insight = ArticleInsight(
+        status=InsightStatus.NOT_OBSERVED,
+        statement="No supported risk was observed in this source.",
+        why_it_matters="The source does not establish a risk.",
+        next_step="Review an independent source.",
+    )
+    claim = ClaimDraft(
+        claim="The source reports a development.",
+        source_urls=["https://example.com/non-seed"],
+    )
+    complete = ArticleDistillation(
+        source_url="https://example.com/non-seed",
+        summary="Summary",
+        key_points=["Point one", "Point two"],
+        what_happened="The source reports a development.",
+        why_it_matters="The development may matter operationally.",
+        risk_assessment=insight,
+        opportunity_assessment=insight,
+        uncertainties=["The source has limited scope."],
+        next_steps=["Compare another source."],
+        evidence_excerpts=["The source reports a development."],
+        claims=[claim],
+        quality_status=DistillationQualityStatus.COMPLETE,
+    )
+    seed_distillation = complete.model_copy(
+        update={"source_url": "https://example.com/seed"}
+    )
+    orphan_distillation = complete.model_copy(
+        update={"source_url": "https://example.com/orphan"}
+    )
+
+    metrics = quality_metrics(
+        [
+            SourceCandidate(
+                url="https://example.com/non-seed",
+                extraction_status=ExtractionStatus.SUCCEEDED,
+            ),
+            SourceCandidate(
+                url="https://example.com/non-seed?utm_source=duplicate",
+                extraction_status=ExtractionStatus.SUCCEEDED,
+            ),
+            SourceCandidate(
+                url="https://example.com/seed",
+                is_seed=True,
+                extraction_status=ExtractionStatus.SUCCEEDED,
+            ),
+        ],
+        [complete, seed_distillation, orphan_distillation],
+    )
+
+    assert metrics["quality_ready"] is True
+    assert metrics["article_count"] == 1
+    assert metrics["complete_article_count"] == 1
+    assert metrics["article_insight_completeness"] == 1.0
+    assert metrics["source_distillation_coverage"] == 1.0
+    assert metrics["article_quality_issues"] == {}
 
 
 def test_uncertain_risk_or_opportunity_is_not_an_explicit_evidence_gap() -> None:

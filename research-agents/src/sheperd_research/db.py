@@ -4,6 +4,7 @@ import json
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal, Protocol, cast
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
@@ -230,7 +231,7 @@ def _safe_audit_float(value: object) -> float | None:
 
 
 def _row_float(value: object) -> float:
-    return float(value) if isinstance(value, (int, float)) else 0.0
+    return float(value) if isinstance(value, (Decimal, int, float)) else 0.0
 
 
 def _row_strings(value: object) -> list[str]:
@@ -3596,15 +3597,17 @@ class PostgresRepository:
             "WHERE rsq.run_id = wb.run_id AND NOT sq.is_seed "
             "AND rsq.extraction_status = 'succeeded' "
             "AND NOT EXISTS (SELECT 1 FROM article_distillations adm "
-            "WHERE adm.run_id = wb.run_id AND adm.normalized_url = rsq.normalized_url)) "
-            "OR EXISTS (SELECT 1 FROM article_distillations ado "
-            "WHERE ado.run_id = wb.run_id "
-            "AND NOT EXISTS (SELECT 1 FROM run_sources rso "
-            "WHERE rso.run_id = wb.run_id AND rso.normalized_url = ado.normalized_url))"
+            "WHERE adm.run_id = wb.run_id AND adm.normalized_url = rsq.normalized_url))"
         )
         incomplete_article_sql = (
             f"({relationship_issue_sql}) OR EXISTS (SELECT 1 FROM article_distillations adq "
-            f"WHERE adq.run_id = wb.run_id AND NOT ({article_complete_sql}))"
+            "WHERE adq.run_id = wb.run_id "
+            "AND EXISTS (SELECT 1 FROM run_sources rsadq "
+            "JOIN sources sadq ON sadq.normalized_url = rsadq.normalized_url "
+            "WHERE rsadq.run_id = wb.run_id "
+            "AND rsadq.normalized_url = adq.normalized_url "
+            "AND NOT sadq.is_seed) "
+            f"AND NOT ({article_complete_sql}))"
         )
 
         def report_section_ok(column: str, *, actionable: bool) -> str:
@@ -3661,8 +3664,9 @@ class PostgresRepository:
         ready_sql = (
             "rr.status = 'succeeded' "
             "AND COALESCE(vc.status, 'blocked') = 'pass' "
-            "AND EXISTS (SELECT 1 FROM article_distillations ad_exists "
-            "WHERE ad_exists.run_id = wb.run_id) "
+            "AND EXISTS (SELECT 1 FROM run_sources rs_exists "
+            "JOIN sources s_exists ON s_exists.normalized_url = rs_exists.normalized_url "
+            "WHERE rs_exists.run_id = wb.run_id AND NOT s_exists.is_seed) "
             f"AND NOT ({incomplete_article_sql}) "
             f"AND {report_complete_sql}"
         )
@@ -3773,7 +3777,23 @@ class PostgresRepository:
                        )
                        ELSE 0
                    END,
-                   COALESCE(vc.checks, '[]'::jsonb)
+                   COALESCE(vc.checks, '[]'::jsonb),
+                   CASE WHEN count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed) > 0
+                       THEN round(
+                           count(DISTINCT ad.normalized_url) FILTER (
+                               WHERE EXISTS (
+                                   SELECT 1 FROM run_sources rsd
+                                   JOIN sources sd ON sd.normalized_url = rsd.normalized_url
+                                   WHERE rsd.run_id = wb.run_id
+                                     AND rsd.normalized_url = ad.normalized_url
+                                     AND NOT sd.is_seed
+                               )
+                           )::numeric
+                           / count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed),
+                           6
+                       )
+                       ELSE 0
+                   END
             FROM weekly_briefs wb
             JOIN research_runs rr ON rr.run_id = wb.run_id
             LEFT JOIN validation_checks vc ON vc.run_id = wb.run_id
@@ -3838,6 +3858,11 @@ class PostgresRepository:
                     set(cast(list[str], summary["blocking_reasons"]))
                     | set(validation_blocking_reasons(persisted_validation))
                 )
+            summary["source_distillation_coverage"] = (
+                _row_float(row[len(fields) + 1])
+                if len(row) > len(fields) + 1
+                else _row_float(summary["article_insight_completeness"])
+            )
             summaries.append(summary)
         return summaries
 
@@ -3952,15 +3977,17 @@ class PostgresRepository:
             "WHERE rsq.run_id = wb.run_id AND NOT sq.is_seed "
             "AND rsq.extraction_status = 'succeeded' "
             "AND NOT EXISTS (SELECT 1 FROM article_distillations adm "
-            "WHERE adm.run_id = wb.run_id AND adm.normalized_url = rsq.normalized_url)) "
-            "OR EXISTS (SELECT 1 FROM article_distillations ado "
-            "WHERE ado.run_id = wb.run_id "
-            "AND NOT EXISTS (SELECT 1 FROM run_sources rso "
-            "WHERE rso.run_id = wb.run_id AND rso.normalized_url = ado.normalized_url))"
+            "WHERE adm.run_id = wb.run_id AND adm.normalized_url = rsq.normalized_url))"
         )
         incomplete_article_sql = (
             f"({relationship_issue_sql}) OR EXISTS (SELECT 1 FROM article_distillations adq "
-            f"WHERE adq.run_id = wb.run_id AND NOT ({article_complete_sql}))"
+            "WHERE adq.run_id = wb.run_id "
+            "AND EXISTS (SELECT 1 FROM run_sources rsadq "
+            "JOIN sources sadq ON sadq.normalized_url = rsadq.normalized_url "
+            "WHERE rsadq.run_id = wb.run_id "
+            "AND rsadq.normalized_url = adq.normalized_url "
+            "AND NOT sadq.is_seed) "
+            f"AND NOT ({article_complete_sql}))"
         )
 
         def report_section_ok(column: str, *, actionable: bool) -> str:
@@ -4002,8 +4029,9 @@ class PostgresRepository:
         ready_sql = (
             "rr.status = 'succeeded' "
             "AND COALESCE(vc.status, 'blocked') = 'pass' "
-            "AND EXISTS (SELECT 1 FROM article_distillations ad_exists "
-            "WHERE ad_exists.run_id = wb.run_id) "
+            "AND EXISTS (SELECT 1 FROM run_sources rs_exists "
+            "JOIN sources s_exists ON s_exists.normalized_url = rs_exists.normalized_url "
+            "WHERE rs_exists.run_id = wb.run_id AND NOT s_exists.is_seed) "
             f"AND NOT ({incomplete_article_sql}) "
             f"AND {report_complete_sql}"
         )

@@ -471,6 +471,7 @@ def test_postgres_brief_summaries_return_production_ready_section_metrics() -> N
         True,
         1.0,
         [],
+        1.0,
     )
 
     with patch.object(repository, "_execute", return_value=[row]):
@@ -527,9 +528,11 @@ def test_postgres_brief_summaries_scope_article_completeness_to_non_seed_sources
     assert "count(DISTINCT ad.normalized_url) FILTER" in query
     assert "rsa.normalized_url = ad.normalized_url" in query
     assert "AND NOT sa.is_seed" in query
+    assert "rsd.normalized_url = ad.normalized_url" in query
     assert summary["article_count"] == 1
     assert summary["complete_article_count"] == 1
     assert summary["article_insight_completeness"] == 1.0
+    assert summary["source_distillation_coverage"] == 1.0
 
 
 def test_repositories_reject_new_oversized_evidence_excerpt_writes() -> None:
