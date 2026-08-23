@@ -116,6 +116,40 @@ def test_tavily_rate_limit_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
     assert raised.value.error_code == "rate_limit"
 
 
+@pytest.mark.parametrize(
+    ("outcome", "error_code"),
+    [
+        (
+            httpx.ReadTimeout(
+                "timed out",
+                request=httpx.Request("POST", "https://api.tavily.com/search"),
+            ),
+            "timeout",
+        ),
+        (
+            httpx.ConnectError(
+                "connection failed",
+                request=httpx.Request("POST", "https://api.tavily.com/search"),
+            ),
+            "provider_unavailable",
+        ),
+        (response(503, {"error": "unavailable"}), "provider_unavailable"),
+    ],
+)
+def test_tavily_transport_failures_have_stable_error_codes(
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: httpx.Response | BaseException,
+    error_code: str,
+) -> None:
+    patch_client(monkeypatch, [outcome])
+
+    with pytest.raises(ProviderError) as raised:
+        asyncio.run(TavilyProvider("secret").search("ports"))
+
+    assert raised.value.error_code == error_code
+    assert raised.value.attempts[0]["error_code"] == error_code
+
+
 def test_tavily_rotates_to_secondary_key_after_primary_quota_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

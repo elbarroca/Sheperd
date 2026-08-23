@@ -629,7 +629,8 @@ class ResearchWorkflow:
                             "extraction_status": ExtractionStatus.NOT_ATTEMPTED,
                             "extraction_error_code": None,
                         }
-                    )
+                    ),
+                    run_id=run_id,
                 )
                 for source in deduplicate_sources(sources)[: request.max_sources]
             ]
@@ -1044,7 +1045,10 @@ class ResearchWorkflow:
         unique = deduplicate_sources(ordered)[: request.max_sources]
         validate_source_dates(unique, request.as_of)
         unique = deduplicate_sources(
-            [self.repository.record_source(source) for source in unique]
+            [
+                self.repository.record_source(source, run_id=state["run_id"])
+                for source in unique
+            ]
         )[: request.max_sources]
         self._emit(
             "persist",
@@ -1188,7 +1192,8 @@ class ResearchWorkflow:
                                     "extraction_status": ExtractionStatus.SUCCEEDED,
                                     "extraction_error_code": None,
                                 }
-                            )
+                            ),
+                            run_id=state["run_id"],
                         )
                     )
             self._emit(
@@ -1220,14 +1225,17 @@ class ResearchWorkflow:
                 "partial_reasons": list(state.get("partial_reasons", [])),
             }
         except ProviderError as provider_error:
-            for source in missing:
+            for source in extractable_sources:
+                if content.get(normalize_url(source.url), "").strip():
+                    continue
                 self.repository.record_source(
                     source.model_copy(
                         update={
                             "extraction_status": ExtractionStatus.FAILED,
                             "extraction_error_code": "missing_content",
                         }
-                    )
+                    ),
+                    run_id=state["run_id"],
                 )
             self._record_step(
                 state["run_id"],
@@ -1388,7 +1396,8 @@ class ResearchWorkflow:
                                 else matched_source.evidence_status
                             ),
                         }
-                    )
+                    ),
+                    run_id=state["run_id"],
                 )
             self.repository.record_distillation(state["run_id"], distillation)
             self.repository.record_claims(state["run_id"], distillation.claims)

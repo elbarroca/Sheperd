@@ -122,6 +122,11 @@ class TavilyProvider:
                     "Tavily authentication failed",
                     error_code="authentication",
                 ) from error
+            if status in {408, 409, 500, 502, 503, 504}:
+                raise ProviderError(
+                    f"Tavily request failed with status {status}",
+                    error_code="provider_unavailable",
+                ) from error
             raise ProviderError(
                 f"Tavily request failed with status {status}",
                 error_code="provider_error",
@@ -129,11 +134,14 @@ class TavilyProvider:
         except (httpx.TimeoutException, httpx.RequestError, ValueError) as error:
             if isinstance(error, httpx.TimeoutException):
                 message = "Tavily request timed out"
+                error_code = "timeout"
             elif isinstance(error, ValueError):
                 message = "Tavily returned invalid JSON"
+                error_code = "malformed_output"
             else:
                 message = "Tavily network request failed"
-            raise ProviderError(message) from error
+                error_code = "provider_unavailable"
+            raise ProviderError(message, error_code=error_code) from error
         if not isinstance(data, dict) or not all(
             isinstance(key, str) for key in data
         ):

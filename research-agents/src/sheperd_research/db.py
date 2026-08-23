@@ -28,9 +28,10 @@ from .contracts import (
     ValidationStatus,
     WeeklyBrief,
 )
+from .validation import validation_blocking_reasons
 from .validators import article_fulfillment, content_hash, normalize_url, quality_metrics
 
-MIGRATION_VERSION = "0012_article_insight_quality"
+MIGRATION_VERSION = "0013_run_sources"
 ArchiveScope = Literal["active", "archived", "all"]
 _ARCHIVE_SCOPES = frozenset({"active", "archived", "all"})
 _AUDIT_TEXT_LIMIT = 400
@@ -612,7 +613,9 @@ class RepositoryProtocol(Protocol):
         offset: int = 0,
     ) -> list[SignalEvent]: ...
 
-    def record_source(self, source: SourceCandidate) -> SourceCandidate: ...
+    def record_source(
+        self, source: SourceCandidate, *, run_id: str | None = None
+    ) -> SourceCandidate: ...
 
     def record_snapshot(self, run_id: str, source: SourceCandidate, content: str) -> None: ...
 
@@ -778,6 +781,7 @@ class InMemoryRepository:
         self.runs: dict[str, dict[str, object]] = {}
         self.steps: list[dict[str, object]] = []
         self.sources: dict[str, SourceCandidate] = {}
+        self.run_sources: dict[tuple[str, str], SourceCandidate] = {}
         self.source_snapshots: dict[tuple[str, str], dict[str, object]] = {}
         self.distillations: dict[tuple[str, str], ArticleDistillation] = {}
         self.claims: dict[tuple[str, str, tuple[str, ...]], ClaimDraft] = {}
@@ -871,7 +875,9 @@ class InMemoryRepository:
         if existing is None:
             self.steps.append(record)
 
-    def record_source(self, source: SourceCandidate) -> SourceCandidate:
+    def record_source(
+        self, source: SourceCandidate, *, run_id: str | None = None
+    ) -> SourceCandidate:
         normalized = normalize_url(source.url)
         stored = _seed_safe_source(source).model_copy(update={"url": normalized})
         existing = self.sources.get(normalized)
@@ -902,7 +908,15 @@ class InMemoryRepository:
                     "normalized_snippet_en": stored.normalized_snippet_en,
                 }
             )
-        return self.sources[normalized]
+        result = self.sources[normalized]
+        if run_id is not None:
+            self.run_sources[(run_id, normalized)] = result.model_copy(
+                update={
+                    "extraction_status": stored.extraction_status,
+                    "extraction_error_code": stored.extraction_error_code,
+                }
+            )
+        return result
 
     def record_tool_calls(
         self,
@@ -1180,6 +1194,10 @@ class InMemoryRepository:
 
     def record_snapshot(self, run_id: str, source: SourceCandidate, content: str) -> None:
         normalized = normalize_url(source.url)
+        stored = self.sources.get(normalized)
+        if stored is None:
+            stored = self.record_source(source)
+        self.run_sources.setdefault((run_id, normalized), stored)
         self.source_snapshots[(run_id, normalized)] = {
             "run_id": run_id,
             "url": normalized,
@@ -1247,8 +1265,11 @@ class InMemoryRepository:
         return self.runs.get(run_id)
 
     def get_run_sources(self, run_id: str) -> list[SourceCandidate]:
-        urls = [url for current_run, url in self.source_snapshots if current_run == run_id]
-        return [self.sources[url] for url in urls if url in self.sources]
+        return [
+            source
+            for (current_run, _), source in self.run_sources.items()
+            if current_run == run_id
+        ]
 
     def get_run_claims(self, run_id: str) -> list[ClaimDraft]:
         return [claim for key, claim in self.claims.items() if key[0] == run_id]
@@ -2024,7 +2045,9 @@ class PostgresRepository:
             ),
         )
 
-    def record_source(self, source: SourceCandidate) -> SourceCandidate:
+    def record_source(
+        self, source: SourceCandidate, *, run_id: str | None = None
+    ) -> SourceCandidate:
         stored = _seed_safe_source(source)
         normalized = normalize_url(stored.url)
         stored = stored.model_copy(update={"url": normalized})
@@ -2102,18 +2125,46 @@ class PostgresRepository:
                 stored.normalized_snippet_en,
             ),
         )
-        if not rows:
-            return stored
-        row = rows[0]
-        return stored.model_copy(
-            update={
-                "source_kind": cast(str, row[0]),
-                "is_seed": cast(bool, row[1]),
-                "evidence_status": EvidenceStatus(cast(str, row[2])),
-            }
-        )
+        result = stored
+        if rows:
+            row = rows[0]
+            result = stored.model_copy(
+                update={
+                    "source_kind": cast(str, row[0]),
+                    "is_seed": cast(bool, row[1]),
+                    "evidence_status": EvidenceStatus(cast(str, row[2])),
+                }
+            )
+        if run_id is not None:
+            self._execute(
+                """
+                INSERT INTO run_sources (
+                    run_id, normalized_url, extraction_status, extraction_error_code
+                )
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (run_id, normalized_url) DO UPDATE SET
+                    extraction_status = EXCLUDED.extraction_status,
+                    extraction_error_code = EXCLUDED.extraction_error_code,
+                    updated_at = now()
+                """,
+                (
+                    run_id,
+                    normalized,
+                    stored.extraction_status,
+                    stored.extraction_error_code,
+                ),
+            )
+        return result
 
     def record_snapshot(self, run_id: str, source: SourceCandidate, content: str) -> None:
+        self._execute(
+            """
+            INSERT INTO run_sources (run_id, normalized_url)
+            VALUES (%s, %s)
+            ON CONFLICT (run_id, normalized_url) DO NOTHING
+            """,
+            (run_id, normalize_url(source.url)),
+        )
         self._execute(
             """
             INSERT INTO source_snapshots (
@@ -2417,7 +2468,7 @@ class PostgresRepository:
         if not rows:
             return None
         row = rows[0]
-        return ValidationReport.model_validate(
+        report = ValidationReport.model_validate(
             {
                 "run_id": row[0],
                 "status": row[1],
@@ -2433,6 +2484,9 @@ class PostgresRepository:
                 "as_of": row[11],
                 "content_hash": row[12],
             }
+        )
+        return report.model_copy(
+            update={"blocking_reasons": validation_blocking_reasons(report)}
         )
 
     def review_brief(
@@ -2522,11 +2576,11 @@ class PostgresRepository:
                    s.is_seed, s.evidence_status, s.region, s.language_code,
                    s.language_confidence, s.authority_tier, s.catalog_source_id,
                    s.source_type, s.freshness_status, s.freshness_days,
-                   s.extraction_status, s.extraction_error_code,
+                   rs.extraction_status, rs.extraction_error_code,
                    s.normalized_title_en, s.normalized_snippet_en
             FROM sources s
-            JOIN source_snapshots ss ON ss.normalized_url = s.normalized_url
-            WHERE ss.run_id = %s
+            JOIN run_sources rs ON rs.normalized_url = s.normalized_url
+            WHERE rs.run_id = %s
             ORDER BY s.retrieved_at DESC
             """,
             (run_id,),
@@ -3526,18 +3580,20 @@ class PostgresRepository:
             f"AND {claim_ok}"
         )
         relationship_issue_sql = (
-            "EXISTS (SELECT 1 FROM source_snapshots ssq "
-            "JOIN sources sq ON sq.normalized_url = ssq.normalized_url "
-            "WHERE ssq.run_id = wb.run_id AND sq.extraction_status <> 'succeeded') "
-            "OR EXISTS (SELECT 1 FROM source_snapshots ssq "
-            "JOIN sources sq ON sq.normalized_url = ssq.normalized_url "
-            "WHERE ssq.run_id = wb.run_id AND sq.extraction_status = 'succeeded' "
+            "EXISTS (SELECT 1 FROM run_sources rsq "
+            "JOIN sources sq ON sq.normalized_url = rsq.normalized_url "
+            "WHERE rsq.run_id = wb.run_id AND NOT sq.is_seed "
+            "AND rsq.extraction_status <> 'succeeded') "
+            "OR EXISTS (SELECT 1 FROM run_sources rsq "
+            "JOIN sources sq ON sq.normalized_url = rsq.normalized_url "
+            "WHERE rsq.run_id = wb.run_id AND NOT sq.is_seed "
+            "AND rsq.extraction_status = 'succeeded' "
             "AND NOT EXISTS (SELECT 1 FROM article_distillations adm "
-            "WHERE adm.run_id = wb.run_id AND adm.normalized_url = ssq.normalized_url)) "
+            "WHERE adm.run_id = wb.run_id AND adm.normalized_url = rsq.normalized_url)) "
             "OR EXISTS (SELECT 1 FROM article_distillations ado "
             "WHERE ado.run_id = wb.run_id "
-            "AND NOT EXISTS (SELECT 1 FROM source_snapshots sso "
-            "WHERE sso.run_id = wb.run_id AND sso.normalized_url = ado.normalized_url))"
+            "AND NOT EXISTS (SELECT 1 FROM run_sources rso "
+            "WHERE rso.run_id = wb.run_id AND rso.normalized_url = ado.normalized_url))"
         )
         incomplete_article_sql = (
             f"({relationship_issue_sql}) OR EXISTS (SELECT 1 FROM article_distillations adq "
@@ -3560,8 +3616,11 @@ class PostgresRepository:
                 "jsonb_array_length(COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) = 0 "
                 "OR EXISTS (SELECT 1 FROM jsonb_array_elements_text("
                 "COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) AS url(value) "
-                "WHERE NOT EXISTS (SELECT 1 FROM source_snapshots known "
-                "WHERE known.run_id = wb.run_id AND known.normalized_url = url.value)) "
+                "WHERE NOT EXISTS (SELECT 1 FROM run_sources known "
+                "JOIN sources known_source "
+                "ON known_source.normalized_url = known.normalized_url "
+                "WHERE known.run_id = wb.run_id AND NOT known_source.is_seed "
+                "AND known.normalized_url = url.value)) "
                 f"OR ({action_required} AND (NOT {bullet_why_ok} OR NOT {bullet_next_ok})))"
             )
 
@@ -3623,7 +3682,8 @@ class PostgresRepository:
             f"""
             SELECT wb.run_id, wb.title, wb.covered_from, wb.covered_until,
                    wb.review_state, rr.status, COALESCE(vc.status, 'blocked'),
-                   count(DISTINCT ss.normalized_url), count(DISTINCT ad.distillation_id),
+                   count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed),
+                   count(DISTINCT ad.distillation_id),
                    count(DISTINCT c.claim_id), count(DISTINCT se.event_id),
                    COALESCE(
                        array_agg(DISTINCT s.region)
@@ -3680,19 +3740,20 @@ class PostgresRepository:
                    ),
                    CASE WHEN {ready_sql} THEN 'decision_ready' ELSE 'review_required' END,
                    {blocking_reasons_sql},
-                   ({ready_sql})
+                   ({ready_sql}),
+                   COALESCE(vc.checks, '[]'::jsonb)
             FROM weekly_briefs wb
             JOIN research_runs rr ON rr.run_id = wb.run_id
             LEFT JOIN validation_checks vc ON vc.run_id = wb.run_id
-            LEFT JOIN source_snapshots ss ON ss.run_id = wb.run_id
-            LEFT JOIN sources s ON s.normalized_url = ss.normalized_url
+            LEFT JOIN run_sources rs ON rs.run_id = wb.run_id
+            LEFT JOIN sources s ON s.normalized_url = rs.normalized_url
             LEFT JOIN article_distillations ad ON ad.run_id = wb.run_id
             LEFT JOIN claims c ON c.run_id = wb.run_id
             LEFT JOIN signal_events se ON se.run_id = wb.run_id
             WHERE """
             + " AND ".join(clauses)
             + " GROUP BY wb.run_id, wb.title, wb.covered_from, wb.covered_until, "
-            "wb.review_state, rr.status, vc.status, rr.as_of, wb.model_id, "
+            "wb.review_state, rr.status, vc.status, vc.checks, rr.as_of, wb.model_id, "
             "wb.prompt_version, rr.archived_at, rr.archive_reason, "
             "wb.executive_bullets, wb.developments, "
             "wb.risks, wb.opportunities, wb.uncertainties, wb.follow_up_questions "
@@ -3708,9 +3769,10 @@ class PostgresRepository:
             "article_insight_completeness", "report_sections_complete", "readiness_status",
             "blocking_reasons", "decision_ready",
         )
-        return [
-            {
-                **dict(zip(fields, row, strict=True)),
+        summaries: list[dict[str, object]] = []
+        for row in rows:
+            summary = {
+                **dict(zip(fields, row[: len(fields)], strict=True)),
                 "archived": row[16] is not None,
                 "regions": sorted(set(_row_strings(row[11]))),
                 "languages": sorted(set(_row_strings(row[12]))),
@@ -3719,8 +3781,21 @@ class PostgresRepository:
                 "blocking_reasons": sorted(set(_row_strings(row[22]))),
                 "quality_ready": row[23] is True,
             }
-            for row in rows
-        ]
+            checks = row[24] if len(row) > 24 and isinstance(row[24], list) else []
+            if summary["validation_status"] != ValidationStatus.PASS.value:
+                persisted_validation = ValidationReport.model_validate(
+                    {
+                        "run_id": summary["run_id"],
+                        "status": summary["validation_status"],
+                        "checks": checks,
+                    }
+                )
+                summary["blocking_reasons"] = sorted(
+                    set(cast(list[str], summary["blocking_reasons"]))
+                    | set(validation_blocking_reasons(persisted_validation))
+                )
+            summaries.append(summary)
+        return summaries
 
     def count_brief_summaries(
         self,
@@ -3824,18 +3899,20 @@ class PostgresRepository:
             f"AND {claim_ok}"
         )
         relationship_issue_sql = (
-            "EXISTS (SELECT 1 FROM source_snapshots ssq "
-            "JOIN sources sq ON sq.normalized_url = ssq.normalized_url "
-            "WHERE ssq.run_id = wb.run_id AND sq.extraction_status <> 'succeeded') "
-            "OR EXISTS (SELECT 1 FROM source_snapshots ssq "
-            "JOIN sources sq ON sq.normalized_url = ssq.normalized_url "
-            "WHERE ssq.run_id = wb.run_id AND sq.extraction_status = 'succeeded' "
+            "EXISTS (SELECT 1 FROM run_sources rsq "
+            "JOIN sources sq ON sq.normalized_url = rsq.normalized_url "
+            "WHERE rsq.run_id = wb.run_id AND NOT sq.is_seed "
+            "AND rsq.extraction_status <> 'succeeded') "
+            "OR EXISTS (SELECT 1 FROM run_sources rsq "
+            "JOIN sources sq ON sq.normalized_url = rsq.normalized_url "
+            "WHERE rsq.run_id = wb.run_id AND NOT sq.is_seed "
+            "AND rsq.extraction_status = 'succeeded' "
             "AND NOT EXISTS (SELECT 1 FROM article_distillations adm "
-            "WHERE adm.run_id = wb.run_id AND adm.normalized_url = ssq.normalized_url)) "
+            "WHERE adm.run_id = wb.run_id AND adm.normalized_url = rsq.normalized_url)) "
             "OR EXISTS (SELECT 1 FROM article_distillations ado "
             "WHERE ado.run_id = wb.run_id "
-            "AND NOT EXISTS (SELECT 1 FROM source_snapshots sso "
-            "WHERE sso.run_id = wb.run_id AND sso.normalized_url = ado.normalized_url))"
+            "AND NOT EXISTS (SELECT 1 FROM run_sources rso "
+            "WHERE rso.run_id = wb.run_id AND rso.normalized_url = ado.normalized_url))"
         )
         incomplete_article_sql = (
             f"({relationship_issue_sql}) OR EXISTS (SELECT 1 FROM article_distillations adq "
@@ -3858,8 +3935,11 @@ class PostgresRepository:
                 "jsonb_array_length(COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) = 0 "
                 "OR EXISTS (SELECT 1 FROM jsonb_array_elements_text("
                 "COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) AS url(value) "
-                "WHERE NOT EXISTS (SELECT 1 FROM source_snapshots known "
-                "WHERE known.run_id = wb.run_id AND known.normalized_url = url.value)) "
+                "WHERE NOT EXISTS (SELECT 1 FROM run_sources known "
+                "JOIN sources known_source "
+                "ON known_source.normalized_url = known.normalized_url "
+                "WHERE known.run_id = wb.run_id AND NOT known_source.is_seed "
+                "AND known.normalized_url = url.value)) "
                 f"OR ({action_required} AND (NOT {bullet_why_ok} OR NOT {bullet_next_ok})))"
             )
 

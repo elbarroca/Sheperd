@@ -14,6 +14,7 @@ from sheperd_research.contracts import (
     ClaimDraft,
     DistillationQualityStatus,
     EvidenceStatus,
+    ExtractionStatus,
     InsightStatus,
     LaneDiscoveryPacket,
     LaneDiscoveryResult,
@@ -830,7 +831,8 @@ def test_workflow_rejects_policy_invalid_model_sources_before_persistence() -> N
 
 def test_workflow_does_not_fallback_to_direct_tavily_extraction() -> None:
     tavily = EmptyExtractTavily()
-    workflow = ResearchWorkflow(InMemoryRepository(), tavily, FakeLLM())
+    repository = InMemoryRepository()
+    workflow = ResearchWorkflow(repository, tavily, FakeLLM())
     source = SourceCandidate(url="https://example.com/agent-only")
 
     try:
@@ -839,7 +841,7 @@ def test_workflow_does_not_fallback_to_direct_tavily_extraction() -> None:
                 {
                     "run_id": "run-1",
                     "sources": [source],
-                    "content": {},
+                    "content": {source.url: " "},
                     "partial_reasons": [],
                 }
             )
@@ -850,6 +852,11 @@ def test_workflow_does_not_fallback_to_direct_tavily_extraction() -> None:
         raise AssertionError("workflow unexpectedly accepted missing agent extraction")
 
     assert tavily.calls == 0
+    assert repository.source_snapshots == {}
+    associated_sources = repository.get_run_sources("run-1")
+    assert len(associated_sources) == 1
+    assert associated_sources[0].extraction_status is ExtractionStatus.FAILED
+    assert associated_sources[0].extraction_error_code == "missing_content"
 
 
 def test_workflow_fails_when_non_extractable_source_has_no_body() -> None:

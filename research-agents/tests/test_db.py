@@ -320,6 +320,61 @@ def test_postgres_brief_summaries_recompute_readiness_from_persisted_evidence() 
     assert summaries[0]["quality_ready"] is False
 
 
+def test_postgres_brief_summaries_restore_provider_blocking_reasons() -> None:
+    repository = PostgresRepository(Mock())
+    covered_at = datetime(2026, 8, 19, tzinfo=UTC)
+    row = (
+        "provider-failed-run",
+        "Provider failed summary",
+        covered_at,
+        covered_at,
+        "draft",
+        RunStatus.FAILED.value,
+        ValidationStatus.FAILED.value,
+        1,
+        0,
+        0,
+        0,
+        ["global"],
+        ["en"],
+        ["regulatory"],
+        ["google/gemma-4-26b-a4b-it:free"],
+        covered_at,
+        covered_at,
+        "validation_failed",
+        0,
+        0.0,
+        0,
+        "review_required",
+        ["run_not_succeeded", "validation_not_passed"],
+        False,
+    )
+    checks = [
+        {
+            "name": "provider_error_codes",
+            "status": "failed",
+            "observed": "provider_unavailable,rate_limit,timeout",
+            "expected": "none",
+            "message": "provider/extraction error codes persisted in run evidence",
+        }
+    ]
+
+    def execute(query: str, _params: tuple[object, ...] = ()) -> list[tuple[object, ...]]:
+        return [(*row, checks)] if "vc.checks" in query else [row]
+
+    with (
+        patch.object(repository, "_execute", side_effect=execute),
+        patch.object(repository, "get_validation", side_effect=AssertionError("N+1 validation")),
+    ):
+        summary = repository.list_brief_summaries()[0]
+
+    assert {
+        "provider_rate_limit",
+        "provider_timeout",
+        "provider_unavailable",
+    }.issubset(summary["blocking_reasons"])
+
+
 def test_repositories_reject_new_oversized_evidence_excerpt_writes() -> None:
     distillation = ArticleDistillation(
         source_url="https://example.com/oversized-write",
@@ -453,6 +508,44 @@ def test_validation_revalidation_replaces_report_metadata_without_replacing_step
     assert "checks = EXCLUDED.checks" in queries[1]
 
 
+def test_postgres_validation_load_restores_persisted_blocking_reasons() -> None:
+    checks = [
+        {
+            "name": "provider_error_codes",
+            "status": "failed",
+            "observed": "provider_unavailable,rate_limit,timeout",
+            "expected": "none",
+            "message": "provider/extraction error codes persisted in run evidence",
+        }
+    ]
+    row = (
+        "provider-failed-run",
+        ValidationStatus.FAILED.value,
+        1,
+        1,
+        0,
+        0,
+        0.0,
+        ["regulatory"],
+        checks,
+        "google/gemma-4-26b-a4b-it:free",
+        "validation-v1",
+        datetime(2026, 8, 19, tzinfo=UTC),
+        "validation-hash",
+    )
+    repository = PostgresRepository(Mock())
+
+    with patch.object(repository, "_execute", return_value=[row]):
+        report = repository.get_validation("provider-failed-run")
+
+    assert report is not None
+    assert {
+        "provider_rate_limit",
+        "provider_timeout",
+        "provider_unavailable",
+    }.issubset(report.blocking_reasons)
+
+
 def test_postgres_source_persistence_uses_sanitized_url() -> None:
     source = SourceCandidate(
         url="https://safe.example/article?api_key=KEY_SECRET&token=TOKEN_SECRET"
@@ -467,6 +560,63 @@ def test_postgres_source_persistence_uses_sanitized_url() -> None:
     assert params[1] == "https://safe.example/article"
     assert "KEY_SECRET" not in json.dumps(params, default=str)
     assert "TOKEN_SECRET" not in json.dumps(params, default=str)
+
+
+def test_postgres_failed_source_has_run_membership_without_a_snapshot() -> None:
+    source = SourceCandidate(
+        url="https://example.com/failed-extraction",
+        extraction_status=ExtractionStatus.FAILED,
+        extraction_error_code="provider_unavailable",
+    )
+    repository = PostgresRepository(Mock())
+
+    with patch.object(
+        repository,
+        "_execute",
+        side_effect=[[("discovery", False, "unverified")], []],
+    ) as execute:
+        repository.record_source(source, run_id="failed-run")
+
+    association_query, association_params = execute.call_args_list[1].args
+    assert "INSERT INTO run_sources" in association_query
+    assert association_params[:2] == ("failed-run", source.url)
+    assert association_params[2:] == (
+        ExtractionStatus.FAILED,
+        "provider_unavailable",
+    )
+
+    row = (
+        source.url,
+        source.title,
+        source.publisher,
+        source.published_at,
+        source.retrieved_at,
+        source.source_kind,
+        source.snippet,
+        source.topics,
+        source.geographies,
+        source.lane,
+        source.is_seed,
+        source.evidence_status.value,
+        source.region,
+        source.language_code,
+        source.language_confidence,
+        source.authority_tier,
+        source.catalog_source_id,
+        source.source_type,
+        source.freshness_status.value,
+        source.freshness_days,
+        source.extraction_status.value,
+        source.extraction_error_code,
+        source.normalized_title_en,
+        source.normalized_snippet_en,
+    )
+    with patch.object(repository, "_execute", return_value=[row]) as execute:
+        loaded = repository.get_run_sources("failed-run")
+
+    assert "JOIN run_sources" in execute.call_args.args[0]
+    assert loaded[0].extraction_status is ExtractionStatus.FAILED
+    assert loaded[0].extraction_error_code == "provider_unavailable"
 
 
 def test_postgres_public_source_reads_strip_sensitive_query_values() -> None:
