@@ -103,6 +103,8 @@ def valid_article_response(source_url: str) -> dict[str, object]:
         "source_language": "en",
         "summary_original": "A source-bound summary.",
         "key_points_original": ["A reported point.", "A second reported point."],
+        "evidence_excerpts": ["A reported point."],
+        "evidence_locators": ["paragraph 1"],
     }
 
 

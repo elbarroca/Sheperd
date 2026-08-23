@@ -35,7 +35,19 @@ REPORT_BULLET_SECTIONS = (
 )
 ACTIONABLE_REPORT_SECTIONS = {"risks", "opportunities", "uncertainties"}
 _PLACEHOLDER_TEXT = frozenset(
-    {"", "null", "none", "n/a", "na", "not recorded", "not available"}
+    {
+        "",
+        "null",
+        "none",
+        "n/a",
+        "na",
+        "not recorded",
+        "not available",
+        "tbd",
+        "to be determined",
+        "unknown",
+        "unsupported",
+    }
 )
 
 
@@ -249,6 +261,11 @@ def validate_article_distillation_quality(
                 and not (claim.evidence_excerpt or claim.support_locator)
             ):
                 issues.append(f"claim_{index}_missing_evidence")
+    if not any(
+        item.strip() and not _is_placeholder(item)
+        for item in [*distillation.evidence_excerpts, *distillation.evidence_locators]
+    ):
+        issues.append("missing_evidence_locator")
     _required_insight_text(distillation.what_happened, "what_happened", issues)
     _required_insight_text(distillation.why_it_matters, "why_it_matters", issues)
     if not distillation.uncertainties or not all(
@@ -269,11 +286,7 @@ def validate_article_distillation_quality(
         if insight is None:
             issues.append(f"missing_{name}")
             continue
-        if insight.status not in {
-            InsightStatus.SUPPORTED,
-            InsightStatus.NOT_OBSERVED,
-            InsightStatus.UNCERTAIN,
-        }:
+        if insight.status not in {InsightStatus.SUPPORTED, InsightStatus.NOT_OBSERVED}:
             issues.append(f"invalid_{name}_status")
         _required_insight_text(insight.statement, f"{name}_statement", issues)
         _required_insight_text(

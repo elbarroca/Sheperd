@@ -1591,6 +1591,8 @@ def test_create_agent_names_all_six_workers(monkeypatch: pytest.MonkeyPatch) -> 
                     },
                     "uncertainties": ["The source may not cover the full market."],
                     "next_steps": ["Compare the report with an independent source."],
+                    "evidence_excerpts": ["A reported point."],
+                    "evidence_locators": ["paragraph 1"],
                     "claims": [
                         {
                             "claim": "A reported point.",

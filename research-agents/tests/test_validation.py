@@ -6,6 +6,7 @@ from sheperd_research.contracts import (
     ArticleDistillation,
     ClaimDraft,
     EvidenceStatus,
+    ExtractionStatus,
     ReportBullet,
     SourceCandidate,
     ValidationStatus,
@@ -199,6 +200,59 @@ def test_legacy_incomplete_distillation_cannot_remain_pass() -> None:
     )
     assert report.status is ValidationStatus.FAILED
     assert check.status is ValidationStatus.FAILED
+
+
+def test_validation_requires_exactly_one_distillation_per_extracted_source() -> None:
+    sources = [
+        source.model_copy(update={"extraction_status": ExtractionStatus.SUCCEEDED})
+        for source in _sources()
+    ]
+    claims = [
+        ClaimDraft(claim=f"Claim {index}", source_urls=[sources[index].url])
+        for index in range(5)
+    ]
+    complete_distillation = ArticleDistillation(
+        source_url=sources[0].url,
+        summary="Complete summary.",
+        key_points=["Point one.", "Point two."],
+        what_happened="The source reports a development.",
+        why_it_matters="It changes the operating picture.",
+        risk_assessment={
+            "status": "not_observed",
+            "statement": "No supported risk was observed.",
+            "why_it_matters": "The source does not establish a risk.",
+            "next_step": "Check an independent source.",
+        },
+        opportunity_assessment={
+            "status": "not_observed",
+            "statement": "No supported opportunity was observed.",
+            "why_it_matters": "The source does not establish an opportunity.",
+            "next_step": "Check an independent source.",
+        },
+        uncertainties=["The source has limited scope."],
+        next_steps=["Review an independent source."],
+        evidence_locators=["paragraph 1"],
+        claims=[claims[0]],
+        quality_status="complete",
+    )
+
+    report = build_validation_report(
+        "duplicate-distillation",
+        sources,
+        claims,
+        datetime(2026, 8, 19, tzinfo=UTC),
+        STRICT_OPENROUTER_MODEL,
+        {"regulatory": "succeeded", "us-ports": "succeeded", "mexico": "succeeded"},
+        [f"hash-{index}" for index in range(10)],
+        distillations=[complete_distillation, complete_distillation],
+    )
+
+    check = next(
+        check for check in report.checks if check.name == "source_distillation_completeness"
+    )
+    assert report.status is ValidationStatus.FAILED
+    assert check.status is ValidationStatus.FAILED
+    assert check.observed == 10
 
 
 def test_provider_partial_is_not_silently_promoted_to_pass() -> None:

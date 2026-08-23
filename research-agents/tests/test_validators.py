@@ -148,6 +148,7 @@ def test_explicit_not_observed_insights_are_valid() -> None:
         opportunity_assessment=insight,
         uncertainties=["The source has limited scope."],
         next_steps=["Compare another source."],
+        evidence_excerpts=["The source reports a development."],
         claims=[
             ClaimDraft(
                 claim="The source reports a development.",
@@ -159,6 +160,68 @@ def test_explicit_not_observed_insights_are_valid() -> None:
     )
 
     assert validate_article_distillation_quality(distillation) == []
+
+
+def test_complete_article_packet_requires_evidence_locator_or_excerpt() -> None:
+    insight = ArticleInsight(
+        status=InsightStatus.NOT_OBSERVED,
+        statement="No supported risk was observed in this source.",
+        why_it_matters="The source does not establish a risk.",
+        next_step="Review an independent source.",
+    )
+    distillation = ArticleDistillation(
+        source_url="https://example.com/no-evidence",
+        summary="Summary",
+        key_points=["Point one", "Point two"],
+        what_happened="The source reports a development.",
+        why_it_matters="The development may matter operationally.",
+        risk_assessment=insight,
+        opportunity_assessment=insight,
+        uncertainties=["The source has limited scope."],
+        next_steps=["Compare another source."],
+        claims=[
+            ClaimDraft(
+                claim="The source reports a development.",
+                source_urls=["https://example.com/no-evidence"],
+            )
+        ],
+        quality_status=DistillationQualityStatus.COMPLETE,
+    )
+
+    assert "missing_evidence_locator" in validate_article_distillation_quality(distillation)
+
+
+def test_uncertain_risk_or_opportunity_is_not_an_explicit_evidence_gap() -> None:
+    insight = ArticleInsight(
+        status=InsightStatus.UNCERTAIN,
+        statement="Risk is uncertain.",
+        why_it_matters="The source is inconclusive.",
+        next_step="Review an independent source.",
+    )
+    distillation = ArticleDistillation(
+        source_url="https://example.com/uncertain",
+        summary="Summary",
+        key_points=["Point one", "Point two"],
+        what_happened="The source reports a development.",
+        why_it_matters="The development may matter operationally.",
+        risk_assessment=insight,
+        opportunity_assessment=insight,
+        uncertainties=["The source is inconclusive."],
+        next_steps=["Compare another source."],
+        evidence_locators=["paragraph 2"],
+        claims=[
+            ClaimDraft(
+                claim="The source reports a development.",
+                source_urls=["https://example.com/uncertain"],
+            )
+        ],
+        quality_status=DistillationQualityStatus.COMPLETE,
+    )
+
+    issues = validate_article_distillation_quality(distillation)
+
+    assert "invalid_risk_assessment_status" in issues
+    assert "invalid_opportunity_assessment_status" in issues
 
 
 def test_article_fulfillment_reports_persistence_and_missing_quality() -> None:

@@ -174,9 +174,11 @@ def build_validation_report(
         for source in enriched_sources
         if source.extraction_status is not ExtractionStatus.SUCCEEDED
     ]
-    distillation_urls = {
-        normalize_url(item.source_url) for item in (distillations or [])
-    }
+    distillation_url_counts: dict[str, int] = {}
+    for item in distillations or []:
+        url = normalize_url(item.source_url)
+        distillation_url_counts[url] = distillation_url_counts.get(url, 0) + 1
+    distillation_urls = set(distillation_url_counts)
     missing_distillations = [
         source
         for source in enriched_sources
@@ -184,6 +186,10 @@ def build_validation_report(
         and source.extraction_status is ExtractionStatus.SUCCEEDED
         and normalize_url(source.url) not in distillation_urls
     ]
+    duplicate_distillations = [
+        url for url, count in distillation_url_counts.items() if count > 1
+    ]
+    unexpected_distillations = sorted(distillation_urls - known_urls)
     distillations_by_url = {
         normalize_url(item.source_url): item for item in (distillations or [])
     }
@@ -308,10 +314,16 @@ def build_validation_report(
             checks.append(
                 _check(
                     "source_distillation_completeness",
-                    not missing_distillations,
-                    len(missing_distillations),
+                    not missing_distillations
+                    and not duplicate_distillations
+                    and not unexpected_distillations,
+                    (
+                        len(missing_distillations)
+                        + len(duplicate_distillations)
+                        + len(unexpected_distillations)
+                    ),
                     0,
-                    "every successfully extracted source must have one distillation",
+                    "every successfully extracted source must have exactly one distillation",
                 )
             )
             checks.append(

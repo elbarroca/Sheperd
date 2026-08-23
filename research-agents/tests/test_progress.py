@@ -26,6 +26,27 @@ def test_progress_reporter_emits_timestamp_emoji_and_safe_details() -> None:
     assert "api_key=<redacted>" in line
 
 
+def test_progress_reporter_redacts_sensitive_text_values() -> None:
+    stream = StringIO()
+    reporter = ProgressReporter(stream=stream)
+
+    reporter.emit(
+        "agent",
+        "Agent attempt",
+        detail="Authorization: Bearer SECRET_TOKEN",
+        prompt="full prompt text",
+        reasoning="hidden chain",
+        raw_body="article body",
+    )
+
+    line = stream.getvalue()
+    assert "SECRET_TOKEN" not in line
+    assert "full prompt text" not in line
+    assert "hidden chain" not in line
+    assert "article body" not in line
+    assert line.count("<redacted>") == 4
+
+
 def test_progress_reporter_can_be_disabled() -> None:
     stream = StringIO()
     reporter = ProgressReporter(stream=stream, enabled=False)

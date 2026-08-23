@@ -184,20 +184,51 @@ def _readiness(
 
 def _summary_readiness(summary: dict[str, object]) -> dict[str, object]:
     result = dict(summary)
+    raw_reasons = result.get("blocking_reasons", [])
+    reasons = {
+        item
+        for item in raw_reasons
+        if isinstance(item, str)
+    } if isinstance(raw_reasons, list) else set()
+    if result.get("run_status") != "succeeded":
+        reasons.add("run_not_succeeded")
+    if result.get("validation_status") != "pass":
+        reasons.add("validation_not_passed")
+    article_count = result.get("distillation_count", result.get("article_count", 0))
+    complete_article_count = result.get("complete_article_count", 0)
+    if (
+        isinstance(article_count, int)
+        and isinstance(complete_article_count, int)
+        and (article_count == 0 or complete_article_count < article_count)
+    ):
+        reasons.add("incomplete_article_insights")
+    report_section_count = result.get("report_section_count", 5)
+    report_sections_complete = result.get("report_sections_complete", 0)
+    if (
+        isinstance(report_section_count, int)
+        and isinstance(report_sections_complete, int)
+        and report_sections_complete < report_section_count
+    ):
+        reasons.add("empty_report_section")
     stored_status = result.get("readiness_status")
     if isinstance(stored_status, str):
-        result["decision_ready"] = stored_status == "decision_ready"
-        result.setdefault("blocking_reasons", [])
+        ready = stored_status == "decision_ready" and not reasons
+        result["readiness_status"] = "decision_ready" if ready else "review_required"
+        result["decision_ready"] = ready
+        result["blocking_reasons"] = sorted(reasons)
         return result
     quality_ready = result.get("quality_ready") is True
     ready = (
         result.get("run_status") == "succeeded"
         and result.get("validation_status") == "pass"
         and quality_ready
+        and not reasons
     )
     result["readiness_status"] = "decision_ready" if ready else "review_required"
     result["decision_ready"] = ready
-    result.setdefault("blocking_reasons", [] if quality_ready else ["quality_review_required"])
+    result["blocking_reasons"] = sorted(
+        reasons if reasons else ([] if quality_ready else ["quality_review_required"])
+    )
     return result
 
 

@@ -55,6 +55,7 @@ def _complete_distillation(
         opportunity_assessment=_not_observed_insight("commercial opportunity"),
         uncertainties=["The source may not cover the full market."],
         next_steps=["Compare the report with an independent source."],
+        evidence_excerpts=["A reported port signal exists."],
         claims=[claim],
         limitations=["Public report only."],
         quality_status=DistillationQualityStatus.COMPLETE,

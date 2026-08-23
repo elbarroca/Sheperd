@@ -303,6 +303,7 @@ def test_weekly_summaries_are_ready_first_and_paginated() -> None:
             ),
             uncertainties=["Coverage is limited to this source."],
             next_steps=["Review an independent source."],
+            evidence_excerpts=["A supported development."],
             claims=[claim],
             quality_status=DistillationQualityStatus.COMPLETE,
         ),
@@ -341,6 +342,13 @@ def test_weekly_summaries_are_ready_first_and_paginated() -> None:
     assert payload["offset"] == 0
     assert payload["has_more"] is True
     assert payload["reports"][0]["run_id"] == "ready-run"
+
+    all_reports = client.get("/api/reports/weekly?limit=2").json()["reports"]
+    draft_report = next(report for report in all_reports if report["run_id"] == "draft-run")
+    assert draft_report["readiness_status"] == "review_required"
+    assert "run_not_succeeded" in draft_report["blocking_reasons"]
+    assert "validation_not_passed" in draft_report["blocking_reasons"]
+    assert "empty_report_section" in draft_report["blocking_reasons"]
 
 
 def test_markdown_preview_contains_evidence_without_raw_body() -> None:
