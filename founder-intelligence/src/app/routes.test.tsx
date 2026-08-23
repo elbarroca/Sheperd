@@ -479,4 +479,20 @@ describe("production report routes", () => {
     expect(markup).not.toContain("0/3 complete article packets");
     expect(markup).not.toContain("5 complete report sections");
   });
+
+  it("slugifies report section titles for accessible heading ids", async () => {
+    api.getResearchHealth.mockResolvedValue({
+      status: "ok",
+      data: { status: "pass", migration_version: "0010", branch_id: "main", database: "neondb" },
+    });
+    api.getDailyReports.mockResolvedValue({ status: "ok", data: { reports: [], count: 0 } });
+    api.getWeeklyReports.mockResolvedValue({ status: "ok", data: { reports: [], count: 0 } });
+
+    const markup = renderToStaticMarkup(await HomePage({
+      searchParams: Promise.resolve({ scope: "archived" }),
+    }));
+
+    expect(markup).toContain('aria-labelledby="archived-failures-heading"');
+    expect(markup).toContain('id="archived-failures-heading"');
+  });
 });

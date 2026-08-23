@@ -29,7 +29,14 @@ from .contracts import (
     WeeklyBrief,
 )
 from .validation import validation_blocking_reasons
-from .validators import article_fulfillment, content_hash, normalize_url, quality_metrics
+from .validators import (
+    ACTIONABLE_REPORT_SECTIONS,
+    REPORT_BULLET_SECTIONS,
+    article_fulfillment,
+    content_hash,
+    normalize_url,
+    quality_metrics,
+)
 
 MIGRATION_VERSION = "0013_run_sources"
 ArchiveScope = Literal["active", "archived", "all"]
@@ -3609,11 +3616,13 @@ class PostgresRepository:
             )
             bullet_why_ok = text_ok("bullet.value ->> 'why_it_matters'")
             bullet_next_ok = text_ok("bullet.value ->> 'next_step'")
+            bullet_text_ok = text_ok("bullet.value ->> 'text'")
             return (
                 f"jsonb_array_length({array_sql}) > 0 "
                 f"AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements({array_sql}) "
                 "AS bullet(value) WHERE "
-                "jsonb_array_length(COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) = 0 "
+                f"NOT {bullet_text_ok} "
+                "OR jsonb_array_length(COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) = 0 "
                 "OR EXISTS (SELECT 1 FROM jsonb_array_elements_text("
                 "COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) AS url(value) "
                 "WHERE NOT EXISTS (SELECT 1 FROM run_sources known "
@@ -3624,6 +3633,21 @@ class PostgresRepository:
                 f"OR ({action_required} AND (NOT {bullet_why_ok} OR NOT {bullet_next_ok})))"
             )
 
+        report_section_checks = [
+            report_section_ok(
+                section,
+                actionable=section in ACTIONABLE_REPORT_SECTIONS,
+            )
+            for section in REPORT_BULLET_SECTIONS
+        ]
+        report_sections_complete_sql = "(" + " + ".join(
+            f"CASE WHEN ({check}) THEN 1 ELSE 0 END"
+            for check in report_section_checks
+        ) + ")"
+        report_section_completeness_sql = "(" + " + ".join(
+            f"CASE WHEN ({check}) THEN 1 ELSE 0 END"
+            for check in report_section_checks
+        ) + f")::numeric / {len(REPORT_BULLET_SECTIONS)}"
         report_complete_sql = (
             f"{report_section_ok('executive_bullets', actionable=False)} "
             f"AND {report_section_ok('developments', actionable=False)} "
@@ -3721,26 +3745,16 @@ class PostgresRepository:
                        )
                        ELSE 0
                    END,
-                   (
-                       CASE WHEN jsonb_array_length(
-                           COALESCE(wb.executive_bullets, '[]'::jsonb)
-                       ) > 0 THEN 1 ELSE 0 END
-                       + CASE WHEN jsonb_array_length(
-                           COALESCE(wb.developments, '[]'::jsonb)
-                       ) > 0 THEN 1 ELSE 0 END
-                       + CASE WHEN jsonb_array_length(
-                           COALESCE(wb.risks, '[]'::jsonb)
-                       ) > 0 THEN 1 ELSE 0 END
-                       + CASE WHEN jsonb_array_length(
-                           COALESCE(wb.opportunities, '[]'::jsonb)
-                       ) > 0 THEN 1 ELSE 0 END
-                       + CASE WHEN jsonb_array_length(
-                           COALESCE(wb.uncertainties, '[]'::jsonb)
-                       ) > 0 THEN 1 ELSE 0 END
-                   ),
+                   {report_sections_complete_sql},
                    CASE WHEN {ready_sql} THEN 'decision_ready' ELSE 'review_required' END,
                    {blocking_reasons_sql},
                    ({ready_sql}),
+                   CASE WHEN {len(REPORT_BULLET_SECTIONS)} > 0 THEN
+                       round(
+                           {report_section_completeness_sql}, 6
+                       )
+                       ELSE 0
+                   END,
                    COALESCE(vc.checks, '[]'::jsonb)
             FROM weekly_briefs wb
             JOIN research_runs rr ON rr.run_id = wb.run_id
@@ -3767,7 +3781,7 @@ class PostgresRepository:
             "claim_count", "signal_count", "regions", "languages", "lane_coverage",
             "models", "as_of", "archived_at", "archive_reason", "complete_article_count",
             "article_insight_completeness", "report_sections_complete", "readiness_status",
-            "blocking_reasons", "decision_ready",
+            "blocking_reasons", "decision_ready", "report_section_completeness",
         )
         summaries: list[dict[str, object]] = []
         for row in rows:
@@ -3781,7 +3795,14 @@ class PostgresRepository:
                 "blocking_reasons": sorted(set(_row_strings(row[22]))),
                 "quality_ready": row[23] is True,
             }
-            checks = row[24] if len(row) > 24 and isinstance(row[24], list) else []
+            checks = next(
+                (
+                    row[index]
+                    for index in (len(fields), len(fields) - 1)
+                    if len(row) > index and isinstance(row[index], list)
+                ),
+                [],
+            )
             if summary["validation_status"] != ValidationStatus.PASS.value:
                 persisted_validation = ValidationReport.model_validate(
                     {
@@ -3928,11 +3949,13 @@ class PostgresRepository:
             )
             bullet_why_ok = text_ok("bullet.value ->> 'why_it_matters'")
             bullet_next_ok = text_ok("bullet.value ->> 'next_step'")
+            bullet_text_ok = text_ok("bullet.value ->> 'text'")
             return (
                 f"jsonb_array_length({array_sql}) > 0 "
                 f"AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements({array_sql}) "
                 "AS bullet(value) WHERE "
-                "jsonb_array_length(COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) = 0 "
+                f"NOT {bullet_text_ok} "
+                "OR jsonb_array_length(COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) = 0 "
                 "OR EXISTS (SELECT 1 FROM jsonb_array_elements_text("
                 "COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) AS url(value) "
                 "WHERE NOT EXISTS (SELECT 1 FROM run_sources known "

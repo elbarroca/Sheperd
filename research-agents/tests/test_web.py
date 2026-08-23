@@ -22,7 +22,7 @@ from sheperd_research.contracts import (
     WeeklyBrief,
 )
 from sheperd_research.db import InMemoryRepository
-from sheperd_research.web import create_app
+from sheperd_research.web import _summary_readiness, create_app
 
 
 def test_dashboard_exposes_read_only_run_source_and_brief_views() -> None:
@@ -349,6 +349,53 @@ def test_weekly_summaries_are_ready_first_and_paginated() -> None:
     assert "run_not_succeeded" in draft_report["blocking_reasons"]
     assert "validation_not_passed" in draft_report["blocking_reasons"]
     assert "empty_report_section" in draft_report["blocking_reasons"]
+
+
+def test_summary_readiness_recomputes_from_canonical_quality_fields() -> None:
+    summary = {
+        "run_id": "stale-ready-run",
+        "run_status": "succeeded",
+        "validation_status": "pass",
+        "readiness_status": "decision_ready",
+        "decision_ready": True,
+        "quality_ready": True,
+        "blocking_reasons": [],
+        "distillation_count": 2,
+        "complete_article_count": 2,
+        "article_insight_completeness": 0.5,
+        "report_section_count": 5,
+        "report_sections_complete": 5,
+        "report_section_completeness": 0.8,
+    }
+
+    result = _summary_readiness(summary)
+
+    assert result["readiness_status"] == "review_required"
+    assert result["decision_ready"] is False
+    blocking_reasons = result["blocking_reasons"]
+    assert isinstance(blocking_reasons, list)
+    assert "incomplete_article_insights" in blocking_reasons
+    assert "empty_report_section" in blocking_reasons
+
+
+def test_summary_readiness_fails_closed_for_legacy_ready_flags() -> None:
+    result = _summary_readiness(
+        {
+            "run_id": "legacy-ready-run",
+            "run_status": "succeeded",
+            "validation_status": "pass",
+            "readiness_status": "decision_ready",
+            "decision_ready": True,
+            "quality_ready": True,
+            "blocking_reasons": [],
+        }
+    )
+
+    assert result["readiness_status"] == "review_required"
+    assert result["decision_ready"] is False
+    blocking_reasons = result["blocking_reasons"]
+    assert isinstance(blocking_reasons, list)
+    assert "legacy_quality_evidence_missing" in blocking_reasons
 
 
 def test_markdown_preview_contains_evidence_without_raw_body() -> None:

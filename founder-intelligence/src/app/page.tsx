@@ -88,6 +88,10 @@ function getScope(value: string | undefined): ArchiveScope {
   return value === "archived" || value === "all" ? value : "active";
 }
 
+function slugifyId(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-|-$/gu, "");
+}
+
 function nextSteps(report: ReportPayload): string[] {
   const seen = new Set<string>();
   return [...report.brief.risks, ...report.brief.opportunities, ...report.brief.uncertainties].flatMap((bullet) => {
@@ -113,12 +117,13 @@ function ReportSection({
   title: string;
   reports: WeeklyReportSummary[];
 }) {
+  const headingId = `${slugifyId(title)}-heading`;
   return (
-    <section className="report-group" aria-labelledby={`${title.toLowerCase()}-heading`}>
+    <section className="report-group" aria-labelledby={headingId}>
       <div className="section-heading">
         <div>
           <p className="eyebrow">{title}</p>
-          <h2 id={`${title.toLowerCase()}-heading`}>{reports.length} reports</h2>
+          <h2 id={headingId}>{reports.length} reports</h2>
         </div>
         <span className="count-label">Read-only archive</span>
       </div>

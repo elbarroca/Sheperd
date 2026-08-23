@@ -133,6 +133,44 @@ describe("research API runtime validation", () => {
     }
   });
 
+  it("rejects report details with placeholder brief bullets", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      ...validReport,
+      brief: {
+        ...validReport.brief,
+        executive_bullets: [{
+          text: "unknown",
+          source_urls: ["https://example.com/source"],
+          evidence_status: "mixed",
+        }],
+      },
+    }));
+
+    await expect(getWeeklyReport("run-1")).resolves.toEqual({
+      status: "unavailable",
+      error: "Research API returned malformed data",
+    });
+  });
+
+  it("rejects report details with placeholder claims", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      ...validReport,
+      claims: [{
+        claim: "   ",
+        source_urls: ["https://example.com/source"],
+        evidence_status: "mixed",
+        confidence: "low",
+        support_locator: null,
+        conflicts: [],
+      }],
+    }));
+
+    await expect(getWeeklyReport("run-1")).resolves.toEqual({
+      status: "unavailable",
+      error: "Research API returned malformed data",
+    });
+  });
+
   it("returns unavailable for an unavailable HTTP response", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: "offline" }, 503));
 

@@ -478,10 +478,11 @@ function isPrimitive(value: unknown): boolean {
 
 function isReportBullet(value: unknown): value is ReportBullet {
   return isRecord(value)
-    && hasStrings(value, ["text", "evidence_status"])
+    && isMeaningfulText(value.text)
+    && isString(value.evidence_status)
     && isStringArray(value.source_urls)
-    && isOptional(value, "why_it_matters", isString)
-    && isOptional(value, "next_step", isString);
+    && isOptional(value, "why_it_matters", isMeaningfulText)
+    && isOptional(value, "next_step", isMeaningfulText);
 }
 
 function isWeeklyBrief(value: unknown): value is WeeklyBrief {
@@ -615,12 +616,13 @@ function isResearchSource(value: unknown): value is ResearchSource {
 
 function isResearchClaim(value: unknown): value is ResearchClaim {
   return isRecord(value)
-    && hasStrings(value, ["claim", "evidence_status", "confidence"])
+    && isMeaningfulText(value.claim)
+    && hasStrings(value, ["evidence_status", "confidence"])
     && isStringArray(value.source_urls)
-    && isNullableString(value.support_locator)
+    && isNullableMeaningfulText(value.support_locator)
     && isStringArray(value.conflicts)
     && isOptional(value, "original_claim", isNullableString)
-    && isOptional(value, "evidence_excerpt", isNullableString)
+    && isOptional(value, "evidence_excerpt", isNullableMeaningfulText)
     && isOptional(value, "independent_source_count", isNonNegativeInteger)
     && isOptional(value, "citation_status", isString)
     && isOptional(value, "verification_basis", isNullableString);

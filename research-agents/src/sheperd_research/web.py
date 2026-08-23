@@ -194,41 +194,59 @@ def _summary_readiness(summary: dict[str, object]) -> dict[str, object]:
         reasons.add("run_not_succeeded")
     if result.get("validation_status") != "pass":
         reasons.add("validation_not_passed")
-    article_count = result.get("distillation_count", result.get("article_count", 0))
-    complete_article_count = result.get("complete_article_count", 0)
-    if (
-        isinstance(article_count, int)
-        and isinstance(complete_article_count, int)
-        and (article_count == 0 or complete_article_count < article_count)
-    ):
-        reasons.add("incomplete_article_insights")
-    report_section_count = result.get("report_section_count", 5)
-    report_sections_complete = result.get("report_sections_complete", 0)
-    if (
-        isinstance(report_section_count, int)
-        and isinstance(report_sections_complete, int)
-        and report_sections_complete < report_section_count
-    ):
-        reasons.add("empty_report_section")
-    stored_status = result.get("readiness_status")
-    if isinstance(stored_status, str):
-        ready = stored_status == "decision_ready" and not reasons
-        result["readiness_status"] = "decision_ready" if ready else "review_required"
-        result["decision_ready"] = ready
-        result["blocking_reasons"] = sorted(reasons)
-        return result
-    quality_ready = result.get("quality_ready") is True
+
+    def complete_metric(
+        *,
+        count_key: str,
+        complete_key: str,
+        ratio_key: str,
+        reason: str,
+    ) -> bool:
+        count = result.get(count_key)
+        complete = result.get(complete_key)
+        ratio = result.get(ratio_key)
+        if not (
+            isinstance(count, int)
+            and isinstance(complete, int)
+            and isinstance(ratio, (int, float))
+        ):
+            reasons.add("legacy_quality_evidence_missing")
+            return False
+        if count <= 0 or complete != count or float(ratio) != 1.0:
+            reasons.add(reason)
+            return False
+        return True
+
+    article_count = (
+        "article_count"
+        if isinstance(result.get("article_count"), int)
+        else "distillation_count"
+    )
+    article_complete = complete_metric(
+        count_key=article_count,
+        complete_key="complete_article_count",
+        ratio_key="article_insight_completeness",
+        reason="incomplete_article_insights",
+    )
+    report_complete = complete_metric(
+        count_key="report_section_count",
+        complete_key="report_sections_complete",
+        ratio_key="report_section_completeness",
+        reason="empty_report_section",
+    )
+    if result.get("quality_ready") is not True:
+        reasons.add("quality_review_required")
     ready = (
         result.get("run_status") == "succeeded"
         and result.get("validation_status") == "pass"
-        and quality_ready
+        and result.get("quality_ready") is True
+        and article_complete
+        and report_complete
         and not reasons
     )
     result["readiness_status"] = "decision_ready" if ready else "review_required"
     result["decision_ready"] = ready
-    result["blocking_reasons"] = sorted(
-        reasons if reasons else ([] if quality_ready else ["quality_review_required"])
-    )
+    result["blocking_reasons"] = sorted(reasons)
     return result
 
 

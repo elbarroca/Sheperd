@@ -10,6 +10,7 @@ from sheperd_research.contracts import (
     ClaimDraft,
     DistillationQualityStatus,
     InsightStatus,
+    ReportBullet,
     SourceCandidate,
     WeeklyBrief,
 )
@@ -403,3 +404,31 @@ def test_v6_report_sections_require_cited_context_and_next_step() -> None:
     assert "risks_empty" in issues
     assert "opportunities_empty" in issues
     assert "uncertainties_empty" in issues
+
+
+@pytest.mark.parametrize("bullet_text", ["   ", "unknown"])
+def test_report_sections_reject_placeholder_bullet_text(bullet_text: str) -> None:
+    source_url = "https://example.com/source"
+    valid_bullet = ReportBullet(
+        text="A cited development.",
+        source_urls=[source_url],
+        why_it_matters="The source changes the operating picture.",
+        next_step="Review an independent source.",
+    )
+    brief = WeeklyBrief(
+        run_id="run-1",
+        title="Brief",
+        covered_from=datetime(2026, 8, 18, tzinfo=UTC),
+        covered_until=datetime(2026, 8, 19, tzinfo=UTC),
+        summary="Summary",
+        executive_bullets=[valid_bullet],
+        developments=[valid_bullet.model_copy(update={"text": bullet_text})],
+        risks=[valid_bullet],
+        opportunities=[valid_bullet],
+        uncertainties=[valid_bullet],
+        follow_up_questions=["What independent evidence follows?"],
+    )
+
+    issues = validate_report_sections(brief, {source_url})
+
+    assert "developments_1_missing_text" in issues

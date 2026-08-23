@@ -299,6 +299,7 @@ def test_postgres_brief_summaries_recompute_readiness_from_persisted_evidence() 
         "review_required",
         ["incomplete_article_insights"],
         False,
+        0.0,
     )
 
     with (
@@ -316,8 +317,11 @@ def test_postgres_brief_summaries_recompute_readiness_from_persisted_evidence() 
     assert summaries[0]["readiness_status"] == "review_required"
     assert summaries[0]["decision_ready"] is False
     assert summaries[0]["complete_article_count"] == 0
-    assert "incomplete_article_insights" in summaries[0]["blocking_reasons"]
+    blocking_reasons = summaries[0]["blocking_reasons"]
+    assert isinstance(blocking_reasons, list)
+    assert "incomplete_article_insights" in blocking_reasons
     assert summaries[0]["quality_ready"] is False
+    assert summaries[0]["report_section_completeness"] == 0.0
 
 
 def test_postgres_brief_summaries_restore_provider_blocking_reasons() -> None:
@@ -348,6 +352,7 @@ def test_postgres_brief_summaries_restore_provider_blocking_reasons() -> None:
         "review_required",
         ["run_not_succeeded", "validation_not_passed"],
         False,
+        0.0,
     )
     checks = [
         {
@@ -368,11 +373,60 @@ def test_postgres_brief_summaries_restore_provider_blocking_reasons() -> None:
     ):
         summary = repository.list_brief_summaries()[0]
 
+    provider_blocking_reasons = summary["blocking_reasons"]
+    assert isinstance(provider_blocking_reasons, list)
     assert {
         "provider_rate_limit",
         "provider_timeout",
         "provider_unavailable",
-    }.issubset(summary["blocking_reasons"])
+    }.issubset(provider_blocking_reasons)
+
+
+def test_postgres_brief_summaries_validate_report_section_text_and_counts() -> None:
+    repository = PostgresRepository(Mock())
+    covered_at = datetime(2026, 8, 19, tzinfo=UTC)
+    row: tuple[object, ...] = (
+        "run-1",
+        "Stored ready summary",
+        covered_at,
+        covered_at,
+        "draft",
+        RunStatus.SUCCEEDED.value,
+        ValidationStatus.PASS.value,
+        1,
+        1,
+        1,
+        0,
+        ["global"],
+        ["en"],
+        ["regulatory"],
+        ["google/gemma-4-26b-a4b-it:free"],
+        covered_at,
+        None,
+        None,
+        1,
+        1.0,
+        4,
+        "review_required",
+        ["empty_report_section"],
+        False,
+        0.8,
+        [],
+    )
+
+    with patch.object(repository, "_execute", return_value=[row]) as execute:
+        summary = repository.list_brief_summaries()[0]
+
+    query = execute.call_args.args[0]
+    assert "bullet.value ->> 'text'" in query
+    assert "CASE WHEN (" in query
+    raw_section_count = (
+        "jsonb_array_length(\n"
+        "                           COALESCE(wb.executive_bullets"
+    )
+    assert raw_section_count not in query
+    assert summary["report_sections_complete"] == 4
+    assert summary["report_section_completeness"] == 0.8
 
 
 def test_repositories_reject_new_oversized_evidence_excerpt_writes() -> None:

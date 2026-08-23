@@ -410,6 +410,8 @@ def validate_report_sections(
             issues.append(f"{section}_empty")
             continue
         for index, bullet in enumerate(bullets, start=1):
+            if _is_placeholder(bullet.text):
+                issues.append(f"{section}_{index}_missing_text")
             normalized_urls = {normalize_url(url) for url in bullet.source_urls}
             if not normalized_urls or not normalized_urls.issubset(normalized_known):
                 issues.append(f"{section}_{index}_unknown_citation")
