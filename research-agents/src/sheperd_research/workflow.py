@@ -641,19 +641,28 @@ class ResearchWorkflow:
                 "Re-extracting incomplete sources",
                 source_count=len(repair_sources),
             )
-            raw_content = await self.tavily.extract(repair_sources)
-            content = {
-                normalize_url(url): body
-                for url, body in raw_content.items()
-                if isinstance(body, str) and body.strip()
-            }
-            missing = [
-                source.url
-                for source in repair_sources
-                if not content.get(normalize_url(source.url), "").strip()
-            ]
-            if missing:
-                raise ProviderError("repair extraction missing content for: " + ", ".join(missing))
+            try:
+                raw_content = await self.tavily.extract(repair_sources)
+                content = {
+                    normalize_url(url): body
+                    for url, body in raw_content.items()
+                    if isinstance(body, str) and body.strip()
+                }
+            except Exception as extraction_error:
+                error_code = "extraction_failed"
+                if isinstance(extraction_error, ProviderError):
+                    error_code = extraction_error.error_code or "provider_error"
+                for source in repair_sources:
+                    self.repository.record_source(
+                        source.model_copy(
+                            update={
+                                "extraction_status": ExtractionStatus.FAILED,
+                                "extraction_error_code": error_code,
+                            }
+                        ),
+                        run_id=run_id,
+                    )
+                raise
             state: GraphState = {
                 "run_id": run_id,
                 "request": request,

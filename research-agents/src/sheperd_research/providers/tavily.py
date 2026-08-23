@@ -145,7 +145,10 @@ class TavilyProvider:
         if not isinstance(data, dict) or not all(
             isinstance(key, str) for key in data
         ):
-            raise ProviderError("Tavily returned an invalid response")
+            raise ProviderError(
+                "Tavily returned an invalid response",
+                error_code="malformed_output",
+            )
         return {key: value for key, value in data.items() if isinstance(key, str)}
 
     async def _post(self, endpoint: str, payload: dict[str, object]) -> dict[str, object]:

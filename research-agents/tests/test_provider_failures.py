@@ -150,6 +150,18 @@ def test_tavily_transport_failures_have_stable_error_codes(
     assert raised.value.attempts[0]["error_code"] == error_code
 
 
+def test_tavily_malformed_response_shape_preserves_a_stable_error_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_client(monkeypatch, [response(200, [])])
+
+    with pytest.raises(ProviderError, match="invalid response") as raised:
+        asyncio.run(TavilyProvider("secret").search("ports"))
+
+    assert raised.value.error_code == "malformed_output"
+    assert raised.value.attempts[0]["error_code"] == "malformed_output"
+
+
 def test_tavily_rotates_to_secondary_key_after_primary_quota_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

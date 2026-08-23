@@ -451,6 +451,36 @@ def test_repair_preserves_incomplete_history_and_writes_a_new_complete_run() -> 
     assert repository.get_brief("repair-run") is not None
 
 
+def test_repair_persists_provider_extraction_failure_for_the_new_run() -> None:
+    class FailingRepairTavily(FakeTavily):
+        async def extract(self, sources: list[SourceCandidate]) -> dict[str, str]:
+            raise ProviderError("Tavily extraction timed out", error_code="timeout")
+
+    repository = InMemoryRepository()
+    request = ResearchRunRequest(
+        topic_set="dnd-port",
+        max_sources=1,
+        include_topic_seeds=False,
+        validation_profile="canary",
+    )
+    source = SourceCandidate(url="https://www.fmc.gov/failed-repair-source")
+
+    result = asyncio.run(
+        ResearchWorkflow(repository, FailingRepairTavily(), FakeLLM()).repair(
+            request,
+            [source],
+            "repair-run",
+        )
+    )
+
+    assert result.status.value == "failed"
+    assert result.error == "Tavily extraction timed out"
+    repaired_sources = repository.get_run_sources("repair-run")
+    assert len(repaired_sources) == 1
+    assert repaired_sources[0].extraction_status is ExtractionStatus.FAILED
+    assert repaired_sources[0].extraction_error_code == "timeout"
+
+
 def test_canary_discovery_query_limit_bounds_each_lane() -> None:
     class RecordingLLM(FakeLLM):
         def __init__(self) -> None:
