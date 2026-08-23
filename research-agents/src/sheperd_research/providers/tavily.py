@@ -286,7 +286,13 @@ class TavilyProvider:
                         "Tavily extract returned an invalid result entry",
                         error_code="malformed_output",
                     )
-                normalized_url = normalize_url(url)
+                try:
+                    normalized_url = normalize_url(url)
+                except ValueError as error:
+                    raise ProviderError(
+                        "Tavily extract returned a malformed result URL",
+                        error_code="malformed_output",
+                    ) from error
                 if normalized_url not in requested_urls:
                     raise ProviderError(
                         "Tavily extract returned content for an unrequested URL",
@@ -301,8 +307,7 @@ class TavilyProvider:
         missing_urls = [url for url in urls if url not in extracted]
         if missing_urls:
             raise ProviderError(
-                "Tavily extract returned incomplete content for: "
-                + ", ".join(missing_urls),
+                f"Tavily extract returned incomplete content for {len(missing_urls)} URL(s)",
                 error_code="malformed_output",
             )
         if self._progress is not None:
@@ -326,10 +331,17 @@ class TavilyProvider:
                 "Tavily returned an invalid result rejected by URL policy",
                 error_code="malformed_output",
             )
+        try:
+            normalized_url = normalize_url(url)
+        except ValueError as error:
+            raise ProviderError(
+                "Tavily returned an invalid result with a malformed URL",
+                error_code="malformed_output",
+            ) from error
         published_at = TavilyProvider._parse_datetime(item.get("published_date"))
-        host = urlsplit(url).hostname or "unknown"
+        host = urlsplit(normalized_url).hostname or "unknown"
         return SourceCandidate(
-            url=normalize_url(url),
+            url=normalized_url,
             title=str(item.get("title") or "Untitled source"),
             publisher=host.removeprefix("www."),
             published_at=published_at,

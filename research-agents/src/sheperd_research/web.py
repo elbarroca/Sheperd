@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime
+from decimal import Decimal
 from html import escape
 
 from fastapi import FastAPI, Query
@@ -205,14 +206,16 @@ def _summary_readiness(summary: dict[str, object]) -> dict[str, object]:
         count = result.get(count_key)
         complete = result.get(complete_key)
         ratio = result.get(ratio_key)
+        normalized_ratio = float(ratio) if isinstance(ratio, Decimal) else ratio
         if not (
             isinstance(count, int)
             and isinstance(complete, int)
-            and isinstance(ratio, (int, float))
+            and isinstance(normalized_ratio, (int, float))
         ):
             reasons.add("legacy_quality_evidence_missing")
             return False
-        if count <= 0 or complete != count or float(ratio) != 1.0:
+        result[ratio_key] = normalized_ratio
+        if count <= 0 or complete != count or float(normalized_ratio) != 1.0:
             reasons.add(reason)
             return False
         return True

@@ -180,6 +180,33 @@ def test_tavily_malformed_nested_result_entries_are_explicit(
     assert extract_raised.value.error_code == "malformed_output"
 
 
+def test_tavily_malformed_nested_result_urls_are_redacted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_url = "https://example.com:99999/secret-path"
+    patch_client(monkeypatch, [response(200, {"results": [{"url": raw_url}]})])
+
+    with pytest.raises(ProviderError, match="malformed URL") as search_raised:
+        asyncio.run(TavilyProvider("secret").search("ports"))
+
+    assert search_raised.value.error_code == "malformed_output"
+    assert raw_url not in str(search_raised.value)
+
+    patch_client(
+        monkeypatch,
+        [response(200, {"results": [{"url": raw_url, "raw_content": "body"}]})],
+    )
+    with pytest.raises(ProviderError, match="malformed result URL") as extract_raised:
+        asyncio.run(
+            TavilyProvider("secret").extract(
+                [SourceCandidate(url="https://example.com/article")]
+            )
+        )
+
+    assert extract_raised.value.error_code == "malformed_output"
+    assert raw_url not in str(extract_raised.value)
+
+
 def test_tavily_rotates_to_secondary_key_after_primary_quota_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -366,6 +393,20 @@ def test_tavily_extract_chunks_batches_at_twenty_urls() -> None:
     with pytest.raises(ProviderError, match="incomplete content"):
         asyncio.run(BatchingProvider("secret").extract(sources))
     assert [len(batch) for batch in calls] == [20, 1]
+
+
+def test_tavily_incomplete_extract_errors_redact_missing_urls() -> None:
+    class MissingContentProvider(TavilyProvider):
+        async def _post(self, endpoint: str, payload: dict[str, object]) -> dict[str, object]:
+            assert endpoint == "extract"
+            return {"results": []}
+
+    raw_url = "https://example.com/article-secret"
+    with pytest.raises(ProviderError, match=r"incomplete content for 1 URL\(s\)") as raised:
+        asyncio.run(MissingContentProvider("secret").extract([SourceCandidate(url=raw_url)]))
+
+    assert raised.value.error_code == "malformed_output"
+    assert raw_url not in str(raised.value)
 
 
 def test_tavily_search_uses_basic_depth_for_discovery_requests(

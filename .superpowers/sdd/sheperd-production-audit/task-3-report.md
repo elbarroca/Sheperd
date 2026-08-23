@@ -2,7 +2,7 @@
 
 ## Status
 
-Blocked for production readiness. The scoped integration defects are fixed and covered by regression tests. Static backend/frontend gates pass. Runtime readiness is blocked by live provider capacity, missing database migration `0013_run_sources`, unavailable in-process MCP connectors, an invalid canary E2E command in the brief, and protected API preview access.
+Blocked for production readiness. The scoped integration defects and remaining Task 3 review findings are fixed and covered by regression tests. Static backend/frontend gates pass. Runtime readiness is still blocked by live provider capacity, missing database migration `0013_run_sources`, unavailable in-process MCP connectors, an invalid canary E2E command in the brief, protected API preview access, and the local Node 26 shell running a Node 24 project.
 
 No shared branch push, production promotion, report approval, or report export was performed.
 
@@ -35,6 +35,12 @@ No shared branch push, production promotion, report approval, or report export w
    - Search and extract now fail closed with stable `malformed_output` classification for malformed nested `results` entries.
    - Added regression coverage for missing search URL and malformed extract result payloads.
 
+5. Remaining review findings
+   - Backend summary readiness accepts PostgreSQL `Decimal` numeric ratios when canonical counts also prove completeness, then emits normalized numeric ratios for JSON output.
+   - Tavily nested malformed result URL normalization errors now raise `ProviderError` with `error_code=malformed_output`.
+   - Tavily incomplete extract errors report missing URL counts only, not full missing URLs.
+   - Article insight completeness now counts completed non-seed source URLs against the same non-seed `run_sources` denominator; seed, orphan, and duplicate distillations cannot inflate completeness.
+
 ## Red tests confirmed
 
 - `uv run pytest tests/test_db.py::test_postgres_brief_summaries_return_production_ready_section_metrics tests/test_provider_failures.py::test_tavily_malformed_nested_result_entries_are_explicit -q` failed before implementation:
@@ -46,11 +52,16 @@ No shared branch push, production promotion, report approval, or report export w
 
 ## Focused verification
 
-- `uv run pytest tests/test_db.py::test_postgres_brief_summaries_recompute_readiness_from_persisted_evidence tests/test_db.py::test_postgres_brief_summaries_validate_report_section_text_and_counts tests/test_db.py::test_postgres_brief_summaries_return_production_ready_section_metrics tests/test_provider_failures.py::test_tavily_malformed_nested_result_entries_are_explicit -q` -> pass, 4 tests.
-- `uv run pytest tests/test_db.py tests/test_provider_failures.py -q` -> pass, 47 tests.
-- `uv run ruff check src/sheperd_research/db.py src/sheperd_research/providers/tavily.py tests/test_db.py tests/test_provider_failures.py` -> pass.
-- `pnpm test -- src/components/report-accordion.test.tsx` -> pass, 14 tests.
-- `pnpm test` -> pass, 3 files / 36 tests.
+- `uv run pytest tests/test_web.py::test_summary_readiness_accepts_decimal_complete_ratios tests/test_provider_failures.py::test_tavily_malformed_nested_result_urls_are_redacted tests/test_provider_failures.py::test_tavily_incomplete_extract_errors_redact_missing_urls tests/test_db.py::test_postgres_brief_summaries_scope_article_completeness_to_non_seed_sources -q` -> pass, 4 tests.
+- `pnpm test -- src/components/report-accordion.test.tsx` -> pass, 15 tests.
+- `uv run ruff check .` -> pass.
+- `uv run mypy src` -> pass, no issues in 23 source files.
+- `uv run pytest` -> pass, 214 tests.
+- `uv lock --check` -> pass, 67 packages resolved.
+- `pnpm lint` -> pass.
+- `pnpm typecheck` -> pass.
+- `pnpm test` -> pass, 3 files / 37 tests.
+- `pnpm build` -> pass, Next 16.2.10 production build.
 
 ## Static gates from task brief
 
@@ -58,17 +69,17 @@ Backend, from `research-agents/`:
 
 - `uv run ruff check .` -> pass.
 - `uv run mypy src` -> pass, no issues in 23 source files.
-- `uv run pytest` -> pass, 207 tests.
+- `uv run pytest` -> pass, 214 tests.
 - `uv lock --check` -> pass, 67 packages resolved.
 
 Frontend, from `founder-intelligence/`:
 
 - `pnpm lint` -> pass.
 - `pnpm typecheck` -> pass.
-- `pnpm test` -> pass, 3 files / 36 tests.
+- `pnpm test` -> pass, 3 files / 37 tests.
 - `pnpm build` -> pass, Next 16.2.10 production build.
 
-Local frontend caveat: pnpm printed `Unsupported engine: wanted {"node":"24.x"} (current: {"node":"v26.0.0","pnpm":"9.15.4"})` for all frontend commands. Commands exited 0. Vercel remote install used pnpm 10.33.2.
+Local frontend caveat: pnpm printed `Unsupported engine: wanted {"node":"24.x"} (current: {"node":"v26.0.0","pnpm":"9.15.4"})` for all frontend commands. Commands exited 0. Keep this as a runtime/environment blocker until verified under Node 24. Vercel remote install previously used pnpm 10.33.2.
 
 ## Runtime diagnostics from task brief
 

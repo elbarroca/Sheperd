@@ -486,6 +486,52 @@ def test_postgres_brief_summaries_return_production_ready_section_metrics() -> N
     assert summary["report_section_completeness"] == 1.0
 
 
+def test_postgres_brief_summaries_scope_article_completeness_to_non_seed_sources() -> None:
+    repository = PostgresRepository(Mock())
+    covered_at = datetime(2026, 8, 19, tzinfo=UTC)
+    row: tuple[object, ...] = (
+        "scoped-run",
+        "Scoped ready summary",
+        covered_at,
+        covered_at,
+        "approved",
+        RunStatus.SUCCEEDED.value,
+        ValidationStatus.PASS.value,
+        1,
+        3,
+        1,
+        0,
+        ["global"],
+        ["en"],
+        ["regulatory"],
+        ["google/gemma-4-26b-a4b-it:free"],
+        covered_at,
+        None,
+        None,
+        1,
+        1,
+        1.0,
+        5,
+        5,
+        "decision_ready",
+        [],
+        True,
+        1.0,
+        [],
+    )
+
+    with patch.object(repository, "_execute", return_value=[row]) as execute:
+        summary = repository.list_brief_summaries(ready_only=True)[0]
+
+    query = execute.call_args.args[0]
+    assert "count(DISTINCT ad.normalized_url) FILTER" in query
+    assert "rsa.normalized_url = ad.normalized_url" in query
+    assert "AND NOT sa.is_seed" in query
+    assert summary["article_count"] == 1
+    assert summary["complete_article_count"] == 1
+    assert summary["article_insight_completeness"] == 1.0
+
+
 def test_repositories_reject_new_oversized_evidence_excerpt_writes() -> None:
     distillation = ArticleDistillation(
         source_url="https://example.com/oversized-write",

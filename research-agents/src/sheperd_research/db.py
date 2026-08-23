@@ -3727,20 +3727,34 @@ class PostgresRepository:
                    ) || ARRAY[wb.model_id],
                    rr.as_of, rr.archived_at, rr.archive_reason,
                    count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed),
-                   count(DISTINCT ad.distillation_id) FILTER (
+                   count(DISTINCT ad.normalized_url) FILTER (
                        WHERE EXISTS (
                            SELECT 1 FROM article_distillations adq
                            WHERE adq.distillation_id = ad.distillation_id
                              AND {article_complete_sql}
                        )
+                       AND EXISTS (
+                           SELECT 1 FROM run_sources rsa
+                           JOIN sources sa ON sa.normalized_url = rsa.normalized_url
+                           WHERE rsa.run_id = wb.run_id
+                             AND rsa.normalized_url = ad.normalized_url
+                             AND NOT sa.is_seed
+                       )
                    ),
                    CASE WHEN count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed) > 0
                        THEN round(
-                           count(DISTINCT ad.distillation_id) FILTER (
+                           count(DISTINCT ad.normalized_url) FILTER (
                                WHERE EXISTS (
                                    SELECT 1 FROM article_distillations adq
                                    WHERE adq.distillation_id = ad.distillation_id
                                      AND {article_complete_sql}
+                               )
+                               AND EXISTS (
+                                   SELECT 1 FROM run_sources rsa
+                                   JOIN sources sa ON sa.normalized_url = rsa.normalized_url
+                                   WHERE rsa.run_id = wb.run_id
+                                     AND rsa.normalized_url = ad.normalized_url
+                                     AND NOT sa.is_seed
                                )
                            )::numeric
                            / count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed),

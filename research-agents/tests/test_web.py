@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from fastapi.testclient import TestClient
 
@@ -406,6 +407,31 @@ def test_summary_readiness_requires_canonical_article_count() -> None:
     assert result["readiness_status"] == "review_required"
     assert result["decision_ready"] is False
     assert "legacy_quality_evidence_missing" in result["blocking_reasons"]
+
+
+def test_summary_readiness_accepts_decimal_complete_ratios() -> None:
+    result = _summary_readiness(
+        {
+            "run_id": "decimal-ready-run",
+            "run_status": "succeeded",
+            "validation_status": "pass",
+            "readiness_status": "decision_ready",
+            "decision_ready": True,
+            "quality_ready": True,
+            "blocking_reasons": [],
+            "article_count": 1,
+            "complete_article_count": 1,
+            "article_insight_completeness": Decimal(1),
+            "report_section_count": 5,
+            "report_sections_complete": 5,
+            "report_section_completeness": Decimal(1),
+        }
+    )
+
+    assert result["readiness_status"] == "decision_ready"
+    assert result["decision_ready"] is True
+    assert result["article_insight_completeness"] == 1.0
+    assert result["report_section_completeness"] == 1.0
 
 
 def test_summary_readiness_fails_closed_for_legacy_ready_flags() -> None:
