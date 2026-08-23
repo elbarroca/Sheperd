@@ -57,7 +57,11 @@ from .settings import (
 )
 from .source_catalog import REGIONS, load_source_catalog, validate_required_sources
 from .topics import load_topic_configs
-from .validation import build_validation_report, validation_blocking_reasons
+from .validation import (
+    build_validation_report,
+    provider_error_codes_from_run,
+    validation_blocking_reasons,
+)
 from .validators import content_hash, validate_article_distillation_quality
 from .web import create_app
 from .workflow import ResearchWorkflow, checkpoint_serializer
@@ -998,6 +1002,11 @@ def _build_persisted_validation(
         required_regions=(set(REGIONS) - {"global"} if strict_profile else set()),
         required_lanes=set() if repair_mode else None,
         brief=brief,
+        provider_error_codes=provider_error_codes_from_run(
+            sources=sources,
+            steps=repository.get_run_steps(run_id),
+            tool_calls=repository.get_run_tool_calls(run_id),
+        ),
     )
 
 

@@ -10,8 +10,10 @@ from psycopg import OperationalError
 
 from sheperd_research.contracts import (
     ArticleDistillation,
+    ArticleInsight,
     ClaimDraft,
     EvidenceStatus,
+    ExtractionStatus,
     ReportBullet,
     ResearchRunRequest,
     RunStatus,
@@ -19,6 +21,7 @@ from sheperd_research.contracts import (
     SourceCandidate,
     ValidationReport,
     ValidationStatus,
+    WeeklyBrief,
 )
 from sheperd_research.db import InMemoryRepository, PostgresRepository, run_migrations
 
@@ -336,6 +339,94 @@ def test_repositories_reject_new_oversized_evidence_excerpt_writes() -> None:
     execute.assert_not_called()
 
 
+def test_in_memory_ready_only_rejects_stale_invalid_report_bullets() -> None:
+    repository = InMemoryRepository()
+    run_id = "invalid-brief-run"
+    source_url = "https://example.com/valid-source"
+    request = ResearchRunRequest(
+        topic_set="dnd-port",
+        as_of=datetime(2026, 8, 19, tzinfo=UTC),
+    )
+    source = SourceCandidate(
+        url=source_url,
+        extraction_status=ExtractionStatus.SUCCEEDED,
+    )
+    claim = ClaimDraft(
+        claim="The source reports a development.",
+        source_urls=[source_url],
+    )
+    insight = ArticleInsight(
+        status="not_observed",
+        statement="No supported risk was observed.",
+        why_it_matters="The source does not establish a risk.",
+        next_step="Review an independent source.",
+    )
+
+    repository.create_run(run_id, request)
+    repository.update_run_status(run_id, RunStatus.SUCCEEDED)
+    repository.record_source(source)
+    repository.record_snapshot(run_id, source, "source content")
+    repository.record_distillation(
+        run_id,
+        ArticleDistillation(
+            source_url=source_url,
+            summary="Complete summary.",
+            key_points=["Point one.", "Point two."],
+            claims=[claim],
+            what_happened="The source reports a development.",
+            why_it_matters="It changes the operating picture.",
+            risk_assessment=insight,
+            opportunity_assessment=insight,
+            uncertainties=["The source has limited scope."],
+            next_steps=["Review an independent source."],
+            evidence_locators=["paragraph 1"],
+            quality_status="complete",
+        ),
+    )
+    repository.record_brief(
+        WeeklyBrief(
+            run_id=run_id,
+            title="Invalid bullets",
+            covered_from=datetime(2026, 8, 18, tzinfo=UTC),
+            covered_until=datetime(2026, 8, 19, tzinfo=UTC),
+            summary="Summary.",
+            executive_bullets=[ReportBullet(text="Executive.", source_urls=[source_url])],
+            developments=[ReportBullet(text="Development.", source_urls=[source_url])],
+            risks=[
+                ReportBullet(
+                    text="Risk.",
+                    source_urls=[source_url],
+                    why_it_matters="unknown",
+                    next_step="Monitor.",
+                )
+            ],
+            opportunities=[
+                ReportBullet(
+                    text="Opportunity.",
+                    source_urls=[source_url],
+                    why_it_matters="Opportunity context.",
+                    next_step="Monitor.",
+                )
+            ],
+            uncertainties=[
+                ReportBullet(
+                    text="Uncertainty.",
+                    source_urls=[source_url],
+                    why_it_matters="Uncertainty context.",
+                    next_step="Monitor.",
+                )
+            ],
+            follow_up_questions=["What next?"],
+        )
+    )
+    repository.record_validation(
+        ValidationReport(run_id=run_id, status=ValidationStatus.PASS)
+    )
+
+    assert repository.list_briefs(ready_only=True) == []
+    assert repository.list_brief_summaries(ready_only=True) == []
+
+
 def test_validation_revalidation_replaces_report_metadata_without_replacing_steps() -> None:
     first_report = ValidationReport(
         run_id="run-1",
@@ -527,8 +618,6 @@ def test_repository_keeps_report_sections_and_monthly_rollups() -> None:
             )
         ]
     )
-    from sheperd_research.contracts import WeeklyBrief
-
     repository.record_brief(
         WeeklyBrief(
             run_id="run-2",

@@ -38,7 +38,11 @@ from .progress import ProgressSink
 from .providers.errors import ProviderError
 from .source_catalog import load_source_catalog
 from .topics import default_topic_configs
-from .validation import build_validation_report, source_quality_sources
+from .validation import (
+    build_validation_report,
+    provider_error_codes_from_run,
+    source_quality_sources,
+)
 from .validators import (
     classify_freshness,
     content_hash,
@@ -1779,6 +1783,13 @@ class ResearchWorkflow:
             ),
             required_lanes=set() if state.get("repair_mode", False) else None,
             brief=brief,
+            provider_error_codes=provider_error_codes_from_run(
+                sources=self._merge_sources(
+                    state.get("sources", []), state.get("retained_sources", [])
+                ),
+                steps=self.repository.get_run_steps(state["run_id"]),
+                tool_calls=self.repository.get_run_tool_calls(state["run_id"]),
+            ),
         )
         self.repository.record_validation(report)
         self._emit(

@@ -55,17 +55,58 @@ _CHECK_REASON_MAP = {
 }
 _PROVIDER_ERROR_REASON_MAP = {
     "authentication": "provider_authentication_failed",
+    "extraction_failed": "extraction_failed",
     "malformed_output": "provider_malformed_output",
     "missing_tool_call": "missing_required_tool_calls",
     "model_unavailable": "provider_model_unavailable",
     "payg_limit": "provider_usage_limited",
     "plan_usage_limit": "provider_usage_limited",
     "provider_error": "provider_failed",
+    "provider": "provider_failed",
     "provider_unavailable": "provider_unavailable",
     "rate_limit": "provider_rate_limit",
     "timeout": "provider_timeout",
     "tool_failure": "provider_tool_failure",
 }
+_PROVIDER_ERROR_CODES = frozenset(_PROVIDER_ERROR_REASON_MAP)
+
+
+def provider_error_codes_from_run(
+    *,
+    sources: list[SourceCandidate],
+    steps: list[dict[str, object]],
+    tool_calls: list[dict[str, object]],
+) -> list[str]:
+    """Collect stable provider/extraction error codes from persisted run evidence."""
+    codes: set[str] = set()
+    for source in sources:
+        if source.extraction_error_code:
+            codes.add(source.extraction_error_code)
+        if source.extraction_status is ExtractionStatus.FAILED:
+            codes.add("extraction_failed")
+    for step in steps:
+        code = step.get("error_code")
+        if isinstance(code, str) and code:
+            codes.add(code)
+        metadata = step.get("metadata")
+        if isinstance(metadata, dict):
+            call = metadata.get("call")
+            if isinstance(call, dict):
+                call_code = call.get("error_code")
+                if isinstance(call_code, str) and call_code:
+                    codes.add(call_code)
+            attempts = metadata.get("attempts")
+            if isinstance(attempts, list):
+                for attempt in attempts:
+                    if isinstance(attempt, dict):
+                        attempt_code = attempt.get("error_code")
+                        if isinstance(attempt_code, str) and attempt_code:
+                            codes.add(attempt_code)
+    for call in tool_calls:
+        code = call.get("error_code")
+        if isinstance(code, str) and code:
+            codes.add(code)
+    return sorted(codes)
 
 
 def validation_blocking_reasons(report: ValidationReport) -> list[str]:
@@ -137,6 +178,7 @@ def build_validation_report(
     required_regions: set[str] | None = None,
     required_lanes: set[str] | None = None,
     brief: WeeklyBrief | None = None,
+    provider_error_codes: list[str] | None = None,
 ) -> ValidationReport:
     quality_sources = source_quality_sources(sources)
     enriched_sources = [
@@ -398,6 +440,17 @@ def build_validation_report(
                 sum(1 for passed in required_tool_lanes.values() if passed),
                 len(required_tool_lanes),
                 "every discovery lane must call Search and Extract",
+            )
+        )
+    if provider_error_codes:
+        stable_codes = sorted(set(provider_error_codes))
+        checks.append(
+            _check(
+                "provider_error_codes",
+                False,
+                ",".join(stable_codes),
+                "none",
+                "provider/extraction error codes persisted in run evidence",
             )
         )
     if brief is not None:

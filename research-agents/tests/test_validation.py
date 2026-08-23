@@ -15,7 +15,11 @@ from sheperd_research.contracts import (
     WeeklyBrief,
 )
 from sheperd_research.settings import STRICT_OPENROUTER_MODEL
-from sheperd_research.validation import build_validation_report, validation_blocking_reasons
+from sheperd_research.validation import (
+    build_validation_report,
+    provider_error_codes_from_run,
+    validation_blocking_reasons,
+)
 
 
 def _sources() -> list[SourceCandidate]:
@@ -233,6 +237,51 @@ def test_validation_blocking_reasons_expose_provider_error_codes() -> None:
         "provider_timeout",
         "provider_unavailable",
     }.issubset(validation_blocking_reasons(report))
+
+
+def test_validation_uses_provider_error_shaped_run_evidence() -> None:
+    source = SourceCandidate(
+        url="https://example.com/provider-failed",
+        extraction_status=ExtractionStatus.FAILED,
+        extraction_error_code="provider_unavailable",
+    )
+    provider_error_codes = provider_error_codes_from_run(
+        sources=[source],
+        steps=[
+            {
+                "agent_name": "discovery:regulatory",
+                "status": "failed",
+                "error_code": "rate_limit",
+                "metadata": {"attempts": [{"error_code": "timeout"}]},
+            }
+        ],
+        tool_calls=[
+            {
+                "tool_name": "tavily_extract",
+                "status": "failed",
+                "error_code": "provider_unavailable",
+            }
+        ],
+    )
+    report = build_validation_report(
+        "provider-shaped",
+        [source],
+        [],
+        datetime(2026, 8, 19, tzinfo=UTC),
+        STRICT_OPENROUTER_MODEL,
+        {"regulatory": "failed"},
+        ["hash-1"],
+        minimum_sources=1,
+        minimum_claims=0,
+        provider_error_codes=provider_error_codes,
+    )
+
+    assert {
+        "provider_rate_limit",
+        "provider_timeout",
+        "provider_unavailable",
+        "extraction_failed",
+    }.issubset(report.blocking_reasons)
 
 
 def test_legacy_incomplete_distillation_cannot_remain_pass() -> None:

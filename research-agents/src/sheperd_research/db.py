@@ -3543,13 +3543,37 @@ class PostgresRepository:
             f"({relationship_issue_sql}) OR EXISTS (SELECT 1 FROM article_distillations adq "
             f"WHERE adq.run_id = wb.run_id AND NOT ({article_complete_sql}))"
         )
+
+        def report_section_ok(column: str, *, actionable: bool) -> str:
+            array_sql = f"COALESCE(wb.{column}, '[]'::jsonb)"
+            action_required = (
+                "TRUE"
+                if actionable
+                else "starts_with(coalesce(wb.prompt_version, ''), 'weekly-brief-v6')"
+            )
+            bullet_why_ok = text_ok("bullet.value ->> 'why_it_matters'")
+            bullet_next_ok = text_ok("bullet.value ->> 'next_step'")
+            return (
+                f"jsonb_array_length({array_sql}) > 0 "
+                f"AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements({array_sql}) "
+                "AS bullet(value) WHERE "
+                "jsonb_array_length(COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) = 0 "
+                "OR EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+                "COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) AS url(value) "
+                "WHERE NOT EXISTS (SELECT 1 FROM source_snapshots known "
+                "WHERE known.run_id = wb.run_id AND known.normalized_url = url.value)) "
+                f"OR ({action_required} AND (NOT {bullet_why_ok} OR NOT {bullet_next_ok})))"
+            )
+
         report_complete_sql = (
-            "jsonb_array_length(COALESCE(wb.executive_bullets, '[]'::jsonb)) > 0 "
-            "AND jsonb_array_length(COALESCE(wb.developments, '[]'::jsonb)) > 0 "
-            "AND jsonb_array_length(COALESCE(wb.risks, '[]'::jsonb)) > 0 "
-            "AND jsonb_array_length(COALESCE(wb.opportunities, '[]'::jsonb)) > 0 "
-            "AND jsonb_array_length(COALESCE(wb.uncertainties, '[]'::jsonb)) > 0 "
-            "AND jsonb_array_length(COALESCE(wb.follow_up_questions, '[]'::jsonb)) > 0"
+            f"{report_section_ok('executive_bullets', actionable=False)} "
+            f"AND {report_section_ok('developments', actionable=False)} "
+            f"AND {report_section_ok('risks', actionable=True)} "
+            f"AND {report_section_ok('opportunities', actionable=True)} "
+            f"AND {report_section_ok('uncertainties', actionable=True)} "
+            "AND EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+            "COALESCE(wb.follow_up_questions, '[]'::jsonb)) AS question(value) "
+            f"WHERE {text_ok('question.value')})"
         )
         ready_sql = (
             "rr.status = 'succeeded' "
@@ -3669,7 +3693,8 @@ class PostgresRepository:
             + " AND ".join(clauses)
             + " GROUP BY wb.run_id, wb.title, wb.covered_from, wb.covered_until, "
             "wb.review_state, rr.status, vc.status, rr.as_of, wb.model_id, "
-            "rr.archived_at, rr.archive_reason, wb.executive_bullets, wb.developments, "
+            "wb.prompt_version, rr.archived_at, rr.archive_reason, "
+            "wb.executive_bullets, wb.developments, "
             "wb.risks, wb.opportunities, wb.uncertainties, wb.follow_up_questions "
             f"ORDER BY CASE WHEN {ready_sql} THEN 0 ELSE 1 END, "
             "wb.covered_until DESC, wb.run_id ASC LIMIT %s OFFSET %s",
@@ -3816,13 +3841,37 @@ class PostgresRepository:
             f"({relationship_issue_sql}) OR EXISTS (SELECT 1 FROM article_distillations adq "
             f"WHERE adq.run_id = wb.run_id AND NOT ({article_complete_sql}))"
         )
+
+        def report_section_ok(column: str, *, actionable: bool) -> str:
+            array_sql = f"COALESCE(wb.{column}, '[]'::jsonb)"
+            action_required = (
+                "TRUE"
+                if actionable
+                else "starts_with(coalesce(wb.prompt_version, ''), 'weekly-brief-v6')"
+            )
+            bullet_why_ok = text_ok("bullet.value ->> 'why_it_matters'")
+            bullet_next_ok = text_ok("bullet.value ->> 'next_step'")
+            return (
+                f"jsonb_array_length({array_sql}) > 0 "
+                f"AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements({array_sql}) "
+                "AS bullet(value) WHERE "
+                "jsonb_array_length(COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) = 0 "
+                "OR EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+                "COALESCE(bullet.value -> 'source_urls', '[]'::jsonb)) AS url(value) "
+                "WHERE NOT EXISTS (SELECT 1 FROM source_snapshots known "
+                "WHERE known.run_id = wb.run_id AND known.normalized_url = url.value)) "
+                f"OR ({action_required} AND (NOT {bullet_why_ok} OR NOT {bullet_next_ok})))"
+            )
+
         report_complete_sql = (
-            "jsonb_array_length(COALESCE(wb.executive_bullets, '[]'::jsonb)) > 0 "
-            "AND jsonb_array_length(COALESCE(wb.developments, '[]'::jsonb)) > 0 "
-            "AND jsonb_array_length(COALESCE(wb.risks, '[]'::jsonb)) > 0 "
-            "AND jsonb_array_length(COALESCE(wb.opportunities, '[]'::jsonb)) > 0 "
-            "AND jsonb_array_length(COALESCE(wb.uncertainties, '[]'::jsonb)) > 0 "
-            "AND jsonb_array_length(COALESCE(wb.follow_up_questions, '[]'::jsonb)) > 0"
+            f"{report_section_ok('executive_bullets', actionable=False)} "
+            f"AND {report_section_ok('developments', actionable=False)} "
+            f"AND {report_section_ok('risks', actionable=True)} "
+            f"AND {report_section_ok('opportunities', actionable=True)} "
+            f"AND {report_section_ok('uncertainties', actionable=True)} "
+            "AND EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+            "COALESCE(wb.follow_up_questions, '[]'::jsonb)) AS question(value) "
+            f"WHERE {text_ok('question.value')})"
         )
         ready_sql = (
             "rr.status = 'succeeded' "
