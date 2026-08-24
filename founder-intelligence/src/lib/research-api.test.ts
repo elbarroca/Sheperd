@@ -111,6 +111,20 @@ describe("research API runtime validation", () => {
     await expect(getMonthlyRollups()).resolves.toMatchObject({ status: "ok" });
   });
 
+  it("accepts backend report runs without an error field", async () => {
+    if (!validReport.run) throw new Error("test fixture must include a run");
+    const backendRun = { ...validReport.run };
+    delete backendRun.error;
+    delete backendRun.error_code;
+    const backendReport: ReportPayload = {
+      ...validReport,
+      run: backendRun,
+    };
+    fetchMock.mockResolvedValueOnce(jsonResponse(backendReport));
+
+    await expect(getWeeklyReport("run-1")).resolves.toMatchObject({ status: "ok" });
+  });
+
   it("rejects report details whose brief, run, or validation belongs to another run", async () => {
     const mismatchedReports: ReportPayload[] = [
       { ...validReport, brief: { ...validReport.brief, run_id: "run-2" } },

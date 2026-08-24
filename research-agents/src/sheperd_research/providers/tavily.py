@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import time
 from collections.abc import Sequence
 from datetime import datetime
 from urllib.parse import urlsplit
@@ -14,6 +16,8 @@ from .errors import ProviderError
 
 class TavilyProvider:
     MAX_EXTRACT_URLS = 20
+    DEFAULT_MAX_CONCURRENT_REQUESTS = 2
+    DEFAULT_MIN_REQUEST_INTERVAL_SECONDS = 0.0
     ROTATABLE_ERROR_CODES = frozenset(
         {"rate_limit", "plan_usage_limit", "payg_limit", "authentication", "provider_error"}
     )
@@ -26,6 +30,8 @@ class TavilyProvider:
         max_retries: int = 0,
         *,
         secondary_api_key: str | None = None,
+        max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS,
+        min_request_interval_seconds: float = DEFAULT_MIN_REQUEST_INTERVAL_SECONDS,
         progress: ProgressSink | None = None,
     ) -> None:
         configured_keys = [api_key] if isinstance(api_key, str) else list(api_key)
@@ -40,10 +46,18 @@ class TavilyProvider:
         )
         if not keys:
             raise ValueError("Tavily API key is required")
+        if max_concurrent_requests < 1:
+            raise ValueError("Tavily concurrency must be positive")
+        if min_request_interval_seconds < 0:
+            raise ValueError("Tavily request interval cannot be negative")
         self._api_keys = keys
         self._project_id = project_id
         self._timeout = timeout_seconds
         self._max_retries = max(0, max_retries)
+        self._request_semaphore = asyncio.Semaphore(max_concurrent_requests)
+        self._request_pacer = asyncio.Lock()
+        self._next_request_at = 0.0
+        self._min_request_interval_seconds = min_request_interval_seconds
         self._progress = progress
         self.call_history: list[dict[str, object]] = []
         self.last_call_metadata: dict[str, object] = {}
@@ -83,6 +97,16 @@ class TavilyProvider:
             )
         return record
 
+    async def _wait_for_request_slot(self) -> None:
+        async with self._request_pacer:
+            now = time.monotonic()
+            wait_seconds = max(0.0, self._next_request_at - now)
+            self._next_request_at = max(now, self._next_request_at) + (
+                self._min_request_interval_seconds
+            )
+        if wait_seconds:
+            await asyncio.sleep(wait_seconds)
+
     async def _post_once(
         self,
         endpoint: str,
@@ -92,6 +116,7 @@ class TavilyProvider:
         if self._max_retries:
             raise ProviderError("Tavily retries are disabled by strict policy")
         try:
+            await self._wait_for_request_slot()
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 response = await client.post(
                     f"https://api.tavily.com/{endpoint}",
@@ -152,50 +177,51 @@ class TavilyProvider:
         return {key: value for key, value in data.items() if isinstance(key, str)}
 
     async def _post(self, endpoint: str, payload: dict[str, object]) -> dict[str, object]:
-        errors: list[ProviderError] = []
-        for index, api_key in enumerate(self._api_keys):
-            key_slot = index + 1
-            try:
-                data = await self._post_once(endpoint, payload, api_key)
-            except ProviderError as error:
-                errors.append(error)
-                error_code = error.error_code or "provider_error"
+        async with self._request_semaphore:
+            errors: list[ProviderError] = []
+            for index, api_key in enumerate(self._api_keys):
+                key_slot = index + 1
+                try:
+                    data = await self._post_once(endpoint, payload, api_key)
+                except ProviderError as error:
+                    errors.append(error)
+                    error_code = error.error_code or "provider_error"
+                    self._record_attempt(
+                        endpoint=endpoint,
+                        key_slot=key_slot,
+                        status="failed",
+                        error_code=error_code,
+                    )
+                    if (
+                        key_slot < len(self._api_keys)
+                        and error.error_code in self.ROTATABLE_ERROR_CODES
+                    ):
+                        continue
+                    if len(errors) > 1:
+                        message = "Tavily request failed across configured key slots: " + "; ".join(
+                            str(item) for item in errors
+                        )
+                        raise ProviderError(
+                            message,
+                            attempts=[dict(item) for item in self.call_history[-len(errors) :]],
+                            error_code=error.error_code,
+                        ) from error
+                    raise ProviderError(
+                        str(error),
+                        attempts=[dict(item) for item in self.call_history[-1:]],
+                        error_code=error.error_code,
+                    ) from error
                 self._record_attempt(
                     endpoint=endpoint,
                     key_slot=key_slot,
-                    status="failed",
-                    error_code=error_code,
+                    status="succeeded",
+                    error_code=None,
                 )
-                if (
-                    key_slot < len(self._api_keys)
-                    and error.error_code in self.ROTATABLE_ERROR_CODES
-                ):
-                    continue
-                if len(errors) > 1:
-                    message = "Tavily request failed across configured key slots: " + "; ".join(
-                        str(item) for item in errors
-                    )
-                    raise ProviderError(
-                        message,
-                        attempts=[dict(item) for item in self.call_history[-len(errors) :]],
-                        error_code=error.error_code,
-                    ) from error
-                raise ProviderError(
-                    str(error),
-                    attempts=[dict(item) for item in self.call_history[-1:]],
-                    error_code=error.error_code,
-                ) from error
-            self._record_attempt(
-                endpoint=endpoint,
-                key_slot=key_slot,
-                status="succeeded",
-                error_code=None,
+                return data
+            raise ProviderError(
+                "Tavily request failed across configured key slots",
+                attempts=[dict(item) for item in self.call_history[-len(self._api_keys) :]],
             )
-            return data
-        raise ProviderError(
-            "Tavily request failed across configured key slots",
-            attempts=[dict(item) for item in self.call_history[-len(self._api_keys) :]],
-        )
 
     async def search(
         self,

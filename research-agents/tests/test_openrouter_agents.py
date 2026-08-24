@@ -777,20 +777,21 @@ def test_discovery_rejects_a_model_invented_url(monkeypatch: pytest.MonkeyPatch)
         lambda *, tools, **_: InventedUrlAgent(tools),
     )
 
-    with pytest.raises(ProviderError, match="introduced an unknown source URL"):
-        asyncio.run(
-            provider.discover_lane(
-                "regulatory",
-                ["configured"],
-                ("Regulatory",),
-                since=datetime(2026, 8, 1, tzinfo=UTC),
-                until=datetime(2026, 8, 20, tzinfo=UTC),
-                include_domains=[],
-                exclude_domains=[],
-                max_results=1,
-                tavily=TavilyStub(),
-            )
+    result = asyncio.run(
+        provider.discover_lane(
+            "regulatory",
+            ["configured"],
+            ("Regulatory",),
+            since=datetime(2026, 8, 1, tzinfo=UTC),
+            until=datetime(2026, 8, 20, tzinfo=UTC),
+            include_domains=[],
+            exclude_domains=[],
+            max_results=1,
+            tavily=TavilyStub(),
         )
+    )
+    assert result.packet.source_urls == ["https://known.example/article"]
+    assert result.metadata["invalid_selected_url_count"] == 1
 
 
 def test_discovery_rejects_unverifiable_tavily_scope_metadata() -> None:
@@ -856,6 +857,24 @@ def test_discovery_maps_live_tavily_fmc_result_to_catalog_geography() -> None:
     )
 
     assert validated.geographies == ["Regulatory", "United States"]
+
+
+def test_discovery_maps_trade_media_port_title_to_lane_geography() -> None:
+    source = SourceCandidate(
+        url="https://theloadstar.com/port-of-seattle-becomes-the-latest-casualty-of-container-congestion",
+        title="Port of Seattle becomes the latest casualty of container congestion",
+        publisher="theloadstar.com",
+        snippet="Container congestion affects the Port of Seattle.",
+    )
+
+    enriched = OpenRouterProvider._enrich_discovery_geographies(
+        source,
+        ("West Coast", "East Coast", "Gulf"),
+        ["latest West Coast port congestion"],
+        ["theloadstar.com"],
+    )
+
+    assert enriched.geographies == ["West Coast"]
 
 
 def test_discovery_maps_every_configured_query_family_from_domain_evidence() -> None:

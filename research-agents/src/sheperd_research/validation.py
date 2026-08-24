@@ -40,7 +40,7 @@ _CHECK_REASON_MAP = {
     "content_hashes": "duplicate_source_hash",
     "evidence_quality": "missing_evidence_locator",
     "extraction_status": "extraction_failed",
-    "free_model": "model_policy_failed",
+    "model_policy": "model_policy_failed",
     "geography_coverage": "incomplete_geography_coverage",
     "lane_coverage": "incomplete_lane_coverage",
     "minimum_claims": "insufficient_claims",
@@ -86,25 +86,108 @@ def provider_error_codes_from_run(
             codes.add("extraction_failed")
     for step in steps:
         code = step.get("error_code")
-        if isinstance(code, str) and code:
-            codes.add(code)
         metadata = step.get("metadata")
         if isinstance(metadata, dict):
+            attempts = metadata.get("attempts")
+            attempt_records = [
+                attempt for attempt in attempts if isinstance(attempt, dict)
+            ] if isinstance(attempts, list) else []
+
+            def logical_key(record: dict[str, object]) -> tuple[str, str, str] | None:
+                operation = record.get("operation")
+                source_url = record.get("source_url")
+                input_hash = record.get("input_hash")
+                if not isinstance(operation, str):
+                    return None
+                if not isinstance(source_url, str):
+                    source_url = ""
+                if not isinstance(input_hash, str):
+                    input_hash = ""
+                if not source_url and not input_hash:
+                    return None
+                return operation, source_url, input_hash
+
+            recovered_keys = {
+                key
+                for attempt in attempt_records
+                if not attempt.get("error_code")
+                for key in [logical_key(attempt)]
+                if key is not None
+            }
+
+            def recovered_by_retry(
+                attempt: dict[str, object],
+                *,
+                attempt_records: list[dict[str, object]] = attempt_records,
+                recovered_keys: set[tuple[str, str, str]] = recovered_keys,
+            ) -> bool:
+                key = logical_key(attempt)
+                if key is not None and key in recovered_keys:
+                    return True
+                operation = attempt.get("operation")
+                attempt_number = attempt.get("attempt")
+                if not isinstance(operation, str) or not isinstance(
+                    attempt_number, int
+                ):
+                    return False
+                return any(
+                    not later.get("error_code")
+                    and later.get("operation") == operation
+                    and (
+                        (
+                            key is not None
+                            and logical_key(later) == key
+                        )
+                        or (
+                            key is None
+                            and later.get("attempt") == attempt_number + 1
+                        )
+                    )
+                    for later in attempt_records
+                )
+
             call = metadata.get("call")
+            step_key = logical_key(call) if isinstance(call, dict) else logical_key(metadata)
+            recovered_attempt = any(
+                recovered_by_retry(attempt)
+                for attempt in attempt_records
+                if attempt.get("error_code")
+            )
+            if (
+                isinstance(code, str)
+                and code in _PROVIDER_ERROR_CODES
+                and not (
+                    step_key in recovered_keys
+                    or (
+                        isinstance(call, dict)
+                        and recovered_by_retry(call)
+                    )
+                    or recovered_attempt
+                    or step.get("status") == "succeeded"
+                )
+            ):
+                codes.add(code)
             if isinstance(call, dict):
                 call_code = call.get("error_code")
-                if isinstance(call_code, str) and call_code:
+                if (
+                    isinstance(call_code, str)
+                    and call_code in _PROVIDER_ERROR_CODES
+                    and not recovered_by_retry(call)
+                ):
                     codes.add(call_code)
-            attempts = metadata.get("attempts")
-            if isinstance(attempts, list):
-                for attempt in attempts:
-                    if isinstance(attempt, dict):
-                        attempt_code = attempt.get("error_code")
-                        if isinstance(attempt_code, str) and attempt_code:
-                            codes.add(attempt_code)
+            for attempt in attempt_records:
+                attempt_code = attempt.get("error_code")
+                if (
+                    isinstance(attempt_code, str)
+                    and attempt_code in _PROVIDER_ERROR_CODES
+                    and not recovered_by_retry(attempt)
+                ):
+                    codes.add(attempt_code)
+        elif isinstance(code, str) and code in _PROVIDER_ERROR_CODES:
+            codes.add(code)
     for call in tool_calls:
         code = call.get("error_code")
-        if isinstance(code, str) and code:
+        if isinstance(code, str) and code in _PROVIDER_ERROR_CODES:
             codes.add(code)
     return sorted(codes)
 
@@ -119,9 +202,17 @@ def validation_blocking_reasons(report: ValidationReport) -> list[str]:
         reason = _CHECK_REASON_MAP.get(check.name)
         if reason is not None:
             reasons.add(reason)
-        if "citation" in check.message.lower() and check.name != "citation_coverage":
+        if (
+            check.name != "provider_error_codes"
+            and "citation" in check.message.lower()
+            and check.name != "citation_coverage"
+        ):
             reasons.add("missing_citation")
-        if "evidence" in check.message.lower() and check.name != "evidence_quality":
+        if (
+            check.name != "provider_error_codes"
+            and "evidence" in check.message.lower()
+            and check.name != "evidence_quality"
+        ):
             reasons.add("missing_evidence_locator")
         if "provider" in check.message.lower() or "tool" in check.message.lower():
             reasons.add("provider_observability_failed")
@@ -361,11 +452,14 @@ def build_validation_report(
             "user-provided seed sources cannot independently verify claims",
         ),
         _check(
-            "free_model",
+            "model_policy",
             is_free_model(model_id),
             model_id,
-            ":free",
-            "only OpenRouter :free models are permitted",
+            "OpenAI model identifier",
+            (
+                "new runs must use the configured OpenAI model; legacy OpenRouter "
+                ":free records remain readable"
+            ),
         ),
     ]
     if quality_mode:

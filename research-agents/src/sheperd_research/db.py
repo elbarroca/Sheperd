@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -1842,6 +1843,7 @@ class PostgresRepository:
         self.connection = connection
         self.neon_branch_id = neon_branch_id
         self._connection_url = connection_url
+        self._connection_lock = threading.RLock()
 
     @classmethod
     def from_url(
@@ -1876,22 +1878,23 @@ class PostgresRepository:
     def _execute(
         self, query: str, params: tuple[object, ...] = ()
     ) -> list[tuple[object, ...]]:
-        for attempt in range(2):
-            try:
-                with self.connection.cursor() as cursor:
-                    cursor.execute(query, params)
-                    rows = cursor.fetchall() if cursor.description else []
-                self.connection.commit()
-                return rows
-            except OperationalError:
-                self.connection.rollback()
-                if attempt == 1 or self._connection_url is None:
+        with self._connection_lock:
+            for attempt in range(2):
+                try:
+                    with self.connection.cursor() as cursor:
+                        cursor.execute(query, params)
+                        rows = cursor.fetchall() if cursor.description else []
+                    self.connection.commit()
+                    return rows
+                except OperationalError:
+                    self.connection.rollback()
+                    if attempt == 1 or self._connection_url is None:
+                        raise
+                    self.connection.close()
+                    self._reconnect()
+                except Exception:
+                    self.connection.rollback()
                     raise
-                self.connection.close()
-                self._reconnect()
-            except Exception:
-                self.connection.rollback()
-                raise
         raise OperationalError("database operation could not be completed")
 
     def create_run(self, run_id: str, request: ResearchRunRequest) -> None:
@@ -3790,63 +3793,98 @@ class PostgresRepository:
         bounded_limit = max(1, min(limit, 1000))
         bounded_offset = max(0, offset)
         params.extend((bounded_limit, bounded_offset))
+        article_complete_for_aggregate_sql = article_complete_sql.replace(
+            "wb.run_id", "adq.run_id"
+        )
+        aggregate_ctes = f"""
+            WITH source_agg AS (
+                SELECT rs.run_id,
+                       count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed)
+                           AS source_count,
+                       COALESCE(
+                           array_agg(DISTINCT s.region)
+                           FILTER (WHERE s.region IS NOT NULL), '{{}}'::text[]
+                       ) AS regions,
+                       COALESCE(
+                           array_agg(DISTINCT s.language_code)
+                           FILTER (WHERE s.language_code IS NOT NULL), '{{}}'::text[]
+                       ) AS languages,
+                       COALESCE(
+                           array_agg(DISTINCT s.lane)
+                           FILTER (WHERE s.lane IS NOT NULL), '{{}}'::text[]
+                       ) AS lane_coverage
+                FROM run_sources rs
+                JOIN sources s ON s.normalized_url = rs.normalized_url
+                GROUP BY rs.run_id
+            ),
+            distillation_agg AS (
+                SELECT run_id,
+                       count(DISTINCT distillation_id) AS distillation_count,
+                       COALESCE(
+                           array_agg(DISTINCT model_id)
+                           FILTER (WHERE model_id IS NOT NULL), '{{}}'::text[]
+                       ) AS models
+                FROM article_distillations
+                GROUP BY run_id
+            ),
+            claim_agg AS (
+                SELECT run_id, count(DISTINCT claim_id) AS claim_count
+                FROM claims
+                GROUP BY run_id
+            ),
+            signal_agg AS (
+                SELECT run_id, count(DISTINCT event_id) AS signal_count
+                FROM signal_events
+                GROUP BY run_id
+            ),
+            article_agg AS (
+                SELECT adq.run_id,
+                       count(DISTINCT adq.normalized_url) FILTER (
+                           WHERE EXISTS (
+                               SELECT 1
+                               FROM run_sources rsa
+                               JOIN sources sa ON sa.normalized_url = rsa.normalized_url
+                               WHERE rsa.run_id = adq.run_id
+                                 AND rsa.normalized_url = adq.normalized_url
+                                 AND NOT sa.is_seed
+                           )
+                       ) AS distillation_count,
+                       count(DISTINCT adq.normalized_url) FILTER (
+                           WHERE EXISTS (
+                               SELECT 1
+                               FROM run_sources rsa
+                               JOIN sources sa ON sa.normalized_url = rsa.normalized_url
+                               WHERE rsa.run_id = adq.run_id
+                                 AND rsa.normalized_url = adq.normalized_url
+                                 AND NOT sa.is_seed
+                           )
+                           AND ({article_complete_for_aggregate_sql})
+                       ) AS complete_article_count
+                FROM article_distillations adq
+                GROUP BY adq.run_id
+            )
+        """
         rows = self._execute(
             f"""
+            {aggregate_ctes}
             SELECT wb.run_id, wb.title, wb.covered_from, wb.covered_until,
                    wb.review_state, COALESCE(rr.request ->> 'validation_profile', ''),
                    rr.status, COALESCE(vc.status, 'blocked'),
-                   count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed),
-                   count(DISTINCT ad.distillation_id),
-                   count(DISTINCT c.claim_id), count(DISTINCT se.event_id),
-                   COALESCE(
-                       array_agg(DISTINCT s.region)
-                       FILTER (WHERE s.region IS NOT NULL), '{{}}'
-                   ),
-                   COALESCE(
-                       array_agg(DISTINCT s.language_code)
-                       FILTER (WHERE s.language_code IS NOT NULL), '{{}}'
-                   ),
-                   COALESCE(
-                       array_agg(DISTINCT s.lane)
-                       FILTER (WHERE s.lane IS NOT NULL), '{{}}'
-                   ),
-                   COALESCE(
-                       array_agg(DISTINCT ad.model_id)
-                       FILTER (WHERE ad.model_id IS NOT NULL), '{{}}'
-                   ) || ARRAY[wb.model_id],
+                   COALESCE(sa.source_count, 0),
+                   COALESCE(da.distillation_count, 0),
+                   COALESCE(ca.claim_count, 0),
+                   COALESCE(sea.signal_count, 0),
+                   COALESCE(sa.regions, '{{}}'::text[]),
+                   COALESCE(sa.languages, '{{}}'::text[]),
+                   COALESCE(sa.lane_coverage, '{{}}'::text[]),
+                   COALESCE(da.models, '{{}}'::text[]) || ARRAY[wb.model_id],
                    rr.as_of, rr.archived_at, rr.archive_reason,
-                   count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed),
-                   count(DISTINCT ad.normalized_url) FILTER (
-                       WHERE EXISTS (
-                           SELECT 1 FROM article_distillations adq
-                           WHERE adq.distillation_id = ad.distillation_id
-                             AND {article_complete_sql}
-                       )
-                       AND EXISTS (
-                           SELECT 1 FROM run_sources rsa
-                           JOIN sources sa ON sa.normalized_url = rsa.normalized_url
-                           WHERE rsa.run_id = wb.run_id
-                             AND rsa.normalized_url = ad.normalized_url
-                             AND NOT sa.is_seed
-                       )
-                   ),
-                   CASE WHEN count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed) > 0
+                   COALESCE(sa.source_count, 0),
+                   COALESCE(aa.complete_article_count, 0),
+                   CASE WHEN COALESCE(sa.source_count, 0) > 0
                        THEN round(
-                           count(DISTINCT ad.normalized_url) FILTER (
-                               WHERE EXISTS (
-                                   SELECT 1 FROM article_distillations adq
-                                   WHERE adq.distillation_id = ad.distillation_id
-                                     AND {article_complete_sql}
-                               )
-                               AND EXISTS (
-                                   SELECT 1 FROM run_sources rsa
-                                   JOIN sources sa ON sa.normalized_url = rsa.normalized_url
-                                   WHERE rsa.run_id = wb.run_id
-                                     AND rsa.normalized_url = ad.normalized_url
-                                     AND NOT sa.is_seed
-                               )
-                           )::numeric
-                           / count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed),
+                           COALESCE(aa.complete_article_count, 0)::numeric
+                           / COALESCE(sa.source_count, 0),
                            6
                        )
                        ELSE 0
@@ -3863,18 +3901,10 @@ class PostgresRepository:
                        ELSE 0
                    END,
                    COALESCE(vc.checks, '[]'::jsonb),
-                   CASE WHEN count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed) > 0
+                   CASE WHEN COALESCE(sa.source_count, 0) > 0
                        THEN round(
-                           count(DISTINCT ad.normalized_url) FILTER (
-                               WHERE EXISTS (
-                                   SELECT 1 FROM run_sources rsd
-                                   JOIN sources sd ON sd.normalized_url = rsd.normalized_url
-                                   WHERE rsd.run_id = wb.run_id
-                                     AND rsd.normalized_url = ad.normalized_url
-                                     AND NOT sd.is_seed
-                               )
-                           )::numeric
-                           / count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed),
+                           COALESCE(aa.distillation_count, 0)::numeric
+                           / COALESCE(sa.source_count, 0),
                            6
                        )
                        ELSE 0
@@ -3883,20 +3913,14 @@ class PostgresRepository:
             FROM weekly_briefs wb
             JOIN research_runs rr ON rr.run_id = wb.run_id
             LEFT JOIN validation_checks vc ON vc.run_id = wb.run_id
-            LEFT JOIN run_sources rs ON rs.run_id = wb.run_id
-            LEFT JOIN sources s ON s.normalized_url = rs.normalized_url
-            LEFT JOIN article_distillations ad ON ad.run_id = wb.run_id
-            LEFT JOIN claims c ON c.run_id = wb.run_id
-            LEFT JOIN signal_events se ON se.run_id = wb.run_id
+            LEFT JOIN source_agg sa ON sa.run_id = wb.run_id
+            LEFT JOIN distillation_agg da ON da.run_id = wb.run_id
+            LEFT JOIN claim_agg ca ON ca.run_id = wb.run_id
+            LEFT JOIN signal_agg sea ON sea.run_id = wb.run_id
+            LEFT JOIN article_agg aa ON aa.run_id = wb.run_id
             WHERE """
             + " AND ".join(clauses)
-            + " GROUP BY wb.run_id, wb.title, wb.covered_from, wb.covered_until, "
-            "wb.review_state, rr.request, rr.status, vc.status, vc.checks, rr.as_of, wb.model_id, "
-            "wb.prompt_version, rr.archived_at, rr.archive_reason, "
-            "rr.migration_version, "
-            "wb.executive_bullets, wb.developments, "
-            "wb.risks, wb.opportunities, wb.uncertainties, wb.follow_up_questions "
-            f"ORDER BY CASE WHEN {ready_sql} THEN 0 ELSE 1 END, "
+            + f" ORDER BY CASE WHEN {ready_sql} THEN 0 ELSE 1 END, "
             "wb.covered_until DESC, wb.run_id ASC LIMIT %s OFFSET %s",
             tuple(params),
         )

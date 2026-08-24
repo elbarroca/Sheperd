@@ -260,20 +260,26 @@ function ReportQuality({ report }: { report: ReportPayload }) {
   const completeArticles = report.quality?.complete_article_count;
   const articleCount = report.quality?.article_count;
   return (
-    <div className="report-quality" aria-label="Report quality">
-      <div><strong>{completeSections === undefined || sectionCount === undefined ? "not recorded" : `${completeSections}/${sectionCount}`}</strong><span>insight sections</span></div>
-      <div><strong>{coverage}%</strong><span>citation coverage</span></div>
-      <div><strong>{report.sources.length}</strong><span>sources</span></div>
-      <div><strong>{report.distillations.length}</strong><span>distillations</span></div>
-      <div><strong>{report.claims.length}</strong><span>claims</span></div>
-      <div><strong>{completeArticles === undefined || articleCount === undefined ? "not recorded" : `${completeArticles}/${articleCount}`}</strong><span>complete article insights</span></div>
-      <div><strong>{sectionCheck?.status ?? "not recorded"}</strong><span>section validator</span></div>
+    <section className={`report-quality ${decisionReady ? "is-ready" : "is-review"}`} aria-label="Report quality">
+      <div className="quality-heading">
+        <div className="quality-title"><p className="eyebrow">Readiness</p><strong>{decisionReady ? "Decision-ready" : "Review required"}</strong></div>
+        <span className={`status-badge status-${decisionReady ? "pass" : "blocked"}`}>{decisionReady ? "Pass" : "Not ready"}</span>
+      </div>
+      <div className="quality-metrics">
+        <div><strong>{completeSections === undefined || sectionCount === undefined ? "not recorded" : `${completeSections}/${sectionCount}`}</strong><span>report sections</span></div>
+        <div><strong>{coverage}%</strong><span>citation coverage</span></div>
+        <div><strong>{report.sources.length}</strong><span>sources</span></div>
+        <div><strong>{report.distillations.length}</strong><span>distillations</span></div>
+        <div><strong>{report.claims.length}</strong><span>claims</span></div>
+        <div><strong>{completeArticles === undefined || articleCount === undefined ? "not recorded" : `${completeArticles}/${articleCount}`}</strong><span>article packets</span></div>
+        <div><strong>{sectionCheck?.status ?? "not recorded"}</strong><span>section validator</span></div>
+      </div>
       <p>{decisionReady
         ? "All required insight sections and article packets are complete."
         : "This run requires review before it can be decision-ready."}</p>
       {!report.quality ? <p className="muted">Legacy quality snapshot: Not recorded in this run.</p> : null}
       {report.blocking_reasons?.length ? <p className="muted">Blocking reasons: {report.blocking_reasons.join(", ")}</p> : null}
-    </div>
+      </section>
   );
 }
 
@@ -403,7 +409,7 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
       {blocked && (
         <div className="unavailable" role="alert">
           <strong>Report is blocked, failed, or partial.</strong>
-          <p>Run status: {runStatus}. Validation status: {validationStatus}. {report.run?.error ?? "This report is not decision-ready."}</p>
+          <p>Run status: {runStatus}. Validation status: {validationStatus}. {report.run?.error ?? report.run?.error_code ?? "This report is not decision-ready."}</p>
         </div>
       )}
 

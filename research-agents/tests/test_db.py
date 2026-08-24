@@ -562,10 +562,10 @@ def test_postgres_brief_summaries_scope_article_completeness_to_non_seed_sources
         summary = repository.list_brief_summaries(ready_only=True)[0]
 
     query = execute.call_args.args[0]
-    assert "count(DISTINCT ad.normalized_url) FILTER" in query
-    assert "rsa.normalized_url = ad.normalized_url" in query
+    assert "count(DISTINCT adq.normalized_url) FILTER" in query
+    assert "rsa.normalized_url = adq.normalized_url" in query
     assert "AND NOT sa.is_seed" in query
-    assert "rsd.normalized_url = ad.normalized_url" in query
+    assert "complete_article_count" in query
     assert summary["article_count"] == 1
     assert summary["complete_article_count"] == 1
     assert summary["article_insight_completeness"] == 1.0

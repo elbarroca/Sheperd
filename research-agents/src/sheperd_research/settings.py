@@ -4,12 +4,13 @@ import os
 import re
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
-from pydantic import Field, SecretStr
+from pydantic import Field, PrivateAttr, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-STRICT_OPENROUTER_MODEL = "google/gemma-4-26b-a4b-it:free"
+DEFAULT_OPENAI_MODEL = "gpt-5.6-luna"
+STRICT_OPENROUTER_MODEL = "google/gemma-4-26b-a4b-it:free"  # legacy persisted-run identifier
 DEFAULT_FREE_FALLBACK_MODELS = (
     "z-ai/glm-5.2:free",
     "google/gemma-4-31b-it:free",
@@ -22,10 +23,15 @@ DEFAULT_FREE_FALLBACK_MODELS = (
 _FREE_MODEL_PATTERN = re.compile(
     r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*:free$"
 )
+_OPENAI_MODEL_PATTERN = re.compile(r"^(?:gpt|o\d|chatgpt)-[a-z0-9][a-z0-9._-]*$")
 
 
 def is_free_openrouter_model(value: str) -> bool:
     return bool(_FREE_MODEL_PATTERN.fullmatch(value))
+
+
+def is_openai_model(value: str) -> bool:
+    return bool(_OPENAI_MODEL_PATTERN.fullmatch(value))
 
 
 def parse_openrouter_fallback_models(value: str) -> tuple[str, ...]:
@@ -50,6 +56,14 @@ def strict_openrouter_policy_error(
     *,
     raw_fallback_config: str | Sequence[str] | None = None,
 ) -> str | None:
+    if is_openai_model(model):
+        if model != DEFAULT_OPENAI_MODEL:
+            return f"OPENAI_MODEL must be {DEFAULT_OPENAI_MODEL}"
+        if fallback_models or (
+            isinstance(raw_fallback_config, str) and raw_fallback_config.strip()
+        ):
+            return "OpenAI model fallbacks must be empty"
+        return None
     if model != STRICT_OPENROUTER_MODEL:
         return f"OPENROUTER_MODEL must be {STRICT_OPENROUTER_MODEL}"
     if raw_fallback_config is not None and has_raw_openrouter_fallback_config(
@@ -67,6 +81,14 @@ def free_openrouter_policy_error(
     *,
     raw_fallback_config: str | Sequence[str] | None = None,
 ) -> str | None:
+    if is_openai_model(model):
+        if model != DEFAULT_OPENAI_MODEL:
+            return f"OPENAI_MODEL must be {DEFAULT_OPENAI_MODEL}"
+        if fallback_models or (
+            isinstance(raw_fallback_config, str) and raw_fallback_config.strip()
+        ):
+            return "OpenAI model fallbacks are not supported"
+        return None
     if model != STRICT_OPENROUTER_MODEL:
         return f"OPENROUTER_MODEL must remain {STRICT_OPENROUTER_MODEL}"
     if (
@@ -113,6 +135,10 @@ class Settings(BaseSettings):
     tavily_api_key: SecretStr | None = None
     tavily_api_key_2: SecretStr | None = None
     tavily_project_id: str | None = None
+    openai_api_key: SecretStr | None = None
+    openai_model: str = DEFAULT_OPENAI_MODEL
+    # Compatibility fields are ignored for runtime selection and retained only
+    # so older persisted requests/tests can still be deserialized.
     openrouter_api_key: SecretStr | None = None
     openrouter_model: str = STRICT_OPENROUTER_MODEL
     openrouter_fallback_models: str = ""
@@ -124,13 +150,28 @@ class Settings(BaseSettings):
     port: int = 8787
     llm_max_calls: int = 48
     llm_max_input_chars: int = 350_000
-    llm_max_output_tokens: int = 3_000
-    max_run_seconds: int = 900
+    llm_max_output_tokens: int = 6_000
+    max_run_seconds: int = 2_400
+    _legacy_provider_explicit: bool = PrivateAttr(default=False)
 
     def __init__(self, **values: Any) -> None:
         root = discover_repo_root()
+        legacy_provider_explicit = (
+            "openrouter_api_key" in values and "openai_api_key" not in values
+        )
         values.setdefault("_env_file", root / ".env.local")
         super().__init__(**values)
+        self._legacy_provider_explicit = legacy_provider_explicit
+
+    @model_validator(mode="after")
+    def select_openai_provider(self) -> Self:
+        # Keep legacy fields readable for old persisted requests/tests, but
+        # mirror the new provider only when OpenAI is explicitly configured.
+        if self.openai_api_key is not None or self.openai_model != DEFAULT_OPENAI_MODEL:
+            self.openrouter_api_key = self.openai_api_key
+            self.openrouter_model = self.openai_model
+            self.openrouter_fallback_models = ""
+        return self
 
     @property
     def vault_root(self) -> Path:
@@ -164,7 +205,11 @@ class Settings(BaseSettings):
 
     @property
     def has_live_provider_credentials(self) -> bool:
-        return bool(self.tavily_api_key and self.openrouter_api_key)
+        return bool(self.tavily_api_key and self.openai_api_key)
+
+    @property
+    def legacy_provider_explicit(self) -> bool:
+        return self._legacy_provider_explicit
 
     @property
     def tavily_api_keys(self) -> tuple[str, ...]:
@@ -188,24 +233,19 @@ class Settings(BaseSettings):
 
     @property
     def openrouter_model_chain(self) -> tuple[str, ...]:
-        configured = [self.openrouter_model, *self.openrouter_fallback_model_list]
-        return tuple(dict.fromkeys(configured))
+        return (self.openai_model,)
 
     def model_chain(self, *, allow_free_fallbacks: bool) -> tuple[str, ...]:
-        if not allow_free_fallbacks:
-            return (self.openrouter_model,)
-        configured = self.openrouter_fallback_model_list
-        fallbacks = configured or DEFAULT_FREE_FALLBACK_MODELS
-        return tuple(dict.fromkeys((self.openrouter_model, *fallbacks)))
+        del allow_free_fallbacks
+        return (self.openai_model,)
 
     @property
     def openrouter_fallback_model_list(self) -> tuple[str, ...]:
-        return parse_openrouter_fallback_models(self.openrouter_fallback_models)
+        return ()
 
     @property
     def strict_openrouter_policy_error(self) -> str | None:
         return strict_openrouter_policy_error(
-            self.openrouter_model,
-            self.openrouter_fallback_model_list,
-            raw_fallback_config=self.openrouter_fallback_models,
+            self.openai_model,
+            (),
         )

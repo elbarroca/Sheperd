@@ -523,6 +523,9 @@ def test_canary_discovery_query_limit_bounds_each_lane() -> None:
 
     assert set(llm.queries_by_lane) == {"regulatory", "us-ports", "mexico"}
     assert all(len(queries) == 1 for queries in llm.queries_by_lane.values())
+    assert "demurrage" in llm.queries_by_lane["regulatory"][0]
+    assert "West Coast" in llm.queries_by_lane["us-ports"][0]
+    assert "Mexico" in llm.queries_by_lane["mexico"][0]
     assert llm.geographies_by_lane == {
         "regulatory": ("Regulatory", "United States"),
         "us-ports": ("West Coast", "East Coast", "Gulf"),

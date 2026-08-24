@@ -32,6 +32,7 @@ from .contracts import (
     ValidationCheck,
     ValidationReport,
     ValidationStatus,
+    is_free_model,
 )
 from .db import (
     MIGRATION_VERSION,
@@ -52,7 +53,10 @@ from .exporters.regional_indexes import generate_regional_indexes
 from .progress import ProgressReporter
 from .providers.capabilities import CapabilityReport, resolve_capabilities
 from .providers.errors import ProviderError
-from .providers.openrouter import OpenRouterProvider
+from .providers.openai import (
+    DEFAULT_OPENAI_MAX_CONCURRENT_REQUESTS,
+    OpenAIProvider,
+)
 from .providers.tavily import TavilyProvider
 from .settings import (
     STRICT_OPENROUTER_MODEL,
@@ -89,6 +93,8 @@ _CHECKPOINT_ALLOWED_CHANNELS = frozenset(
         "partial_reasons",
     }
 )
+TAVILY_RUNTIME_MIN_REQUEST_INTERVAL_SECONDS = 1.5
+FULL_DISCOVERY_QUERY_LIMIT = 6
 
 
 def _redact_checkpoint(checkpoint: Checkpoint) -> Checkpoint:
@@ -259,11 +265,11 @@ def _capability_report(
     require_tools: bool,
     allow_cached: bool = True,
 ) -> CapabilityReport:
-    if settings.openrouter_api_key is None:
-        raise ProviderError("OPENROUTER_API_KEY is not configured")
+    if settings.openai_api_key is None:
+        raise ProviderError("OPENAI_API_KEY is not configured")
     return asyncio.run(
         resolve_capabilities(
-            settings.openrouter_api_key.get_secret_value(),
+            settings.openai_api_key.get_secret_value(),
             models,
             settings.openrouter_capabilities_cache,
             require_tools=require_tools,
@@ -277,14 +283,22 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
     allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
     if not getattr(args, "strict", True) and not allow_free_fallbacks:
         return _blocked(args, "run requires --strict or --allow-free-fallbacks")
+    if settings.legacy_provider_explicit:
+        legacy_policy_error = strict_openrouter_policy_error(
+            settings.openrouter_model,
+            settings.openrouter_fallback_model_list,
+            raw_fallback_config=settings.openrouter_fallback_models,
+        )
+        if legacy_policy_error is not None:
+            return _blocked(args, legacy_policy_error)
     if not settings.has_database_credentials:
         return _blocked(args, "set pooled DATABASE_URL in the repository-root .env.local")
     if not settings.has_live_provider_credentials:
         return _blocked(
             args,
-            "set replacement Tavily and OpenRouter keys in the repository-root .env.local",
+            "set Tavily and OpenAI keys in the repository-root .env.local",
         )
-    requested_model = args.model or settings.openrouter_model
+    requested_model = args.model or settings.openai_model
     model_chain = settings.model_chain(allow_free_fallbacks=allow_free_fallbacks)
     fallback_models = model_chain[1:]
     policy_error = (
@@ -324,14 +338,17 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
     except ProviderError as error:
         return _blocked(args, str(error))
     if not capabilities.eligible_models:
-        return _blocked(args, "no free model supports discovery tools and structured output")
+        return _blocked(
+            args,
+            "configured OpenAI model does not support discovery tools and structured output",
+        )
     try:
         repository = _database(settings)
     except RuntimeError as error:
         return _blocked(args, str(error))
     try:
-        openrouter_key = settings.openrouter_api_key
-        if not settings.tavily_api_keys or openrouter_key is None:
+        openai_key = settings.openai_api_key
+        if not settings.tavily_api_keys or openai_key is None:
             return _blocked(args, "provider credentials are incomplete")
 
         async def execute() -> RunResult:
@@ -342,10 +359,11 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
                         settings.tavily_api_keys,
                         settings.tavily_project_id,
                         timeout_seconds=15 if getattr(args, "profile", "full") == "canary" else 45,
+                        min_request_interval_seconds=TAVILY_RUNTIME_MIN_REQUEST_INTERVAL_SECONDS,
                         progress=progress,
                     ),
-                    OpenRouterProvider(
-                        openrouter_key.get_secret_value(),
+                    OpenAIProvider(
+                        openai_key.get_secret_value(),
                         request.model,
                         fallback_models=tuple(
                             model
@@ -355,15 +373,7 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
                         allow_free_fallbacks=allow_free_fallbacks,
                         max_output_tokens=settings.llm_max_output_tokens,
                         capability_report=capabilities,
-                        max_concurrent_requests=(
-                            1
-                            if allow_free_fallbacks
-                            else (
-                                2
-                                if getattr(args, "profile", "full") == "canary"
-                                else 1
-                            )
-                        ),
+                        max_concurrent_requests=DEFAULT_OPENAI_MAX_CONCURRENT_REQUESTS,
                         progress=progress,
                     ),
                     load_topic_configs(settings.resolved_topics_path),
@@ -371,6 +381,11 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
                     max_llm_calls=settings.llm_max_calls,
                     max_llm_input_chars=settings.llm_max_input_chars,
                     max_run_seconds=settings.max_run_seconds,
+                    discovery_query_limit=(
+                        1
+                        if getattr(args, "profile", "full") == "canary"
+                        else FULL_DISCOVERY_QUERY_LIMIT
+                    ),
                     progress=progress,
                 )
                 return await workflow.run(request, run_id=args.run_id)
@@ -388,20 +403,20 @@ def _repair_command(args: argparse.Namespace, settings: Settings) -> int:
     if not settings.has_live_provider_credentials:
         return _blocked(
             args,
-            "set replacement Tavily and OpenRouter keys in the repository-root .env.local",
+            "set Tavily and OpenAI keys in the repository-root .env.local",
         )
     allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
     model_chain = settings.model_chain(allow_free_fallbacks=allow_free_fallbacks)
     fallback_models = model_chain[1:]
     policy_error = (
         free_openrouter_policy_error(
-            settings.openrouter_model,
+            settings.openai_model,
             fallback_models,
             raw_fallback_config=settings.openrouter_fallback_models,
         )
         if allow_free_fallbacks
         else strict_openrouter_policy_error(
-            settings.openrouter_model,
+            settings.openai_model,
             settings.openrouter_fallback_model_list,
             raw_fallback_config=settings.openrouter_fallback_models,
         )
@@ -411,7 +426,7 @@ def _repair_command(args: argparse.Namespace, settings: Settings) -> int:
     try:
         capabilities = _capability_report(
             settings,
-            (settings.openrouter_model, *fallback_models),
+            (settings.openai_model, *fallback_models),
             require_tools=True,
             allow_cached=False,
         )
@@ -442,12 +457,12 @@ def _repair_command(args: argparse.Namespace, settings: Settings) -> int:
             cadence=ResearchCadence.WEEKLY,
             as_of=_parse_datetime(args.as_of) or datetime.now(UTC),
             max_sources=args.max_sources,
-            model=settings.openrouter_model,
+            model=settings.openai_model,
             include_topic_seeds=False,
             validation_profile="canary",
         )
-        openrouter_key = settings.openrouter_api_key
-        if not settings.tavily_api_keys or openrouter_key is None:
+        openai_key = settings.openai_api_key
+        if not settings.tavily_api_keys or openai_key is None:
             return _blocked(args, "provider credentials are incomplete")
         progress = ProgressReporter(enabled=bool(getattr(args, "verbose", False)))
 
@@ -458,11 +473,12 @@ def _repair_command(args: argparse.Namespace, settings: Settings) -> int:
                     TavilyProvider(
                         settings.tavily_api_keys,
                         settings.tavily_project_id,
+                        min_request_interval_seconds=TAVILY_RUNTIME_MIN_REQUEST_INTERVAL_SECONDS,
                         progress=progress,
                     ),
-                    OpenRouterProvider(
-                        openrouter_key.get_secret_value(),
-                        settings.openrouter_model,
+                    OpenAIProvider(
+                        openai_key.get_secret_value(),
+                        settings.openai_model,
                         fallback_models=fallback_models,
                         allow_free_fallbacks=allow_free_fallbacks,
                         capability_report=capabilities,
@@ -601,20 +617,20 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
         _print_json({"status": "blocked", "stages": stages})
         return 2
     if not settings.has_live_provider_credentials:
-        stage("environment", "blocked", message="Tavily and OpenRouter credentials are required")
+        stage("environment", "blocked", message="Tavily and OpenAI credentials are required")
         _print_json({"status": "blocked", "stages": stages})
         return 2
     model_chain = settings.model_chain(allow_free_fallbacks=allow_free_fallbacks)
     fallback_models = model_chain[1:]
     policy_error = (
         free_openrouter_policy_error(
-            settings.openrouter_model,
+            settings.openai_model,
             fallback_models,
             raw_fallback_config=settings.openrouter_fallback_models,
         )
         if allow_free_fallbacks
         else strict_openrouter_policy_error(
-            settings.openrouter_model,
+            settings.openai_model,
             settings.openrouter_fallback_model_list,
             raw_fallback_config=settings.openrouter_fallback_models,
         )
@@ -635,13 +651,17 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
         _print_json({"status": "blocked", "stages": stages})
         return 2
     if not capabilities.eligible_models:
-        stage("environment", "blocked", message="no eligible free discovery model")
+        stage(
+            "environment",
+            "blocked",
+            message="configured OpenAI model is not eligible for discovery",
+        )
         _print_json({"status": "blocked", "stages": stages})
         return 2
     stage(
         "environment",
         "pass",
-        model=settings.openrouter_model,
+        model=settings.openai_model,
         fallback_models=list(capabilities.eligible_models[1:]),
         eligible_models=list(capabilities.eligible_models),
         skipped_models=list(capabilities.skipped_models),
@@ -653,7 +673,7 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
             topic_set="dnd-port",
             as_of=_parse_datetime(args.as_of) or datetime.now(UTC),
             max_sources=3 if args.profile == "canary" else 30,
-            model=settings.openrouter_model,
+            model=settings.openai_model,
             include_topic_seeds=False,
             validation_profile=args.profile,
         )
@@ -678,8 +698,8 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
         return 2
 
     try:
-        openrouter_key = settings.openrouter_api_key
-        assert settings.tavily_api_keys and openrouter_key is not None
+        openai_key = settings.openai_api_key
+        assert settings.tavily_api_keys and openai_key is not None
 
         async def execute() -> RunResult:
             async with _checkpoint_saver(settings.database_url or "") as checkpointer:
@@ -688,27 +708,24 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
                     TavilyProvider(
                         settings.tavily_api_keys,
                         settings.tavily_project_id,
+                        min_request_interval_seconds=TAVILY_RUNTIME_MIN_REQUEST_INTERVAL_SECONDS,
                         progress=progress,
                     ),
-                    OpenRouterProvider(
-                        openrouter_key.get_secret_value(),
+                    OpenAIProvider(
+                        openai_key.get_secret_value(),
                         request.model,
                         fallback_models=fallback_models,
                         allow_free_fallbacks=allow_free_fallbacks,
                         max_output_tokens=settings.llm_max_output_tokens,
                         capability_report=capabilities,
-                        max_concurrent_requests=(
-                            1
-                            if allow_free_fallbacks
-                            else (2 if args.profile == "canary" else 1)
-                        ),
+                        max_concurrent_requests=DEFAULT_OPENAI_MAX_CONCURRENT_REQUESTS,
                         progress=progress,
                     ),
                     load_topic_configs(settings.resolved_topics_path),
                     checkpointer=checkpointer,
                     max_llm_calls=min(
                         settings.llm_max_calls,
-                        5 if args.profile == "canary" else 48,
+                        16 if args.profile == "canary" else 48,
                     ),
                     max_llm_input_chars=min(
                         settings.llm_max_input_chars,
@@ -829,15 +846,15 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
 
 def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
     progress = ProgressReporter(enabled=bool(getattr(args, "verbose", False)))
-    if not settings.tavily_api_key or not settings.openrouter_api_key:
+    if not settings.tavily_api_key or not settings.openai_api_key:
         _print_json(
             {
                 "status": "blocked",
-                "message": "Tavily and OpenRouter credentials are required",
+                "message": "Tavily and OpenAI credentials are required",
             }
         )
         return 2
-    provider: OpenRouterProvider | None = None
+    provider: OpenAIProvider | None = None
     capabilities: CapabilityReport | None = None
     try:
         allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
@@ -845,13 +862,13 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
         fallback_models = model_chain[1:]
         policy_error = (
             free_openrouter_policy_error(
-                settings.openrouter_model,
+                settings.openai_model,
                 fallback_models,
                 raw_fallback_config=settings.openrouter_fallback_models,
             )
             if allow_free_fallbacks
             else strict_openrouter_policy_error(
-                settings.openrouter_model,
+                settings.openai_model,
                 settings.openrouter_fallback_model_list,
                 raw_fallback_config=settings.openrouter_fallback_models,
             )
@@ -865,13 +882,15 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
             allow_cached=False,
         )
         if not capabilities.eligible_models:
-            raise ProviderError("no free model supports discovery tools and structured output")
+            raise ProviderError(
+                "configured OpenAI model does not support discovery tools and structured output"
+            )
         topic = load_topic_configs(settings.resolved_topics_path)["dnd-port"]
         as_of = _parse_datetime(args.as_of) or datetime.now(UTC)
         since = as_of - timedelta(days=topic.lookback_days)
-        provider = OpenRouterProvider(
-            settings.openrouter_api_key.get_secret_value(),
-            settings.openrouter_model,
+        provider = OpenAIProvider(
+            settings.openai_api_key.get_secret_value(),
+            settings.openai_model,
             fallback_models=fallback_models,
             allow_free_fallbacks=allow_free_fallbacks,
             capability_report=capabilities,
@@ -915,20 +934,25 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
                 if isinstance(item, dict) and item.get("resolved_model")
             }
         )
+        eligible_models = set(capabilities.eligible_models)
+
+        def resolved_model_matches_configured(model: str) -> bool:
+            return any(
+                model == eligible or model.startswith(f"{eligible}-")
+                for eligible in eligible_models
+            )
+
         checks = {
             "create_agent": True,
-            "chat_openrouter": True,
+            "chat_openai": True,
             "tavily_search": "tavily_search" in tool_names,
             "tavily_extract": "tavily_extract" in tool_names,
             "structured_output": bool(result.packet.source_urls),
-            "resolved_models_free": all(
-                model in set(capabilities.eligible_models) for model in resolved_models
+            "resolved_models_configured": all(
+                resolved_model_matches_configured(model) for model in resolved_models
             ),
-            "strict_resolved_model": (
-                resolved_models == [STRICT_OPENROUTER_MODEL]
-                if not allow_free_fallbacks
-                else True
-            ),
+            "strict_resolved_model": len(resolved_models) == 1
+            and resolved_model_matches_configured(resolved_models[0]),
         }
         passed = all(checks.values()) and bool(receipts)
         _print_json(
@@ -981,9 +1005,13 @@ def _build_persisted_validation(
     validation_model = raw_model if isinstance(raw_model, str) else STRICT_OPENROUTER_MODEL
     normalized_request = dict(request_value)
     # Legacy runs may contain the retired openrouter/free router identifier.
-    # Normalize only for request parsing; retain the original model for the
-    # deterministic free-model validation check.
-    normalized_request["model"] = STRICT_OPENROUTER_MODEL
+    # Normalize only invalid historical values; retain the original model for
+    # the deterministic model-policy validation check.
+    normalized_request["model"] = (
+        raw_model
+        if isinstance(raw_model, str) and is_free_model(raw_model)
+        else STRICT_OPENROUTER_MODEL
+    )
     request = ResearchRunRequest.model_validate(normalized_request)
     sources = repository.get_run_sources(run_id)
     claims = repository.get_run_claims(run_id)

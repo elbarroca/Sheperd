@@ -33,24 +33,24 @@ Apply the reviewed migration to the configured Neon `main` branch:
 uv run sheperd-research migrate
 ```
 
-The numbered migrations enforce the exact free Gemma model in database defaults
-and existing run rows; paid or router model identifiers are not permitted.
+New runs use the configured OpenAI model. Legacy OpenRouter/Gemma run metadata
+remains readable for audit, but it cannot authorize new runs.
 
 ## Commands
 
 ```bash
 uv run sheperd-research doctor --json
 uv run sheperd-research model-map --json
-uv run sheperd-research audit --allow-free-fallbacks --json
-uv run sheperd-research model-check --allow-free-fallbacks --strict --json
+uv run sheperd-research audit --json
+uv run sheperd-research model-check --strict --json
 uv run sheperd-research mcp-check --json
 uv run sheperd-research source-map --check --strict --json
 uv run sheperd-research migrate
-uv run sheperd-research agent-check --allow-free-fallbacks --strict --verbose --json
+uv run sheperd-research agent-check --strict --verbose --json
 uv run sheperd-research run --topic-set dnd-port
 uv run sheperd-research run --topic-set dnd-port --verbose --json
-uv run sheperd-research e2e --profile canary --allow-free-fallbacks --strict --run-id e2e-<timestamp> --as-of "<timestamp>" --json
-uv run sheperd-research e2e --profile canary --allow-free-fallbacks --strict --run-id e2e-<timestamp> --verbose --json
+uv run sheperd-research e2e --profile canary --strict --run-id e2e-<timestamp> --as-of "<timestamp>" --json
+uv run sheperd-research e2e --profile canary --strict --run-id e2e-<timestamp> --verbose --json
 uv run sheperd-research validate --run-id <run-id>
 uv run sheperd-research index --region all --run-id <run-id> --json
 uv run sheperd-research dashboard
@@ -60,7 +60,7 @@ uv run sheperd-research export --run-id <run-id>
 
 Add `--verbose` to `run`, `e2e`, or `agent-check` for a timestamped operator
 stream on stderr. It reports agent starts, Tavily Search/Extract, key routing,
-OpenRouter attempts, Neon writes, checkpoints, distillation, validation, and
+OpenAI attempts, Neon writes, checkpoints, distillation, validation, and
 final counts. JSON remains machine-readable on stdout; no prompts, article
 bodies, keys, or hidden reasoning are printed.
 
@@ -76,21 +76,17 @@ tokens to the API project. The dashboard's `RESEARCH_API_BASE_URL` must point to
 the API's public HTTPS alias.
 
 `mcp-check` is intentionally host-controlled: run the Tavily and Neon MCP smoke
-checks from the development host. The service itself uses direct Tavily, OpenRouter,
-and PostgreSQL clients. Gemma (`google/gemma-4-26b-a4b-it:free`) is always the
-primary model. Use `--allow-free-fallbacks` to enable the audited app-controlled
-`:free` chain when availability matters. `--strict` is the validation gate and
-may be combined with that flag; it does not enable provider fallback. OpenRouter
-provider fallback remains disabled, every model attempt is recorded, and paid
-models are rejected. Transport timeouts retry once on the same model; rate limits
-move to the next eligible free model or fail the run when the chain is exhausted.
+checks from the development host. The service itself uses direct Tavily, OpenAI,
+and PostgreSQL clients. The default model is `gpt-5.6-luna`, OpenAI's
+cost-sensitive GPT-5.6 model for high-volume workloads, with tool-calling and
+structured-output support. There is
+no model fallback: transport timeouts retry once on the same model, while rate
+limits, authentication errors, or malformed output fail the run explicitly.
+`--strict` remains the validation gate.
 
-`model-map` fetches the live OpenRouter catalog and lists every explicit `:free`
-variant, its tool and structured-output capabilities, context length, available
-benchmark signals, skipped reason, and a conservative recommended cascade. The
-cascade is a routing heuristic, not proof of quality: every candidate still
-requires a live `agent-check` before production use. Discounted but priced
-models, such as paid Gemini variants, remain excluded by the free-only policy.
+`model-map` reports the configured OpenAI model and its required agent
+capabilities. It does not authorize a run; `model-check` performs a live
+structured-output health request.
 
 Set `TAVILY_API_KEY` as the primary search key and optionally set
 `TAVILY_API_KEY_2` as a secondary. Search and Extract try slot 1 first, then

@@ -6,7 +6,12 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .settings import STRICT_OPENROUTER_MODEL, is_free_openrouter_model
+from .settings import (
+    DEFAULT_OPENAI_MODEL,
+    STRICT_OPENROUTER_MODEL,
+    is_free_openrouter_model,
+    is_openai_model,
+)
 
 
 def utc_now() -> datetime:
@@ -14,7 +19,7 @@ def utc_now() -> datetime:
 
 
 def is_free_model(model: str) -> bool:
-    return is_free_openrouter_model(model)
+    return is_openai_model(model) or is_free_openrouter_model(model)
 
 
 class EvidenceStatus(StrEnum):
@@ -350,7 +355,7 @@ class ResearchRunRequest(ContractModel):
     as_of: datetime = Field(default_factory=utc_now)
     since: datetime | None = None
     max_sources: int = Field(default=25, ge=1, le=100)
-    model: str = STRICT_OPENROUTER_MODEL
+    model: str = DEFAULT_OPENAI_MODEL
     seed_urls: list[str] = Field(default_factory=list)
     include_topic_seeds: bool = True
     validation_profile: str = "full"
@@ -369,8 +374,8 @@ class ResearchRunRequest(ContractModel):
     def require_free_model(cls, value: str) -> str:
         if not is_free_model(value):
             raise ValueError(
-                "model must be a valid OpenRouter :free model; "
-                f"strict default is {STRICT_OPENROUTER_MODEL}"
+                "model must be a valid OpenAI model identifier or legacy OpenRouter :free model; "
+                f"legacy default is {STRICT_OPENROUTER_MODEL}"
             )
         return value
 

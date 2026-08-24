@@ -9,7 +9,7 @@ SheperD research, operating system, and publication-gated website.
 - [GTM control note](./03_GTM/SheperD%20GTM%20Validation%20and%20Optimization%20-%20Control%20Note.md): scores, gates, experiments, and next decision.
 - [Context control layer](./context/README.md): curated founder brief, Ricardo interpretation, and knowledge contract.
 - [Founder intelligence dashboard](../founder-intelligence/README.md): public read-only Next.js briefing, visualizations, vector search, and priority lab.
-- [Research agents](../research-agents/README.md): local Neon-backed Tavily/OpenRouter maritime research service and reviewed exports.
+- [Research agents](../research-agents/README.md): local Neon-backed Tavily/OpenAI maritime research service and reviewed exports.
 - [Local founder operating system](./07_Founder_Operating_System/README.md): bounded SQLite query and transparent planning workspace.
 - [Website](../website/README.md): local setup, verification, and publication boundaries.
 - [Vercel deployment](./VERCEL.md): two-project public Production setup.

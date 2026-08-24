@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from ..settings import is_free_openrouter_model
+from ..settings import is_free_openrouter_model, is_openai_model
 from .errors import ProviderError
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
@@ -459,7 +459,39 @@ async def resolve_capabilities(
     timeout_seconds: float = 15,
 ) -> CapabilityReport:
     if not api_key.strip():
-        raise ProviderError("OpenRouter capability check requires an API key")
+        raise ProviderError("LLM capability check requires an API key")
+    if requested_models and all(is_openai_model(model) for model in requested_models):
+        capabilities = tuple(
+            ModelCapability(
+                model=model,
+                free=False,
+                supports_tools=True,
+                supports_structured_outputs=True,
+                name=model,
+            )
+            for model in requested_models
+        )
+        manifest_hash = hashlib.sha256(
+            json.dumps(
+                {
+                    "provider": "openai",
+                    "models": list(requested_models),
+                    "tools": require_tools,
+                    "structured_outputs": True,
+                },
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        return CapabilityReport(
+            requested_models=requested_models,
+            eligible_models=requested_models,
+            capabilities=capabilities,
+            skipped_models=(),
+            require_tools=require_tools,
+            manifest_hash=manifest_hash,
+            source="configured",
+            checked_at=datetime.now(UTC),
+        )
     headers = {"Authorization": f"Bearer {api_key}"}
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:

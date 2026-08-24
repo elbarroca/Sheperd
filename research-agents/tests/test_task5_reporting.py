@@ -130,7 +130,8 @@ def test_weekly_run_combines_retained_seven_day_evidence_with_fresh_discovery() 
     retained_claim = ClaimDraft(
         claim="A retained port signal remains material.",
         source_urls=[retained_source.url],
-        evidence_status=EvidenceStatus.UNVERIFIED,
+        evidence_status=EvidenceStatus.VERIFIED,
+        evidence_excerpt="A retained port signal remains material.",
     )
     repository.record_source(retained_source)
     repository.record_snapshot("daily-run", retained_source, "retained evidence")
@@ -169,6 +170,9 @@ def test_weekly_run_combines_retained_seven_day_evidence_with_fresh_discovery() 
         retained_source.url in claim.source_urls for claim in llm.critic_claims
     )
     assert repository.validations[result.run_id].unique_source_count == 4
+    persisted_claims = repository.list_claims(run_id=result.run_id)
+    assert persisted_claims
+    assert all(claim.evidence_status is not EvidenceStatus.VERIFIED for claim in persisted_claims)
 
 
 def test_synthesis_is_blocked_when_only_seed_or_no_evidence_exists() -> None:

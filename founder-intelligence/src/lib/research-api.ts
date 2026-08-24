@@ -226,7 +226,8 @@ export interface ReportPayload {
     run_id: string;
     status: string;
     as_of: string;
-    error: string | null;
+    error?: string | null;
+    error_code?: string | null;
     neon_branch_id: string | null;
     migration_version: string | null;
     validation_profile?: string;
@@ -504,7 +505,8 @@ function isWeeklyBrief(value: unknown): value is WeeklyBrief {
     ])
     && isStringArray(value.source_urls)
     && isStringArray(value.limitations)
-    && isStringArray(value.uncertainties)
+    && Array.isArray(value.uncertainties)
+    && value.uncertainties.every(isReportBullet)
     && isStringArray(value.follow_up_questions)
     && Array.isArray(value.executive_bullets)
     && value.executive_bullets.every(isReportBullet)
@@ -519,7 +521,8 @@ function isWeeklyBrief(value: unknown): value is WeeklyBrief {
 function isReportRun(value: unknown): boolean {
   return isRecord(value)
     && hasStrings(value, ["run_id", "status", "as_of"])
-    && isNullableString(value.error)
+    && isOptional(value, "error", isNullableString)
+    && isOptional(value, "error_code", isNullableString)
     && isNullableString(value.neon_branch_id)
     && isNullableString(value.migration_version)
     && isOptional(value, "validation_profile", isString)

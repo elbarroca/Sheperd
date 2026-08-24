@@ -284,6 +284,94 @@ def test_validation_uses_provider_error_shaped_run_evidence() -> None:
     }.issubset(report.blocking_reasons)
 
 
+def test_validation_step_error_is_not_provider_error() -> None:
+    assert provider_error_codes_from_run(
+        sources=[],
+        steps=[{"agent_name": "validation", "error_code": "validation"}],
+        tool_calls=[],
+    ) == []
+
+
+def test_recovered_provider_retry_is_not_a_run_blocker() -> None:
+    assert provider_error_codes_from_run(
+        sources=[],
+        steps=[
+            {
+                "agent_name": "critic",
+                "status": "succeeded",
+                "metadata": {
+                    "attempts": [
+                        {
+                            "operation": "critic",
+                            "attempt": 1,
+                            "error_code": "malformed_output",
+                        },
+                        {
+                            "operation": "critic",
+                            "attempt": 2,
+                            "error_code": None,
+                        },
+                    ]
+                },
+            }
+        ],
+        tool_calls=[],
+    ) == []
+
+
+def test_recovered_lane_retry_clears_outer_step_error() -> None:
+    assert provider_error_codes_from_run(
+        sources=[],
+        steps=[
+            {
+                "agent_name": "discovery:mexico",
+                "status": "succeeded",
+                "error_code": "tool_failure",
+                "metadata": {
+                    "call": {
+                        "operation": "discovery:mexico",
+                        "attempt": 2,
+                        "error_code": None,
+                    },
+                    "attempts": [
+                        {
+                            "operation": "discovery:mexico",
+                            "attempt": 1,
+                            "error_code": "tool_failure",
+                        },
+                        {
+                            "operation": "discovery:mexico",
+                            "attempt": 2,
+                            "error_code": None,
+                        },
+                    ],
+                },
+            }
+        ],
+        tool_calls=[],
+    ) == []
+
+
+def test_provider_error_check_does_not_create_evidence_locator_reason() -> None:
+    report = ValidationReport(
+        run_id="provider-check",
+        status=ValidationStatus.FAILED,
+        checks=[
+            ValidationCheck(
+                name="provider_error_codes",
+                status=ValidationStatus.FAILED,
+                observed="malformed_output",
+                expected="none",
+                message="provider/extraction error codes persisted in run evidence",
+            )
+        ],
+    )
+
+    reasons = validation_blocking_reasons(report)
+    assert "provider_malformed_output" in reasons
+    assert "missing_evidence_locator" not in reasons
+
+
 def test_legacy_incomplete_distillation_cannot_remain_pass() -> None:
     sources = _sources()
     claims = [
