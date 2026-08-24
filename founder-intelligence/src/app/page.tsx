@@ -8,6 +8,7 @@ import {
   type ReportPayload,
   type WeeklyReportSummary,
 } from "@/lib/research-api";
+import { isDecisionReadySummary } from "../lib/readiness";
 import { ReportLink, UnavailableState } from "@/components/report-accordion";
 
 export const metadata: Metadata = { title: "Research briefs" };
@@ -32,6 +33,13 @@ function timestampLabel(value: string | undefined): string {
 
 function asSummary(report: WeeklyReportSummary | ReportPayload): WeeklyReportSummary {
   if (!("brief" in report)) return report;
+  const quality = report.quality;
+  const blockingReasons = quality && report.blocking_reasons !== undefined
+    ? [...new Set([...report.blocking_reasons, ...quality.blocking_reasons])]
+    : report.blocking_reasons;
+  const readinessStatus = quality && report.readiness_status !== quality.readiness_status
+    ? "review_required"
+    : report.readiness_status;
   return {
     run_id: report.brief.run_id,
     title: report.brief.title,
@@ -52,15 +60,36 @@ function asSummary(report: WeeklyReportSummary | ReportPayload): WeeklyReportSum
     archived: report.run?.archived,
     archived_at: report.run?.archived_at,
     archive_reason: report.run?.archive_reason,
+    readiness_status: readinessStatus,
+    decision_ready: report.ready,
+    quality_report_ready: quality?.ready,
+    quality_ready: quality
+      ? quality.ready === true
+        && quality.quality_ready === true
+        && quality.readiness_status === "decision_ready"
+      : undefined,
+    quality_readiness_status: quality?.readiness_status,
+    quality_blocking_reasons: quality?.blocking_reasons,
+    blocking_reasons: blockingReasons,
+    article_count: quality?.article_count,
+    article_insight_completeness: quality?.article_insight_completeness,
+    report_section_completeness: quality?.report_section_completeness,
+    complete_article_count: quality?.complete_article_count,
+    report_section_count: quality?.report_section_count,
+    report_sections_complete: quality?.report_sections_complete,
   };
 }
 
 function isReady(report: WeeklyReportSummary): boolean {
-  return report.run_status === "succeeded" && report.validation_status === "pass";
+  return isDecisionReadySummary(report);
 }
 
 function getScope(value: string | undefined): ArchiveScope {
   return value === "archived" || value === "all" ? value : "active";
+}
+
+function slugifyId(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-|-$/gu, "");
 }
 
 function nextSteps(report: ReportPayload): string[] {
@@ -70,6 +99,18 @@ function nextSteps(report: ReportPayload): string[] {
     seen.add(bullet.next_step);
     return [bullet.next_step];
   }).slice(0, 3);
+}
+
+function readinessMetric(
+  complete: number | undefined,
+  denominator: number | undefined,
+  ratio: number | undefined,
+  label: string,
+): string {
+  if (complete === undefined || denominator === undefined || ratio === undefined) {
+    return `${label}: Not recorded in this run`;
+  }
+  return `${complete}/${denominator} complete ${label.toLowerCase()} (${Math.round(ratio * 100)}%)`;
 }
 
 function scopeHref(scope: ArchiveScope): string {
@@ -83,12 +124,13 @@ function ReportSection({
   title: string;
   reports: WeeklyReportSummary[];
 }) {
+  const headingId = `${slugifyId(title)}-heading`;
   return (
-    <section className="report-group" aria-labelledby={`${title.toLowerCase()}-heading`}>
+    <section className="report-group" aria-labelledby={headingId}>
       <div className="section-heading">
         <div>
           <p className="eyebrow">{title}</p>
-          <h2 id={`${title.toLowerCase()}-heading`}>{reports.length} reports</h2>
+          <h2 id={headingId}>{reports.length} reports</h2>
         </div>
         <span className="count-label">Read-only archive</span>
       </div>
@@ -148,7 +190,7 @@ export default async function HomePage({
       {featured ? (
         <section className="document-feature" aria-labelledby="featured-heading">
           <div>
-            <p className="eyebrow">{isReady(featured) ? "Latest decision-ready report" : "Latest archived report"}</p>
+            <p className="eyebrow">{isReady(featured) ? "Latest decision-ready report" : scope === "archived" ? "Archived failure report" : "Latest incomplete report"}</p>
             <h2 id="featured-heading">{featured.title}</h2>
             <p className="muted">{dateLabel(featured.covered_from)} to {dateLabel(featured.covered_until)}</p>
             <p className="report-as-of">As of {timestampLabel(featured.as_of)} UTC</p>
@@ -160,6 +202,9 @@ export default async function HomePage({
             <span>{featured.signal_count} signals</span>
             <span>{featured.regions.length} regions</span>
             <span>{featured.languages.length} languages</span>
+            <span>{readinessMetric(featured.complete_article_count, featured.article_count, featured.article_insight_completeness, "Article packets")}</span>
+            <span>{readinessMetric(featured.report_sections_complete, featured.report_section_count, featured.report_section_completeness, "Report sections")}</span>
+            <span>Readiness: {featured.readiness_status ?? "legacy"}</span>
           </div>
           <Link
             className="text-action"

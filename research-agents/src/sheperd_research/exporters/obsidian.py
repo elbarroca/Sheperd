@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ..contracts import (
     ArticleDistillation,
+    ArticleInsight,
     ClaimDraft,
     ReportBullet,
     ReviewState,
@@ -40,6 +41,22 @@ def _bullet_lines(values: Iterable[ReportBullet]) -> str:
             details.append(f"Next step: {item.next_step}")
         rows.append(f"- {item.text}  \n  " + "\n  ".join(details))
     return "\n".join(rows) or "- None recorded."
+
+
+def _insight_lines(label: str, insight: ArticleInsight | None) -> list[str]:
+    if insight is None:
+        return [f"- {label}: Not recorded in this run."]
+    lines = [
+        f"- {label} status: {insight.status.value}",
+        f"- {label} statement: {insight.statement}",
+        f"- {label} why it matters: {insight.why_it_matters}",
+        f"- {label} next step: {insight.next_step}",
+    ]
+    if insight.evidence_excerpt:
+        lines.append(f"- {label} evidence excerpt: {insight.evidence_excerpt}")
+    if insight.evidence_locator:
+        lines.append(f"- {label} evidence locator: {insight.evidence_locator}")
+    return lines
 
 
 def _date(value: object) -> str:
@@ -80,7 +97,7 @@ def _article_section(
             f"- Content hash: `{source_hashes.get(normalized_url, 'not-recorded')}`",
         ]
         if distillation is None:
-            article_lines.extend(["", "No distillation recorded."])
+            article_lines.extend(["", "Article insight: Not recorded in this run."])
         else:
             article_lines.extend(
                 [
@@ -102,6 +119,23 @@ def _article_section(
                     f"- Evidence: {distillation.evidence_status.value}",
                     "- Limitations:",
                     _lines(distillation.limitations),
+                    "",
+                    "#### Article insight",
+                    f"- Quality status: {distillation.quality_status.value}",
+                    "- Quality issues: "
+                    + _lines(distillation.quality_issues, empty="- None recorded."),
+                    "- What happened: "
+                    + (distillation.what_happened or "Not recorded in this run."),
+                    "- Why it matters: "
+                    + (distillation.why_it_matters or "Not recorded in this run."),
+                    "- Risk assessment:",
+                    *_insight_lines("Risk", distillation.risk_assessment),
+                    "- Opportunity assessment:",
+                    *_insight_lines("Opportunity", distillation.opportunity_assessment),
+                    "- Uncertainties:",
+                    _lines(distillation.uncertainties, empty="- Not recorded in this run."),
+                    "- Next steps:",
+                    _lines(distillation.next_steps, empty="- Not recorded in this run."),
                 ]
             )
         article_lines.extend(["", "#### Claims and citations"])

@@ -31,13 +31,33 @@ EVENT_EMOJI = {
 
 _SECRET_DETAIL_KEYS = frozenset(
     {
+        "api-key",
         "api_key",
+        "apikey",
+        "article_body",
+        "authorization",
         "database_url",
         "direct_database_url",
         "password",
+        "prompt",
+        "raw_body",
+        "reasoning",
         "secret",
         "token",
     }
+)
+_SECRET_VALUE_MARKERS = (
+    "api_key",
+    "apikey",
+    "authorization:",
+    "bearer ",
+    "password",
+    "private key",
+    "prompt:",
+    "raw body",
+    "reasoning:",
+    "secret",
+    "token=",
 )
 
 
@@ -52,6 +72,8 @@ def _safe_value(key: str, value: object) -> str:
         return str(value)
     if isinstance(value, str):
         compact = " ".join(value.split())
+        if any(marker in compact.casefold() for marker in _SECRET_VALUE_MARKERS):
+            return "<redacted>"
         return compact[:160] + ("..." if len(compact) > 160 else "")
     if isinstance(value, Mapping):
         return "<mapping>"

@@ -3,14 +3,11 @@ from __future__ import annotations
 from urllib.parse import urlsplit
 
 from .contracts import SourceCandidate, ValidationStatus
-from .db import MIGRATION_VERSION
-from .providers.capabilities import resolve_capabilities, resolve_free_model_catalog
+from .providers.capabilities import resolve_capabilities
 from .providers.errors import ProviderError
-from .providers.neon import NeonApiClient
-from .providers.openrouter import OpenRouterProvider
+from .providers.openai import OpenAIProvider
 from .providers.tavily import TavilyProvider
 from .settings import (
-    STRICT_OPENROUTER_MODEL,
     Settings,
     free_openrouter_policy_error,
     strict_openrouter_policy_error,
@@ -55,19 +52,15 @@ def _env_check(settings: Settings) -> dict[str, object]:
         "TAVILY_API_KEY_2": bool(settings.tavily_api_key_2),
         "TAVILY_API_KEY_COUNT": settings.tavily_api_key_count,
         "TAVILY_PROJECT_ID": bool(settings.tavily_project_id),
-        "OPENROUTER_API_KEY": bool(settings.openrouter_api_key),
-        "NEON_PG_API_KEY": bool(settings.neon_api_key),
+        "OPENAI_API_KEY": bool(settings.openai_api_key),
         "DATABASE_URL": bool(settings.database_url),
         "DIRECT_DATABASE_URL": bool(settings.direct_database_url),
-        "OPENROUTER_MODEL": settings.openrouter_model,
-        "OPENROUTER_FALLBACK_MODELS": list(settings.openrouter_fallback_model_list),
-        "OPENROUTER_EFFECTIVE_FREE_FALLBACKS": list(
-            settings.model_chain(allow_free_fallbacks=True)[1:]
-        ),
+        "OPENAI_MODEL": settings.openai_model,
+        "OPENAI_FALLBACK_MODELS": [],
     }
     required = (
         "TAVILY_API_KEY",
-        "OPENROUTER_API_KEY",
+        "OPENAI_API_KEY",
         "DATABASE_URL",
         "DIRECT_DATABASE_URL",
     )
@@ -85,22 +78,22 @@ def _model_check(
     fallback_models = model_chain[1:]
     policy_error = (
         free_openrouter_policy_error(
-            settings.openrouter_model,
+            settings.openai_model,
             fallback_models,
             raw_fallback_config=settings.openrouter_fallback_models,
         )
         if allow_free_fallbacks
         else strict_openrouter_policy_error(
-            settings.openrouter_model,
+            settings.openai_model,
             settings.openrouter_fallback_model_list,
             raw_fallback_config=settings.openrouter_fallback_models,
         )
     )
     return _status(
         policy_error is None,
-        "free OpenRouter model policy",
+        "OpenAI model policy",
         requested_models=list(model_chain),
-        required_model=STRICT_OPENROUTER_MODEL,
+        required_model=settings.openai_model,
         allow_free_fallbacks=allow_free_fallbacks,
         policy_error=policy_error,
     )
@@ -128,13 +121,28 @@ def _database_check(url: str | None, *, pooled: bool, label: str) -> dict[str, o
             if schema_row is None:
                 raise RuntimeError("database schema query returned no row")
             has_schema = bool(schema_row[0])
+            migration_version: str | None = None
+            if has_schema:
+                cursor.execute(
+                    "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+                    "WHERE table_name = 'schema_migrations')"
+                )
+                migrations_row = cursor.fetchone()
+                if migrations_row is None:
+                    raise RuntimeError("migration table query returned no row")
+                if migrations_row[0]:
+                    cursor.execute("SELECT max(version) FROM schema_migrations")
+                    version_row = cursor.fetchone()
+                    if version_row is None:
+                        raise RuntimeError("migration version query returned no row")
+                    migration_version = version_row[0]
         return _status(
             True,
             f"{label} connection succeeded",
             database=database,
             user=user,
             research_schema=has_schema,
-            migration_version=MIGRATION_VERSION,
+            migration_version=migration_version or "not_applied",
         )
     except Exception as error:
         return _status(False, f"{label} connection failed: {error.__class__.__name__}")
@@ -145,7 +153,7 @@ async def _provider_check(
 ) -> dict[str, object]:
     checks: dict[str, object] = {}
     tavily: TavilyProvider | None = None
-    openrouter: OpenRouterProvider | None = None
+    openai: OpenAIProvider | None = None
 
     def key_slots() -> list[int]:
         if tavily is None:
@@ -199,7 +207,7 @@ async def _provider_check(
     else:
         checks["tavily"] = _status(False, "TAVILY_API_KEY is not configured")
 
-    if settings.openrouter_api_key:
+    if settings.openai_api_key:
         try:
             model_chain = settings.model_chain(
                 allow_free_fallbacks=allow_free_fallbacks
@@ -207,13 +215,13 @@ async def _provider_check(
             fallback_models = model_chain[1:]
             policy_error = (
                 free_openrouter_policy_error(
-                    settings.openrouter_model,
+                    settings.openai_model,
                     fallback_models,
                     raw_fallback_config=settings.openrouter_fallback_models,
                 )
                 if allow_free_fallbacks
                 else strict_openrouter_policy_error(
-                    settings.openrouter_model,
+                    settings.openai_model,
                     settings.openrouter_fallback_model_list,
                     raw_fallback_config=settings.openrouter_fallback_models,
                 )
@@ -221,7 +229,7 @@ async def _provider_check(
             if policy_error is not None:
                 raise ProviderError(policy_error)
             capabilities = await resolve_capabilities(
-                settings.openrouter_api_key.get_secret_value(),
+                settings.openai_api_key.get_secret_value(),
                 model_chain,
                 settings.openrouter_capabilities_cache,
                 require_tools=True,
@@ -229,70 +237,50 @@ async def _provider_check(
             )
             if not capabilities.eligible_models:
                 raise ProviderError(
-                    "no free model supports discovery tools and structured output"
+                    "configured OpenAI model does not support discovery tools and structured output"
                 )
-            openrouter = OpenRouterProvider(
-                settings.openrouter_api_key.get_secret_value(),
-                settings.openrouter_model,
+            openai = OpenAIProvider(
+                settings.openai_api_key.get_secret_value(),
+                settings.openai_model,
                 fallback_models=fallback_models,
                 allow_free_fallbacks=allow_free_fallbacks,
                 capability_report=capabilities,
             )
-            model = await openrouter.health_check()
-            checks["openrouter"] = _status(
+            model = await openai.health_check()
+            checks["openai"] = _status(
                 True,
-                "OpenRouter structured output completed",
+                "OpenAI structured output completed",
                 model=model,
                 capabilities=capabilities.as_dict(),
-                attempts=openrouter.call_history,
+                attempts=openai.call_history,
             )
         except (ProviderError, ValueError) as error:
-            checks["openrouter"] = _status(
+            checks["openai"] = _status(
                 False,
-                f"OpenRouter check failed: {error}",
+                f"OpenAI check failed: {error}",
                 error_code=getattr(error, "error_code", None),
                 attempts=(
-                    openrouter.call_history
-                    if openrouter is not None
+                    openai.call_history
+                    if openai is not None
                     else getattr(error, "attempts", [])
                 ),
             )
     else:
-        checks["openrouter"] = _status(
+        checks["openai"] = _status(
             False,
-            "OpenRouter key is not configured",
+            "OpenAI key is not configured",
         )
     return checks
 
 
-def _neon_check(settings: Settings) -> dict[str, object]:
-    if not settings.neon_api_key:
-        return {
-            "status": "not_configured",
-            "message": (
-                "NEON_PG_API_KEY is optional; database URLs are sufficient "
-                "for runtime health"
-            ),
-        }
-    if settings.neon_api_key.get_secret_value().lower().startswith(
-        ("postgres://", "postgresql://")
-    ):
-        return _status(
-            False,
-            "NEON_PG_API_KEY is a database URL; a Neon management API token is required",
-        )
-    client = NeonApiClient(
-        settings.neon_api_key.get_secret_value(),
-        project_id=settings.neon_project_id,
-        project_name=settings.neon_project_name,
-        branch_id=settings.neon_branch_id,
-    )
-    try:
-        return client.inspect()
-    except ProviderError as error:
-        return _status(False, str(error))
-    finally:
-        client.close()
+def _neon_check() -> dict[str, object]:
+    return {
+        "status": "not_configured",
+        "message": (
+            "Neon management uses host-controlled MCP OAuth; "
+            "DATABASE_URL is runtime access and DIRECT_DATABASE_URL is migration access"
+        ),
+    }
 
 
 async def run_doctor(
@@ -307,7 +295,7 @@ async def run_doctor(
             settings, allow_free_fallbacks=allow_free_fallbacks
         ),
         "providers": provider_checks,
-        "neon_management": _neon_check(settings),
+        "neon_management": _neon_check(),
         "database_pooled": _database_check(
             settings.database_url, pooled=True, label="DATABASE_URL"
         ),
@@ -339,22 +327,42 @@ async def run_model_check(
     policy = _model_check(settings, allow_free_fallbacks=allow_free_fallbacks)
     if policy.get("status") != "pass":
         return {"status": "blocked", "policy": policy}
-    if not settings.openrouter_api_key:
+    if not settings.openai_api_key:
+        if settings.legacy_provider_explicit and settings.openrouter_api_key:
+            try:
+                await resolve_capabilities(
+                    settings.openrouter_api_key.get_secret_value(),
+                    (settings.openrouter_model,),
+                    settings.openrouter_capabilities_cache,
+                    require_tools=True,
+                    allow_cached=False,
+                )
+            except ProviderError as error:
+                return {
+                    "status": "blocked",
+                    "policy": policy,
+                    "message": str(error),
+                }
+            return {
+                "status": "blocked",
+                "policy": policy,
+                "message": "legacy OpenRouter credentials cannot authorize new runs",
+            }
         return {
             "status": "blocked",
             "policy": policy,
-            "message": "OPENROUTER_API_KEY is not configured",
+            "message": "OPENAI_API_KEY is not configured",
         }
 
 
     capabilities = None
-    provider = None
+    provider: OpenAIProvider | None = None
     try:
         model_chain = settings.model_chain(
             allow_free_fallbacks=allow_free_fallbacks
         )
         capabilities = await resolve_capabilities(
-            settings.openrouter_api_key.get_secret_value(),
+            settings.openai_api_key.get_secret_value(),
             model_chain,
             settings.openrouter_capabilities_cache,
             require_tools=True,
@@ -365,11 +373,14 @@ async def run_model_check(
                 "status": "blocked",
                 "policy": policy,
                 "capabilities": capabilities.as_dict(),
-                "message": "no free model supports discovery tools and structured output",
+                "message": (
+                    "configured OpenAI model does not support discovery tools "
+                    "and structured output"
+                ),
             }
-        provider = OpenRouterProvider(
-            settings.openrouter_api_key.get_secret_value(),
-            settings.openrouter_model,
+        provider = OpenAIProvider(
+            settings.openai_api_key.get_secret_value(),
+            settings.openai_model,
             fallback_models=model_chain[1:],
             allow_free_fallbacks=allow_free_fallbacks,
             capability_report=capabilities,
@@ -400,22 +411,27 @@ async def run_model_check(
 
 
 async def run_model_map(settings: Settings) -> dict[str, object]:
-    if not settings.openrouter_api_key:
+    if not settings.openai_api_key:
         return {
             "status": "blocked",
-            "message": "OPENROUTER_API_KEY is not configured",
+            "message": "OPENAI_API_KEY is not configured",
         }
     try:
-        catalog = await resolve_free_model_catalog(
-            settings.openrouter_api_key.get_secret_value(),
-            primary_model=settings.openrouter_model,
-        )
-        if not catalog.models:
-            return {
-                "status": "blocked",
-                "message": "OpenRouter returned no explicit :free models",
-            }
-        return {"status": "pass", "catalog": catalog.as_dict()}
+        return {
+            "status": "pass",
+            "catalog": {
+                "provider": "openai",
+                "models": [
+                    {
+                        "model": settings.openai_model,
+                        "status": "configured",
+                        "supports_tools": True,
+                        "supports_structured_outputs": True,
+                    }
+                ],
+                "recommended_cascade": [settings.openai_model],
+            },
+        }
     except ProviderError as error:
         return {
             "status": "blocked",
@@ -433,8 +449,8 @@ def mcp_check() -> dict[str, object]:
         "checks": {
             "tavily": "Run a read-only Tavily MCP Search and Extract smoke test in the host.",
             "neon": "Run a read-only Neon MCP project/branch/SQL smoke test in the host.",
-            "openrouter": (
-                "No OpenRouter MCP connector is configured; validate "
+            "openai": (
+                "No OpenAI MCP connector is required; validate "
                 "the LangChain adapter directly."
             ),
         },

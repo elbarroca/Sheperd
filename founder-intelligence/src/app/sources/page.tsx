@@ -3,6 +3,7 @@ import { UnavailableState } from "@/components/report-accordion";
 import {
   getResearchSourceExplorer,
   getResearchSourceFacets,
+  type ArticleInsight,
   type ResearchClaim,
   type SourceExplorerItem,
   type SourceFacets,
@@ -24,8 +25,23 @@ function safeUrl(value: string): boolean {
   return value.startsWith("https://") || value.startsWith("http://");
 }
 
+function statusClass(value: string | undefined): string {
+  return (value?.trim() || "unknown").replaceAll(/[^a-zA-Z0-9_-]/gu, "-");
+}
+
+function statusLabel(value: string | undefined): string {
+  const status = value?.trim();
+  return status
+    ? status.replaceAll("_", " ").replace(/^\w/u, (letter) => letter.toUpperCase())
+    : "Not recorded in this run.";
+}
+
 function Status({ label, value }: { label: string; value: string | undefined }) {
-  return <span className={`status-badge status-${value ?? "unknown"}`}>{label}: {value ?? "unknown"}</span>;
+  return <span className={`status-badge status-${statusClass(value)}`}>{label}: {statusLabel(value)}</span>;
+}
+
+function recorded(value: string | undefined): string {
+  return value?.trim() || "Not recorded in this run.";
 }
 
 function CitationLinks({ urls }: { urls: string[] }) {
@@ -34,6 +50,20 @@ function CitationLinks({ urls }: { urls: string[] }) {
       Citation {index + 1}
     </a>
   ));
+}
+
+function Insight({ label, value }: { label: string; value?: ArticleInsight | null }) {
+  if (!value) return <div><strong>{label}</strong><p className="muted">Not recorded in this run.</p></div>;
+  return (
+    <div>
+      <div className="bullet-meta"><strong>{label}</strong><Status label="Status" value={value.status} /></div>
+      <p>{recorded(value.statement)}</p>
+      <p><strong>Why it matters:</strong> {recorded(value.why_it_matters)}</p>
+      <p><strong>Next step:</strong> {recorded(value.next_step)}</p>
+      {value.evidence_excerpt?.trim() ? <small>Evidence: {value.evidence_excerpt.trim()}</small> : null}
+      {value.evidence_locator?.trim() ? <small>Locator: {value.evidence_locator.trim()}</small> : null}
+    </div>
+  );
 }
 
 function ClaimList({ claims }: { claims: ResearchClaim[] }) {
@@ -59,6 +89,8 @@ function ClaimList({ claims }: { claims: ResearchClaim[] }) {
 function SourceCard({ item }: { item: SourceExplorerItem }) {
   const { source, distillation, claims } = item;
   const mergedClaims = distillation?.claims.length ? distillation.claims : claims;
+  const originalSnippet = source.snippet.trim() || "Not recorded in this run.";
+  const snippet = source.normalized_snippet_en?.trim() || originalSnippet;
   return (
     <article className="source-row">
       <div className="source-card-heading">
@@ -76,22 +108,37 @@ function SourceCard({ item }: { item: SourceExplorerItem }) {
         <Status label="Extraction" value={source.extraction_status} />
         <Status label="Translation" value={distillation?.translation_status} />
       </div>
-      <p className="source-snippet">{source.normalized_snippet_en ?? source.snippet ?? "No summary snippet recorded."}</p>
-      {source.normalized_snippet_en && source.normalized_snippet_en !== source.snippet ? <p className="muted">Original: {source.snippet}</p> : null}
+      <p className="source-snippet">Snippet: {snippet || "Not recorded in this run."}</p>
+      {source.normalized_snippet_en && source.normalized_snippet_en !== source.snippet ? <p className="muted">Original: {originalSnippet}</p> : null}
+      {source.extraction_error_code ? <p className="muted">Extraction error: {source.extraction_error_code}</p> : null}
+      {item.fulfillment ? <p className="muted">Fulfillment: {item.fulfillment.status} · {item.fulfillment.claim_count} claims · {item.fulfillment.citation_count} cited · UI {item.fulfillment.ui_displayable ? "ready" : "not ready"}{item.fulfillment.missing_fields.length ? ` · missing ${item.fulfillment.missing_fields.join(", ")}` : ""}</p> : <p className="muted">Fulfillment: legacy, not recorded in this run.</p>}
       <details className="report-section">
         <summary>Article findings</summary>
         <div className="report-section-body">
           {distillation ? (
             <>
               <h3>Research summary</h3>
-              <p>{distillation.summary}</p>
+              <p>{distillation.summary?.trim() || "Not recorded in this run."}</p>
               <h3>Original-language summary</h3>
-              <p className="muted">{distillation.summary_original || "Not recorded."}</p>
+              <p className="muted">{distillation.summary_original?.trim() || "Not recorded in this run."}</p>
               <h3>Key points</h3>
-              {distillation.key_points.length > 0 ? <ul>{distillation.key_points.map((point) => <li key={point}>{point}</li>)}</ul> : <p className="muted">None recorded.</p>}
+              {distillation.key_points.length > 0 ? <ul>{distillation.key_points.map((point) => <li key={point}>{point}</li>)}</ul> : <p className="muted">Not recorded in this run.</p>}
               {distillation.key_points_original?.length ? <><h3>Original key points</h3><ul>{distillation.key_points_original.map((point) => <li key={point}>{point}</li>)}</ul></> : null}
+              <h3>What happened</h3>
+              <p>{distillation.what_happened?.trim() || "Not recorded in this run."}</p>
+              <h3>Why it matters</h3>
+              <p>{distillation.why_it_matters?.trim() || "Not recorded in this run."}</p>
+              <div className="insight-grid">
+                <Insight label="Risk assessment" value={distillation.risk_assessment} />
+                <Insight label="Opportunity assessment" value={distillation.opportunity_assessment} />
+              </div>
+              <h3>Next steps</h3>
+              {distillation.next_steps?.length ? <ul>{distillation.next_steps.map((step) => <li key={step}>{step}</li>)}</ul> : <p className="muted">Not recorded in this run.</p>}
+              <h3>Uncertainty</h3>
+              {distillation.uncertainties?.length ? <ul>{distillation.uncertainties.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="muted">Not recorded in this run.</p>}
               {distillation.signals.length > 0 ? <><h3>Signals</h3><ul>{distillation.signals.map((signal) => <li key={signal}>{signal}</li>)}</ul></> : null}
-              <p className="muted">Model {distillation.model_id} / evidence {distillation.evidence_status} / translation {distillation.translation_status ?? "unknown"}</p>
+              <p className="muted">Model {distillation.model_id} / evidence {distillation.evidence_status} / translation {distillation.translation_status ?? "unknown"} / quality {distillation.quality_status ?? "incomplete"}</p>
+              {distillation.quality_issues?.length ? <p className="muted">Quality issues: {distillation.quality_issues.join(", ")}</p> : null}
               {distillation.limitations.length > 0 ? <p className="muted">Limitations: {distillation.limitations.join("; ")}</p> : null}
             </>
           ) : <p className="muted">No distillation persisted for this source.</p>}
@@ -101,8 +148,8 @@ function SourceCard({ item }: { item: SourceExplorerItem }) {
         <summary>Claims and evidence ({mergedClaims.length})</summary>
         <div className="report-section-body">
           <ClaimList claims={mergedClaims} />
-          {distillation?.evidence_excerpts?.length ? <p>Excerpts: {distillation.evidence_excerpts.join(" / ")}</p> : null}
-          {distillation?.evidence_locators?.length ? <p>Locators: {distillation.evidence_locators.join(" / ")}</p> : null}
+          {distillation?.evidence_excerpts?.length ? <p>Excerpts: {distillation.evidence_excerpts.join(" / ")}</p> : <p className="muted">Evidence excerpts: Not recorded in this run.</p>}
+          {distillation?.evidence_locators?.length ? <p>Locators: {distillation.evidence_locators.join(" / ")}</p> : <p className="muted">Evidence locators: Not recorded in this run.</p>}
         </div>
       </details>
       <p className="hash-line">Content hash: <code>{item.source_hash ?? "not recorded"}</code></p>
@@ -177,7 +224,7 @@ export default async function SourcesPage({
         <button type="submit">Apply filters</button>
       </form>
       <div className="explorer-toolbar">
-        <p>{pageData.total} persisted sources / page {pageData.page}</p>
+        <p>{pageData.total} persisted sources / page {pageData.page} / {PAGE_SIZE} per page</p>
         <div className="pagination" aria-label="Source pages">
           {pageData.page > 1 ? <a href={pageHref(filters, pageData.page - 1)}>Previous</a> : <span className="muted">Previous</span>}
           {pageData.has_more ? <a href={pageHref(filters, pageData.page + 1)}>Next</a> : <span className="muted">Next</span>}

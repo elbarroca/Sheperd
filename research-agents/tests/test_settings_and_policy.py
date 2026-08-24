@@ -9,7 +9,7 @@ import pytest
 import sheperd_research.cli as cli_module
 import sheperd_research.diagnostics as diagnostics_module
 from sheperd_research.cli import _database, _run_command, _validate_command
-from sheperd_research.contracts import ResearchRunRequest, ValidationStatus
+from sheperd_research.contracts import ResearchRunRequest, SourceCandidate, ValidationStatus
 from sheperd_research.diagnostics import run_model_check, validate_database_url, validate_dev_branch
 from sheperd_research.providers.errors import ProviderError
 from sheperd_research.settings import (
@@ -131,8 +131,14 @@ def test_validate_command_counts_only_succeeded_tool_receipts(
         def get_run(self, _: str) -> dict[str, object]:
             return {"request": request.model_dump(mode="json")}
 
-        def get_run_sources(self, _: str) -> list[object]:
-            return []
+        def get_run_sources(self, _: str) -> list[SourceCandidate]:
+            return [
+                SourceCandidate(
+                    url="https://example.com/source",
+                    extraction_status="failed",
+                    extraction_error_code="provider_unavailable",
+                )
+            ]
 
         def get_run_claims(self, _: str) -> list[object]:
             return []
@@ -145,9 +151,23 @@ def test_validate_command_counts_only_succeeded_tool_receipts(
 
         def get_run_tool_calls(self, _: str) -> list[dict[str, object]]:
             return [
-                {"lane": lane, "tool_name": tool, "status": "failed"}
+                {
+                    "lane": lane,
+                    "tool_name": tool,
+                    "status": "failed",
+                    "error_code": "timeout" if lane == "regulatory" else None,
+                }
                 for lane in ("regulatory", "us-ports", "mexico")
                 for tool in ("tavily_search", "tavily_extract")
+            ]
+
+        def get_run_steps(self, _: str) -> list[dict[str, object]]:
+            return [
+                {
+                    "agent_name": "discovery:regulatory",
+                    "status": "failed",
+                    "error_code": "rate_limit",
+                }
             ]
 
         def record_validation(self, _: object) -> None:
@@ -179,6 +199,12 @@ def test_validate_command_counts_only_succeeded_tool_receipts(
         "us-ports": False,
         "mexico": False,
     }
+    assert captured["provider_error_codes"] == [
+        "extraction_failed",
+        "provider_unavailable",
+        "rate_limit",
+        "timeout",
+    ]
 
 
 def test_database_url_policy_distinguishes_pooled_and_direct_connections() -> None:

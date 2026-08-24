@@ -11,7 +11,7 @@ from pydantic import BaseModel
 import sheperd_research.providers.openrouter as openrouter_module
 from sheperd_research.contracts import SourceCandidate
 from sheperd_research.providers.errors import ProviderError
-from sheperd_research.providers.openrouter import OpenRouterProvider
+from sheperd_research.providers.openrouter import BriefOutput, OpenRouterProvider
 from sheperd_research.providers.tavily import TavilyProvider
 from sheperd_research.settings import STRICT_OPENROUTER_MODEL
 
@@ -76,12 +76,135 @@ def patch_client(
     )
 
 
+def valid_article_response(source_url: str) -> dict[str, object]:
+    return {
+        "summary": "A source-bound summary.",
+        "key_points": ["A reported point.", "A second reported point."],
+        "what_happened": "The source reports a public development.",
+        "why_it_matters": "The development changes the operating picture.",
+        "risk_assessment": {
+            "status": "not_observed",
+            "statement": "No supported material risk was observed in this source.",
+            "why_it_matters": "The source does not establish a material risk.",
+            "next_step": "Check an independent source for risk evidence.",
+        },
+        "opportunity_assessment": {
+            "status": "not_observed",
+            "statement": "No supported commercial opportunity was observed in this source.",
+            "why_it_matters": "The source does not establish a commercial opportunity.",
+            "next_step": "Check an independent source for opportunity evidence.",
+        },
+        "uncertainties": ["The source may not cover the full market."],
+        "next_steps": ["Compare the report with an independent source."],
+        "claims": [
+            {"claim": "A reported point.", "source_urls": [source_url]},
+        ],
+        "limitations": ["Public source only."],
+        "source_language": "en",
+        "summary_original": "A source-bound summary.",
+        "key_points_original": ["A reported point.", "A second reported point."],
+        "evidence_excerpts": ["A reported point."],
+        "evidence_locators": ["paragraph 1"],
+    }
+
+
 def test_tavily_rate_limit_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
     patch_client(monkeypatch, [response(429, {"error": "rate limit"})])
 
     with pytest.raises(ProviderError, match="rate limit") as raised:
         asyncio.run(TavilyProvider("secret").search("ports"))
     assert raised.value.error_code == "rate_limit"
+
+
+@pytest.mark.parametrize(
+    ("outcome", "error_code"),
+    [
+        (
+            httpx.ReadTimeout(
+                "timed out",
+                request=httpx.Request("POST", "https://api.tavily.com/search"),
+            ),
+            "timeout",
+        ),
+        (
+            httpx.ConnectError(
+                "connection failed",
+                request=httpx.Request("POST", "https://api.tavily.com/search"),
+            ),
+            "provider_unavailable",
+        ),
+        (response(503, {"error": "unavailable"}), "provider_unavailable"),
+    ],
+)
+def test_tavily_transport_failures_have_stable_error_codes(
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: httpx.Response | BaseException,
+    error_code: str,
+) -> None:
+    patch_client(monkeypatch, [outcome])
+
+    with pytest.raises(ProviderError) as raised:
+        asyncio.run(TavilyProvider("secret").search("ports"))
+
+    assert raised.value.error_code == error_code
+    assert raised.value.attempts[0]["error_code"] == error_code
+
+
+def test_tavily_malformed_response_shape_preserves_a_stable_error_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_client(monkeypatch, [response(200, [])])
+
+    with pytest.raises(ProviderError, match="invalid response") as raised:
+        asyncio.run(TavilyProvider("secret").search("ports"))
+
+    assert raised.value.error_code == "malformed_output"
+    assert raised.value.attempts[0]["error_code"] == "malformed_output"
+
+
+def test_tavily_malformed_nested_result_entries_are_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_client(monkeypatch, [response(200, {"results": [{"title": "Missing URL"}]})])
+    with pytest.raises(ProviderError, match="invalid result") as raised:
+        asyncio.run(TavilyProvider("secret").search("ports"))
+    assert raised.value.error_code == "malformed_output"
+
+    patch_client(monkeypatch, [response(200, {"results": [{"url": "https://example.com/article"}]})])
+    with pytest.raises(ProviderError, match="invalid result") as extract_raised:
+        asyncio.run(
+            TavilyProvider("secret").extract(
+                [SourceCandidate(url="https://example.com/article")]
+            )
+        )
+    assert extract_raised.value.error_code == "malformed_output"
+
+
+def test_tavily_malformed_nested_result_urls_are_redacted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_url = "https://example.com:99999/secret-path"
+    patch_client(monkeypatch, [response(200, {"results": [{"url": raw_url}]})])
+
+    with pytest.raises(ProviderError, match="malformed URL") as search_raised:
+        asyncio.run(TavilyProvider("secret").search("ports"))
+
+    assert search_raised.value.error_code == "malformed_output"
+    assert raw_url not in str(search_raised.value)
+
+    patch_client(
+        monkeypatch,
+        [response(200, {"results": [{"url": raw_url, "raw_content": "body"}]})],
+    )
+    with pytest.raises(ProviderError, match="malformed result URL") as extract_raised:
+        asyncio.run(
+            TavilyProvider("secret").extract(
+                [SourceCandidate(url="https://example.com/article")]
+            )
+        )
+
+    assert extract_raised.value.error_code == "malformed_output"
+    assert raw_url not in str(extract_raised.value)
 
 
 def test_tavily_rotates_to_secondary_key_after_primary_quota_failure(
@@ -221,6 +344,36 @@ def test_tavily_malformed_search_and_extract_fail_closed(
         )
 
 
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        (
+            {"results": [{"url": "https://example.com/article", "raw_content": "   "}]},
+            "blank content",
+        ),
+        (
+            {"results": [{"url": "https://example.com/other", "raw_content": "body"}]},
+            "unrequested URL",
+        ),
+    ],
+)
+def test_tavily_malformed_extract_result_content_is_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: dict[str, object],
+    message: str,
+) -> None:
+    patch_client(monkeypatch, [response(200, payload)])
+
+    with pytest.raises(ProviderError, match=message) as raised:
+        asyncio.run(
+            TavilyProvider("secret").extract(
+                [SourceCandidate(url="https://example.com/article")]
+            )
+        )
+
+    assert raised.value.error_code == "malformed_output"
+
+
 def test_tavily_extract_chunks_batches_at_twenty_urls() -> None:
     calls: list[list[str]] = []
 
@@ -240,6 +393,20 @@ def test_tavily_extract_chunks_batches_at_twenty_urls() -> None:
     with pytest.raises(ProviderError, match="incomplete content"):
         asyncio.run(BatchingProvider("secret").extract(sources))
     assert [len(batch) for batch in calls] == [20, 1]
+
+
+def test_tavily_incomplete_extract_errors_redact_missing_urls() -> None:
+    class MissingContentProvider(TavilyProvider):
+        async def _post(self, endpoint: str, payload: dict[str, object]) -> dict[str, object]:
+            assert endpoint == "extract"
+            return {"results": []}
+
+    raw_url = "https://example.com/article-secret"
+    with pytest.raises(ProviderError, match=r"incomplete content for 1 URL\(s\)") as raised:
+        asyncio.run(MissingContentProvider("secret").extract([SourceCandidate(url=raw_url)]))
+
+    assert raised.value.error_code == "malformed_output"
+    assert raw_url not in str(raised.value)
 
 
 def test_tavily_search_uses_basic_depth_for_discovery_requests(
@@ -307,6 +474,21 @@ def test_openrouter_malformed_structured_output_is_explicit() -> None:
         )
 
 
+def test_synthesis_schema_rejects_bullets_without_why_or_next_step() -> None:
+    with pytest.raises(ValueError):
+        BriefOutput(
+            title="Weekly",
+            summary="Cited summary.",
+            executive_bullets=[
+                {
+                    "text": "A source-backed development.",
+                    "source_urls": ["https://example.com/article"],
+                    "evidence_status": "unverified",
+                }
+            ],
+        )
+
+
 class RawResponse:
     response_metadata = {
         "model_name": STRICT_OPENROUTER_MODEL,
@@ -336,10 +518,7 @@ def test_openrouter_uses_create_agent_schema_and_records_resolved_model(
     agent = CapturingAgent(
         {
             "structured_response": {
-                "summary": "A source-bound summary.",
-                "key_points": ["A reported point."],
-                "claims": [],
-                "limitations": [],
+                **valid_article_response("https://example.com/article"),
             },
             "messages": [RawResponse()],
         }
@@ -367,6 +546,95 @@ def test_openrouter_uses_create_agent_schema_and_records_resolved_model(
     assert provider.last_call_metadata["total_tokens"] == 20
 
 
+def test_malformed_distillation_retries_with_a_corrective_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompts: list[str] = []
+    source_url = "https://example.com/article"
+    outcomes: list[dict[str, object]] = [
+        {
+            "structured_response": {"summary": "incomplete"},
+            "messages": [RawResponse()],
+        },
+        {
+            "structured_response": valid_article_response(source_url),
+            "messages": [RawResponse()],
+        },
+    ]
+
+    class SequenceAgent:
+        async def ainvoke(
+            self,
+            payload: dict[str, object],
+            **_: object,
+        ) -> dict[str, object]:
+            messages = payload["messages"]
+            assert isinstance(messages, list)
+            prompts.append(str(messages[0]))
+            return outcomes.pop(0)
+
+    provider = _stub_provider()
+    provider._model_for = lambda _: object()
+    monkeypatch.setattr(openrouter_module, "create_agent", lambda **_: SequenceAgent())
+
+    result = asyncio.run(
+        provider.distill(SourceCandidate(url=source_url), "source body")
+    )
+
+    assert result.quality_status.value == "complete"
+    assert len(prompts) == 2
+    assert "CORRECTIVE RETRY" in prompts[1]
+    assert [item["attempt"] for item in provider.call_history] == [1, 2]
+
+
+def test_semantic_article_quality_failure_retries_with_a_corrective_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompts: list[str] = []
+    source_url = "https://example.com/article"
+    malformed_article = {
+        **valid_article_response(source_url),
+        "claims": [{"claim": "unknown", "source_urls": [source_url]}],
+        "evidence_excerpts": ["tbd"],
+        "evidence_locators": ["unknown"],
+    }
+    outcomes: list[dict[str, object]] = [
+        {
+            "structured_response": malformed_article,
+            "messages": [RawResponse()],
+        },
+        {
+            "structured_response": valid_article_response(source_url),
+            "messages": [RawResponse()],
+        },
+    ]
+
+    class SequenceAgent:
+        async def ainvoke(
+            self,
+            payload: dict[str, object],
+            **_: object,
+        ) -> dict[str, object]:
+            messages = payload["messages"]
+            assert isinstance(messages, list)
+            prompts.append(str(messages[0]))
+            return outcomes.pop(0)
+
+    provider = _stub_provider()
+    provider._model_for = lambda _: object()
+    monkeypatch.setattr(openrouter_module, "create_agent", lambda **_: SequenceAgent())
+
+    result = asyncio.run(
+        provider.distill(SourceCandidate(url=source_url), "source body")
+    )
+
+    assert result.quality_status.value == "complete"
+    assert len(prompts) == 2
+    assert "CORRECTIVE RETRY" in prompts[1]
+    assert [item["attempt"] for item in provider.call_history] == [1, 2]
+    assert provider.call_history[0]["error_code"] == "malformed_output"
+
+
 def test_openrouter_distillation_prompt_is_source_bound(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -374,10 +642,7 @@ def test_openrouter_distillation_prompt_is_source_bound(
     agent = CapturingAgent(
         {
             "structured_response": {
-                "summary": "A source-bound summary.",
-                "key_points": ["A reported point."],
-                "claims": [{"claim": "A reported point.", "source_urls": [source.url]}],
-                "limitations": ["Public source only."],
+                **valid_article_response(source.url),
             },
             "messages": [RawResponse()],
         }

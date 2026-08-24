@@ -105,3 +105,11 @@ def test_audit_command_is_available_as_json() -> None:
 
     assert args.command == "audit"
     assert args.json is True
+
+
+def test_revalidate_command_is_available_with_active_scope() -> None:
+    args = _parser().parse_args(["revalidate", "--scope", "active", "--json"])
+
+    assert args.command == "revalidate"
+    assert args.scope == "active"
+    assert args.json is True

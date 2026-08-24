@@ -10,8 +10,10 @@ from psycopg import OperationalError
 
 from sheperd_research.contracts import (
     ArticleDistillation,
+    ArticleInsight,
     ClaimDraft,
     EvidenceStatus,
+    ExtractionStatus,
     ReportBullet,
     ResearchRunRequest,
     RunStatus,
@@ -19,6 +21,7 @@ from sheperd_research.contracts import (
     SourceCandidate,
     ValidationReport,
     ValidationStatus,
+    WeeklyBrief,
 )
 from sheperd_research.db import InMemoryRepository, PostgresRepository, run_migrations
 
@@ -107,6 +110,38 @@ def test_migrations_enforce_the_exact_gemma_database_policy() -> None:
         in strict_migration
     )
     assert "IS DISTINCT FROM 'google/gemma-4-26b-a4b-it:free'" in strict_migration
+
+
+def test_postgres_health_blocks_stale_or_missing_schema_migration() -> None:
+    repository = PostgresRepository(Mock(), neon_branch_id="branch-1")
+
+    with patch.object(
+        repository,
+        "_execute",
+        side_effect=[
+            [("neondb", "schema_migrations", "16.0")],
+            [("0012_article_insight_quality",)],
+        ],
+    ):
+        stale = repository.health()
+
+    assert stale["status"] == "blocked"
+    assert stale["database"] == "neondb"
+    assert stale["migration_version"] == "0012_article_insight_quality"
+    assert stale["expected_migration_version"] == "0013_run_sources"
+    assert "schema_migration_stale" in stale["blocking_reasons"]
+    assert "user" not in stale
+
+    with patch.object(
+        repository,
+        "_execute",
+        return_value=[("neondb", None, "16.0")],
+    ):
+        missing = repository.health()
+
+    assert missing["status"] == "blocked"
+    assert missing["migration_version"] is None
+    assert "schema_migration_missing" in missing["blocking_reasons"]
 
 
 def test_repository_filters_and_exposes_run_artifacts() -> None:
@@ -268,7 +303,383 @@ def test_repositories_redact_raw_step_metadata_before_persistence() -> None:
     assert "api_key" not in persisted
 
 
-def test_postgres_audit_and_validation_inserts_are_immutable_no_ops_on_conflict() -> None:
+def test_postgres_brief_summaries_recompute_readiness_from_persisted_evidence() -> None:
+    repository = PostgresRepository(Mock())
+    covered_at = datetime(2026, 8, 19, tzinfo=UTC)
+    row = (
+        "run-1",
+        "Stored ready summary",
+        covered_at,
+        covered_at,
+        "draft",
+        "full",
+        RunStatus.SUCCEEDED.value,
+        ValidationStatus.PASS.value,
+        1,
+        1,
+        1,
+        0,
+        ["global"],
+        ["en"],
+        ["regulatory"],
+        ["google/gemma-4-26b-a4b-it:free"],
+        covered_at,
+        None,
+        None,
+        1,
+        0,
+        0.0,
+        5,
+        5,
+        "review_required",
+        ["incomplete_article_insights"],
+        False,
+        0.0,
+    )
+
+    with (
+        patch.object(repository, "_execute", return_value=[row]),
+        patch.object(repository, "get_brief", side_effect=AssertionError("N+1 brief hydrate")),
+        patch.object(repository, "get_run_sources", side_effect=AssertionError("N+1 sources")),
+        patch.object(
+            repository,
+            "get_run_distillations",
+            side_effect=AssertionError("N+1 distillations"),
+        ),
+    ):
+        summaries = repository.list_brief_summaries()
+
+    assert summaries[0]["readiness_status"] == "review_required"
+    assert summaries[0]["decision_ready"] is False
+    assert summaries[0]["article_count"] == 1
+    assert summaries[0]["complete_article_count"] == 0
+    blocking_reasons = summaries[0]["blocking_reasons"]
+    assert isinstance(blocking_reasons, list)
+    assert "incomplete_article_insights" in blocking_reasons
+    assert summaries[0]["quality_ready"] is False
+    assert summaries[0]["report_section_count"] == 5
+    assert summaries[0]["report_section_completeness"] == 0.0
+
+
+def test_postgres_brief_summaries_restore_provider_blocking_reasons() -> None:
+    repository = PostgresRepository(Mock())
+    covered_at = datetime(2026, 8, 19, tzinfo=UTC)
+    row = (
+        "provider-failed-run",
+        "Provider failed summary",
+        covered_at,
+        covered_at,
+        "draft",
+        "full",
+        RunStatus.FAILED.value,
+        ValidationStatus.FAILED.value,
+        1,
+        0,
+        0,
+        0,
+        ["global"],
+        ["en"],
+        ["regulatory"],
+        ["google/gemma-4-26b-a4b-it:free"],
+        covered_at,
+        covered_at,
+        "validation_failed",
+        1,
+        0,
+        0.0,
+        0,
+        5,
+        "review_required",
+        ["run_not_succeeded", "validation_not_passed"],
+        False,
+        0.0,
+    )
+    checks = [
+        {
+            "name": "provider_error_codes",
+            "status": "failed",
+            "observed": "provider_unavailable,rate_limit,timeout",
+            "expected": "none",
+            "message": "provider/extraction error codes persisted in run evidence",
+        }
+    ]
+
+    def execute(query: str, _params: tuple[object, ...] = ()) -> list[tuple[object, ...]]:
+        return [(*row, checks)] if "vc.checks" in query else [row]
+
+    with (
+        patch.object(repository, "_execute", side_effect=execute),
+        patch.object(repository, "get_validation", side_effect=AssertionError("N+1 validation")),
+    ):
+        summary = repository.list_brief_summaries()[0]
+
+    provider_blocking_reasons = summary["blocking_reasons"]
+    assert isinstance(provider_blocking_reasons, list)
+    assert {
+        "provider_rate_limit",
+        "provider_timeout",
+        "provider_unavailable",
+    }.issubset(provider_blocking_reasons)
+
+
+def test_postgres_brief_summaries_validate_report_section_text_and_counts() -> None:
+    repository = PostgresRepository(Mock())
+    covered_at = datetime(2026, 8, 19, tzinfo=UTC)
+    row: tuple[object, ...] = (
+        "run-1",
+        "Stored ready summary",
+        covered_at,
+        covered_at,
+        "draft",
+        "full",
+        RunStatus.SUCCEEDED.value,
+        ValidationStatus.PASS.value,
+        1,
+        1,
+        1,
+        0,
+        ["global"],
+        ["en"],
+        ["regulatory"],
+        ["google/gemma-4-26b-a4b-it:free"],
+        covered_at,
+        None,
+        None,
+        1,
+        1,
+        1.0,
+        4,
+        5,
+        "review_required",
+        ["empty_report_section"],
+        False,
+        0.8,
+        [],
+    )
+
+    with patch.object(repository, "_execute", return_value=[row]) as execute:
+        summary = repository.list_brief_summaries()[0]
+
+    query = execute.call_args.args[0]
+    assert "bullet.value ->> 'text'" in query
+    assert "CASE WHEN (" in query
+    raw_section_count = (
+        "jsonb_array_length(\n"
+        "                           COALESCE(wb.executive_bullets"
+    )
+    assert raw_section_count not in query
+    assert summary["article_count"] == 1
+    assert summary["report_sections_complete"] == 4
+    assert summary["report_section_count"] == 5
+    assert summary["report_section_completeness"] == 0.8
+
+
+def test_postgres_brief_summaries_return_production_ready_section_metrics() -> None:
+    repository = PostgresRepository(Mock())
+    covered_at = datetime(2026, 8, 19, tzinfo=UTC)
+    row: tuple[object, ...] = (
+        "ready-run",
+        "Production-shaped ready summary",
+        covered_at,
+        covered_at,
+        "approved",
+        "full",
+        RunStatus.SUCCEEDED.value,
+        ValidationStatus.PASS.value,
+        3,
+        3,
+        5,
+        1,
+        ["global"],
+        ["en"],
+        ["regulatory"],
+        ["google/gemma-4-26b-a4b-it:free"],
+        covered_at,
+        None,
+        None,
+        3,
+        3,
+        1.0,
+        5,
+        5,
+        "decision_ready",
+        [],
+        True,
+        1.0,
+        [],
+        1.0,
+    )
+
+    with patch.object(repository, "_execute", return_value=[row]):
+        summary = repository.list_brief_summaries(ready_only=True)[0]
+
+    assert summary["decision_ready"] is True
+    assert summary["readiness_status"] == "decision_ready"
+    assert summary["quality_ready"] is True
+    assert summary["article_count"] == 3
+    assert summary["complete_article_count"] == 3
+    assert summary["report_sections_complete"] == 5
+    assert summary["report_section_count"] == 5
+    assert summary["report_section_completeness"] == 1.0
+
+
+def test_postgres_brief_summaries_scope_article_completeness_to_non_seed_sources() -> None:
+    repository = PostgresRepository(Mock())
+    covered_at = datetime(2026, 8, 19, tzinfo=UTC)
+    row: tuple[object, ...] = (
+        "scoped-run",
+        "Scoped ready summary",
+        covered_at,
+        covered_at,
+        "approved",
+        "full",
+        RunStatus.SUCCEEDED.value,
+        ValidationStatus.PASS.value,
+        1,
+        3,
+        1,
+        0,
+        ["global"],
+        ["en"],
+        ["regulatory"],
+        ["google/gemma-4-26b-a4b-it:free"],
+        covered_at,
+        None,
+        None,
+        1,
+        1,
+        1.0,
+        5,
+        5,
+        "decision_ready",
+        [],
+        True,
+        1.0,
+        [],
+    )
+
+    with patch.object(repository, "_execute", return_value=[row]) as execute:
+        summary = repository.list_brief_summaries(ready_only=True)[0]
+
+    query = execute.call_args.args[0]
+    assert "count(DISTINCT adq.normalized_url) FILTER" in query
+    assert "rsa.normalized_url = adq.normalized_url" in query
+    assert "AND NOT sa.is_seed" in query
+    assert "complete_article_count" in query
+    assert summary["article_count"] == 1
+    assert summary["complete_article_count"] == 1
+    assert summary["article_insight_completeness"] == 1.0
+    assert summary["source_distillation_coverage"] == 1.0
+
+
+def test_repositories_reject_new_oversized_evidence_excerpt_writes() -> None:
+    distillation = ArticleDistillation(
+        source_url="https://example.com/oversized-write",
+        summary="Summary.",
+        evidence_excerpts=["word " * 41],
+    )
+
+    with pytest.raises(ValueError, match="evidence_excerpts entries"):
+        InMemoryRepository().record_distillation("run-1", distillation)
+
+    postgres = PostgresRepository(Mock())
+    with (
+        pytest.raises(ValueError, match="evidence_excerpts entries"),
+        patch.object(postgres, "_execute") as execute,
+    ):
+        postgres.record_distillation("run-1", distillation)
+    execute.assert_not_called()
+
+
+def test_in_memory_ready_only_rejects_stale_invalid_report_bullets() -> None:
+    repository = InMemoryRepository()
+    run_id = "invalid-brief-run"
+    source_url = "https://example.com/valid-source"
+    request = ResearchRunRequest(
+        topic_set="dnd-port",
+        as_of=datetime(2026, 8, 19, tzinfo=UTC),
+    )
+    source = SourceCandidate(
+        url=source_url,
+        extraction_status=ExtractionStatus.SUCCEEDED,
+    )
+    claim = ClaimDraft(
+        claim="The source reports a development.",
+        source_urls=[source_url],
+    )
+    insight = ArticleInsight(
+        status="not_observed",
+        statement="No supported risk was observed.",
+        why_it_matters="The source does not establish a risk.",
+        next_step="Review an independent source.",
+    )
+
+    repository.create_run(run_id, request)
+    repository.update_run_status(run_id, RunStatus.SUCCEEDED)
+    repository.record_source(source)
+    repository.record_snapshot(run_id, source, "source content")
+    repository.record_distillation(
+        run_id,
+        ArticleDistillation(
+            source_url=source_url,
+            summary="Complete summary.",
+            key_points=["Point one.", "Point two."],
+            claims=[claim],
+            what_happened="The source reports a development.",
+            why_it_matters="It changes the operating picture.",
+            risk_assessment=insight,
+            opportunity_assessment=insight,
+            uncertainties=["The source has limited scope."],
+            next_steps=["Review an independent source."],
+            evidence_locators=["paragraph 1"],
+            quality_status="complete",
+        ),
+    )
+    repository.record_brief(
+        WeeklyBrief(
+            run_id=run_id,
+            title="Invalid bullets",
+            covered_from=datetime(2026, 8, 18, tzinfo=UTC),
+            covered_until=datetime(2026, 8, 19, tzinfo=UTC),
+            summary="Summary.",
+            executive_bullets=[ReportBullet(text="Executive.", source_urls=[source_url])],
+            developments=[ReportBullet(text="Development.", source_urls=[source_url])],
+            risks=[
+                ReportBullet(
+                    text="Risk.",
+                    source_urls=[source_url],
+                    why_it_matters="unknown",
+                    next_step="Monitor.",
+                )
+            ],
+            opportunities=[
+                ReportBullet(
+                    text="Opportunity.",
+                    source_urls=[source_url],
+                    why_it_matters="Opportunity context.",
+                    next_step="Monitor.",
+                )
+            ],
+            uncertainties=[
+                ReportBullet(
+                    text="Uncertainty.",
+                    source_urls=[source_url],
+                    why_it_matters="Uncertainty context.",
+                    next_step="Monitor.",
+                )
+            ],
+            follow_up_questions=["What next?"],
+        )
+    )
+    repository.record_validation(
+        ValidationReport(run_id=run_id, status=ValidationStatus.PASS)
+    )
+
+    assert repository.list_briefs(ready_only=True) == []
+    assert repository.list_brief_summaries(ready_only=True) == []
+
+
+def test_validation_revalidation_replaces_report_metadata_without_replacing_steps() -> None:
     first_report = ValidationReport(
         run_id="run-1",
         status=ValidationStatus.BLOCKED,
@@ -278,9 +689,10 @@ def test_postgres_audit_and_validation_inserts_are_immutable_no_ops_on_conflict(
     memory.record_step("run-1", "critic", "succeeded", {"status": "first"})
     memory.record_step("run-1", "critic", "failed", {"status": "replacement"})
     memory.record_validation(first_report)
-    memory.record_validation(first_report.model_copy(update={"status": ValidationStatus.PASS}))
+    replacement = first_report.model_copy(update={"status": ValidationStatus.PASS})
+    memory.record_validation(replacement)
     assert memory.steps[0]["status"] == "succeeded"
-    assert memory.get_validation("run-1") is first_report
+    assert memory.get_validation("run-1") is replacement
 
     repository = PostgresRepository(Mock())
     with patch.object(repository, "_execute", return_value=[]) as execute:
@@ -289,8 +701,46 @@ def test_postgres_audit_and_validation_inserts_are_immutable_no_ops_on_conflict(
 
     queries = [entry.args[0] for entry in execute.call_args_list]
     assert "ON CONFLICT (run_id, agent_name, attempt) DO NOTHING" in queries[0]
-    assert "ON CONFLICT (run_id) DO NOTHING" in queries[1]
-    assert all("DO UPDATE" not in query for query in queries[:2])
+    assert "ON CONFLICT (run_id) DO UPDATE" in queries[1]
+    assert "checks = EXCLUDED.checks" in queries[1]
+
+
+def test_postgres_validation_load_restores_persisted_blocking_reasons() -> None:
+    checks = [
+        {
+            "name": "provider_error_codes",
+            "status": "failed",
+            "observed": "provider_unavailable,rate_limit,timeout",
+            "expected": "none",
+            "message": "provider/extraction error codes persisted in run evidence",
+        }
+    ]
+    row = (
+        "provider-failed-run",
+        ValidationStatus.FAILED.value,
+        1,
+        1,
+        0,
+        0,
+        0.0,
+        ["regulatory"],
+        checks,
+        "google/gemma-4-26b-a4b-it:free",
+        "validation-v1",
+        datetime(2026, 8, 19, tzinfo=UTC),
+        "validation-hash",
+    )
+    repository = PostgresRepository(Mock())
+
+    with patch.object(repository, "_execute", return_value=[row]):
+        report = repository.get_validation("provider-failed-run")
+
+    assert report is not None
+    assert {
+        "provider_rate_limit",
+        "provider_timeout",
+        "provider_unavailable",
+    }.issubset(report.blocking_reasons)
 
 
 def test_postgres_source_persistence_uses_sanitized_url() -> None:
@@ -307,6 +757,63 @@ def test_postgres_source_persistence_uses_sanitized_url() -> None:
     assert params[1] == "https://safe.example/article"
     assert "KEY_SECRET" not in json.dumps(params, default=str)
     assert "TOKEN_SECRET" not in json.dumps(params, default=str)
+
+
+def test_postgres_failed_source_has_run_membership_without_a_snapshot() -> None:
+    source = SourceCandidate(
+        url="https://example.com/failed-extraction",
+        extraction_status=ExtractionStatus.FAILED,
+        extraction_error_code="provider_unavailable",
+    )
+    repository = PostgresRepository(Mock())
+
+    with patch.object(
+        repository,
+        "_execute",
+        side_effect=[[("discovery", False, "unverified")], []],
+    ) as execute:
+        repository.record_source(source, run_id="failed-run")
+
+    association_query, association_params = execute.call_args_list[1].args
+    assert "INSERT INTO run_sources" in association_query
+    assert association_params[:2] == ("failed-run", source.url)
+    assert association_params[2:] == (
+        ExtractionStatus.FAILED,
+        "provider_unavailable",
+    )
+
+    row = (
+        source.url,
+        source.title,
+        source.publisher,
+        source.published_at,
+        source.retrieved_at,
+        source.source_kind,
+        source.snippet,
+        source.topics,
+        source.geographies,
+        source.lane,
+        source.is_seed,
+        source.evidence_status.value,
+        source.region,
+        source.language_code,
+        source.language_confidence,
+        source.authority_tier,
+        source.catalog_source_id,
+        source.source_type,
+        source.freshness_status.value,
+        source.freshness_days,
+        source.extraction_status.value,
+        source.extraction_error_code,
+        source.normalized_title_en,
+        source.normalized_snippet_en,
+    )
+    with patch.object(repository, "_execute", return_value=[row]) as execute:
+        loaded = repository.get_run_sources("failed-run")
+
+    assert "JOIN run_sources" in execute.call_args.args[0]
+    assert loaded[0].extraction_status is ExtractionStatus.FAILED
+    assert loaded[0].extraction_error_code == "provider_unavailable"
 
 
 def test_postgres_public_source_reads_strip_sensitive_query_values() -> None:
@@ -458,8 +965,6 @@ def test_repository_keeps_report_sections_and_monthly_rollups() -> None:
             )
         ]
     )
-    from sheperd_research.contracts import WeeklyBrief
-
     repository.record_brief(
         WeeklyBrief(
             run_id="run-2",

@@ -6,7 +6,12 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .settings import STRICT_OPENROUTER_MODEL, is_free_openrouter_model
+from .settings import (
+    DEFAULT_OPENAI_MODEL,
+    STRICT_OPENROUTER_MODEL,
+    is_free_openrouter_model,
+    is_openai_model,
+)
 
 
 def utc_now() -> datetime:
@@ -14,7 +19,7 @@ def utc_now() -> datetime:
 
 
 def is_free_model(model: str) -> bool:
-    return is_free_openrouter_model(model)
+    return is_openai_model(model) or is_free_openrouter_model(model)
 
 
 class EvidenceStatus(StrEnum):
@@ -77,6 +82,18 @@ class ExtractionStatus(StrEnum):
 class TranslationStatus(StrEnum):
     NOT_NEEDED = "not_needed"
     SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class InsightStatus(StrEnum):
+    SUPPORTED = "supported"
+    NOT_OBSERVED = "not_observed"
+    UNCERTAIN = "uncertain"
+
+
+class DistillationQualityStatus(StrEnum):
+    COMPLETE = "complete"
+    INCOMPLETE = "incomplete"
     FAILED = "failed"
 
 
@@ -171,6 +188,32 @@ class ClaimDraft(ContractModel):
         return value
 
 
+class ArticleInsight(ContractModel):
+    status: InsightStatus
+    statement: str = Field(min_length=1, max_length=600)
+    why_it_matters: str = Field(min_length=1, max_length=600)
+    next_step: str = Field(min_length=1, max_length=600)
+    evidence_excerpt: str | None = Field(default=None, max_length=320)
+    evidence_locator: str | None = Field(default=None, max_length=300)
+
+    @field_validator("evidence_excerpt")
+    @classmethod
+    def validate_evidence_excerpt(cls, value: str | None) -> str | None:
+        if value is not None and len(value.split()) > 40:
+            raise ValueError("insight evidence_excerpt must be at most 40 words")
+        return value
+
+    @model_validator(mode="after")
+    def require_supported_evidence(self) -> Self:
+        if self.status is InsightStatus.SUPPORTED and not (
+            self.evidence_excerpt or self.evidence_locator
+        ):
+            raise ValueError(
+                "supported article insight requires an evidence excerpt or locator"
+            )
+        return self
+
+
 class ArticleDistillation(ContractModel):
     source_url: str
     summary: str = Field(min_length=1)
@@ -190,6 +233,17 @@ class ArticleDistillation(ContractModel):
     translation_status: TranslationStatus = TranslationStatus.NOT_NEEDED
     evidence_excerpts: list[str] = Field(default_factory=list, max_length=8)
     evidence_locators: list[str] = Field(default_factory=list, max_length=8)
+    # Legacy rows predate article insight packets. They remain readable as
+    # incomplete evidence until a repair run creates a complete packet.
+    what_happened: str = ""
+    why_it_matters: str = ""
+    risk_assessment: ArticleInsight | None = None
+    opportunity_assessment: ArticleInsight | None = None
+    uncertainties: list[str] = Field(default_factory=list, max_length=8)
+    next_steps: list[str] = Field(default_factory=list, max_length=8)
+    quality_status: DistillationQualityStatus = DistillationQualityStatus.INCOMPLETE
+    quality_issues: list[str] = Field(default_factory=list, max_length=20)
+    insight_packet: dict[str, object] = Field(default_factory=dict)
 
     @field_validator("source_language")
     @classmethod
@@ -198,6 +252,27 @@ class ArticleDistillation(ContractModel):
         if normalized != "und" and (not normalized.isalpha() or len(normalized) not in {2, 3}):
             raise ValueError("source_language must be ISO-639-1/2 or und")
         return normalized
+
+    @model_validator(mode="after")
+    def populate_insight_packet(self) -> Self:
+        if not self.insight_packet:
+            self.insight_packet = {
+                "what_happened": self.what_happened,
+                "why_it_matters": self.why_it_matters,
+                "risk_assessment": (
+                    self.risk_assessment.model_dump(mode="json")
+                    if self.risk_assessment is not None
+                    else None
+                ),
+                "opportunity_assessment": (
+                    self.opportunity_assessment.model_dump(mode="json")
+                    if self.opportunity_assessment is not None
+                    else None
+                ),
+                "uncertainties": self.uncertainties,
+                "next_steps": self.next_steps,
+            }
+        return self
 
 
 class SignalEvent(ContractModel):
@@ -280,7 +355,7 @@ class ResearchRunRequest(ContractModel):
     as_of: datetime = Field(default_factory=utc_now)
     since: datetime | None = None
     max_sources: int = Field(default=25, ge=1, le=100)
-    model: str = STRICT_OPENROUTER_MODEL
+    model: str = DEFAULT_OPENAI_MODEL
     seed_urls: list[str] = Field(default_factory=list)
     include_topic_seeds: bool = True
     validation_profile: str = "full"
@@ -299,8 +374,8 @@ class ResearchRunRequest(ContractModel):
     def require_free_model(cls, value: str) -> str:
         if not is_free_model(value):
             raise ValueError(
-                "model must be a valid OpenRouter :free model; "
-                f"strict default is {STRICT_OPENROUTER_MODEL}"
+                "model must be a valid OpenAI model identifier or legacy OpenRouter :free model; "
+                f"legacy default is {STRICT_OPENROUTER_MODEL}"
             )
         return value
 
@@ -356,3 +431,4 @@ class ValidationReport(ContractModel):
     prompt_version: str = "validation-v1"
     as_of: datetime | None = None
     content_hash: str | None = None
+    blocking_reasons: list[str] = Field(default_factory=list)

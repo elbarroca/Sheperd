@@ -77,6 +77,17 @@ export interface ResearchClaim {
   verification_basis?: string | null;
 }
 
+export type InsightStatus = "supported" | "not_observed" | "uncertain";
+
+export interface ArticleInsight {
+  status: InsightStatus;
+  statement: string;
+  why_it_matters: string;
+  next_step: string;
+  evidence_excerpt?: string | null;
+  evidence_locator?: string | null;
+}
+
 export interface ResearchSignal {
   event_id: string;
   run_id: string;
@@ -109,6 +120,48 @@ export interface ArticleDistillation {
   translation_status?: string;
   evidence_excerpts?: string[];
   evidence_locators?: string[];
+  what_happened?: string;
+  why_it_matters?: string;
+  risk_assessment?: ArticleInsight | null;
+  opportunity_assessment?: ArticleInsight | null;
+  uncertainties?: string[];
+  next_steps?: string[];
+  quality_status?: string;
+  quality_issues?: string[];
+  insight_packet?: Record<string, unknown>;
+}
+
+export interface ArticleFulfillment {
+  source_url: string;
+  status: string;
+  complete: boolean;
+  source_persisted: boolean;
+  extracted: boolean;
+  distillation_persisted: boolean;
+  claims_persisted: boolean;
+  claim_count: number;
+  citation_count: number;
+  citation_complete: boolean;
+  ui_displayable: boolean;
+  missing_fields: string[];
+  quality_issues: string[];
+}
+
+export interface QualitySnapshot {
+  ready: boolean;
+  readiness_status: string;
+  blocking_reasons: string[];
+  quality_ready: boolean;
+  article_count: number;
+  complete_article_count: number;
+  article_insight_completeness: number;
+  article_quality_issues: Record<string, string[]>;
+  source_distillation_coverage: number;
+  report_section_count: number;
+  report_sections_complete: number;
+  report_section_completeness: number;
+  report_quality_issues: string[];
+  article_fulfillment?: ArticleFulfillment[];
 }
 
 export interface ToolCallReceipt {
@@ -173,9 +226,11 @@ export interface ReportPayload {
     run_id: string;
     status: string;
     as_of: string;
-    error: string | null;
+    error?: string | null;
+    error_code?: string | null;
     neon_branch_id: string | null;
     migration_version: string | null;
+    validation_profile?: string;
     archived?: boolean;
     archived_at?: string | null;
     archive_reason?: string | null;
@@ -195,6 +250,10 @@ export interface ReportPayload {
   as_of: string;
   covered_from: string;
   covered_until: string;
+  quality?: QualitySnapshot;
+  ready?: boolean;
+  readiness_status?: string;
+  blocking_reasons?: string[];
 }
 
 export interface MonthlyRollup {
@@ -218,6 +277,7 @@ export interface WeeklyReportSummary {
   review_state: string;
   run_status: string;
   validation_status: string;
+  validation_profile?: string | null;
   source_count: number;
   distillation_count: number;
   claim_count: number;
@@ -230,6 +290,19 @@ export interface WeeklyReportSummary {
   archived?: boolean;
   archived_at?: string | null;
   archive_reason?: string | null;
+  readiness_status?: string;
+  decision_ready?: boolean;
+  quality_ready?: boolean;
+  quality_report_ready?: boolean;
+  quality_readiness_status?: string;
+  quality_blocking_reasons?: string[];
+  blocking_reasons?: string[];
+  article_count?: number;
+  article_insight_completeness?: number;
+  report_section_completeness?: number;
+  complete_article_count?: number;
+  report_section_count?: number;
+  report_sections_complete?: number;
 }
 
 export interface SourceExplorerItem {
@@ -237,6 +310,7 @@ export interface SourceExplorerItem {
   distillation: ArticleDistillation | null;
   claims: ResearchClaim[];
   source_hash: string | null;
+  fulfillment?: ArticleFulfillment;
 }
 
 export interface SourceExplorerPage {
@@ -294,9 +368,11 @@ interface SourceFacetsResponse extends SourceFacets {
 
 export interface ResearchHealth {
   status: string;
-  migration_version: string;
+  migration_version: string | null;
+  expected_migration_version?: string;
   branch_id: string | null;
   database: string;
+  blocking_reasons?: string[];
 }
 
 export type ResearchResponse<T> =
@@ -319,6 +395,43 @@ function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 
+const INSIGHT_STATUSES: ReadonlySet<string> = new Set([
+  "supported",
+  "not_observed",
+  "uncertain",
+]);
+
+const PLACEHOLDER_TEXT = new Set([
+  "",
+  "null",
+  "none",
+  "n/a",
+  "na",
+  "not recorded",
+  "not available",
+  "tbd",
+  "to be determined",
+  "unknown",
+  "unsupported",
+]);
+
+function isMeaningfulText(value: unknown): value is string {
+  if (!isString(value)) return false;
+  const normalized = value.trim().toLowerCase().replace(/\.+$/u, "").replace(/\s+/gu, " ");
+  return normalized.length > 0
+    && !PLACEHOLDER_TEXT.has(normalized)
+    && !normalized.startsWith("not recorded ")
+    && !normalized.startsWith("not available ");
+}
+
+function isNullableMeaningfulText(value: unknown): value is string | null {
+  return value === null || isMeaningfulText(value);
+}
+
+function isInsightStatus(value: unknown): value is InsightStatus {
+  return isString(value) && INSIGHT_STATUSES.has(value);
+}
+
 function isNullableString(value: unknown): value is string | null {
   return value === null || isString(value);
 }
@@ -331,8 +444,21 @@ function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function isRatio(value: unknown): value is number {
+  return isNumber(value) && value >= 0 && value <= 1;
+}
+
 function isNullableNumber(value: unknown): value is number | null {
   return value === null || isNumber(value);
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === "boolean";
+}
+
+function isStringArrayRecord(value: unknown): value is Record<string, string[]> {
+  return isRecord(value)
+    && Object.values(value).every((candidate) => isStringArray(candidate));
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
@@ -357,10 +483,11 @@ function isPrimitive(value: unknown): boolean {
 
 function isReportBullet(value: unknown): value is ReportBullet {
   return isRecord(value)
-    && hasStrings(value, ["text", "evidence_status"])
+    && isMeaningfulText(value.text)
+    && isString(value.evidence_status)
     && isStringArray(value.source_urls)
-    && isOptional(value, "why_it_matters", isString)
-    && isOptional(value, "next_step", isString);
+    && isOptional(value, "why_it_matters", isMeaningfulText)
+    && isOptional(value, "next_step", isMeaningfulText);
 }
 
 function isWeeklyBrief(value: unknown): value is WeeklyBrief {
@@ -378,7 +505,8 @@ function isWeeklyBrief(value: unknown): value is WeeklyBrief {
     ])
     && isStringArray(value.source_urls)
     && isStringArray(value.limitations)
-    && isStringArray(value.uncertainties)
+    && Array.isArray(value.uncertainties)
+    && value.uncertainties.every(isReportBullet)
     && isStringArray(value.follow_up_questions)
     && Array.isArray(value.executive_bullets)
     && value.executive_bullets.every(isReportBullet)
@@ -393,9 +521,11 @@ function isWeeklyBrief(value: unknown): value is WeeklyBrief {
 function isReportRun(value: unknown): boolean {
   return isRecord(value)
     && hasStrings(value, ["run_id", "status", "as_of"])
-    && isNullableString(value.error)
+    && isOptional(value, "error", isNullableString)
+    && isOptional(value, "error_code", isNullableString)
     && isNullableString(value.neon_branch_id)
     && isNullableString(value.migration_version)
+    && isOptional(value, "validation_profile", isString)
     && isOptional(value, "archived", (candidate) => typeof candidate === "boolean")
     && isOptional(value, "archived_at", isNullableString)
     && isOptional(value, "archive_reason", isNullableString);
@@ -494,12 +624,13 @@ function isResearchSource(value: unknown): value is ResearchSource {
 
 function isResearchClaim(value: unknown): value is ResearchClaim {
   return isRecord(value)
-    && hasStrings(value, ["claim", "evidence_status", "confidence"])
+    && isMeaningfulText(value.claim)
+    && hasStrings(value, ["evidence_status", "confidence"])
     && isStringArray(value.source_urls)
-    && isNullableString(value.support_locator)
+    && isNullableMeaningfulText(value.support_locator)
     && isStringArray(value.conflicts)
     && isOptional(value, "original_claim", isNullableString)
-    && isOptional(value, "evidence_excerpt", isNullableString)
+    && isOptional(value, "evidence_excerpt", isNullableMeaningfulText)
     && isOptional(value, "independent_source_count", isNonNegativeInteger)
     && isOptional(value, "citation_status", isString)
     && isOptional(value, "verification_basis", isNullableString);
@@ -513,6 +644,23 @@ function isResearchSignal(value: unknown): value is ResearchSignal {
     && isStringArray(value.carriers)
     && isNullableString(value.event_at)
     && isStringArray(value.source_urls);
+}
+
+function isArticleInsight(value: unknown): value is ArticleInsight {
+  if (!(
+    isRecord(value)
+    && isInsightStatus(value.status)
+    && isMeaningfulText(value.statement)
+    && isMeaningfulText(value.why_it_matters)
+    && isMeaningfulText(value.next_step)
+    && isOptional(value, "evidence_excerpt", isNullableMeaningfulText)
+    && isOptional(value, "evidence_locator", isNullableMeaningfulText)
+  )) return false;
+  if (value.status !== "supported") return true;
+  return Boolean(
+    typeof value.evidence_excerpt === "string" && value.evidence_excerpt.trim()
+    || typeof value.evidence_locator === "string" && value.evidence_locator.trim(),
+  );
 }
 
 function isArticleDistillation(value: unknown): value is ArticleDistillation {
@@ -531,7 +679,56 @@ function isArticleDistillation(value: unknown): value is ArticleDistillation {
     && isOptional(value, "key_points_original", isStringArray)
     && isOptional(value, "translation_status", isString)
     && isOptional(value, "evidence_excerpts", isStringArray)
-    && isOptional(value, "evidence_locators", isStringArray);
+    && isOptional(value, "evidence_locators", isStringArray)
+    && isOptional(value, "what_happened", isString)
+    && isOptional(value, "why_it_matters", isString)
+    && isOptional(value, "risk_assessment", (candidate) =>
+      candidate === null || isArticleInsight(candidate)
+    )
+    && isOptional(value, "opportunity_assessment", (candidate) =>
+      candidate === null || isArticleInsight(candidate)
+    )
+    && isOptional(value, "uncertainties", isStringArray)
+    && isOptional(value, "next_steps", isStringArray)
+    && isOptional(value, "quality_status", isString)
+    && isOptional(value, "quality_issues", isStringArray)
+    && isOptional(value, "insight_packet", isRecord);
+}
+
+function isArticleFulfillment(value: unknown): value is ArticleFulfillment {
+  return isRecord(value)
+    && hasStrings(value, ["source_url", "status"])
+    && isBoolean(value.complete)
+    && isBoolean(value.source_persisted)
+    && isBoolean(value.extracted)
+    && isBoolean(value.distillation_persisted)
+    && isBoolean(value.claims_persisted)
+    && isNonNegativeInteger(value.claim_count)
+    && isNonNegativeInteger(value.citation_count)
+    && isBoolean(value.citation_complete)
+    && isBoolean(value.ui_displayable)
+    && isStringArray(value.missing_fields)
+    && isStringArray(value.quality_issues);
+}
+
+function isQualitySnapshot(value: unknown): value is QualitySnapshot {
+  return isRecord(value)
+    && isBoolean(value.ready)
+    && isString(value.readiness_status)
+    && isStringArray(value.blocking_reasons)
+    && isBoolean(value.quality_ready)
+    && isNonNegativeInteger(value.article_count)
+    && isNonNegativeInteger(value.complete_article_count)
+    && isRatio(value.article_insight_completeness)
+    && isStringArrayRecord(value.article_quality_issues)
+    && isRatio(value.source_distillation_coverage)
+    && isNonNegativeInteger(value.report_section_count)
+    && isNonNegativeInteger(value.report_sections_complete)
+    && isRatio(value.report_section_completeness)
+    && isStringArray(value.report_quality_issues)
+    && isOptional(value, "article_fulfillment", (candidate) =>
+      Array.isArray(candidate) && candidate.every(isArticleFulfillment)
+    );
 }
 
 function isReportPayload(value: unknown): value is ReportPayload {
@@ -555,7 +752,11 @@ function isReportPayload(value: unknown): value is ReportPayload {
     && value.claims.every(isResearchClaim)
     && Array.isArray(value.signals)
     && value.signals.every(isResearchSignal)
-    && hasStrings(value, ["as_of", "covered_from", "covered_until"]);
+    && hasStrings(value, ["as_of", "covered_from", "covered_until"])
+    && isOptional(value, "quality", isQualitySnapshot)
+    && isOptional(value, "ready", isBoolean)
+    && isOptional(value, "readiness_status", isString)
+    && isOptional(value, "blocking_reasons", isStringArray);
 }
 
 function hasConsistentReportIdentities(value: ReportPayload): boolean {
@@ -583,6 +784,22 @@ function isWeeklyReportSummary(value: unknown): value is WeeklyReportSummary {
     && isStringArray(value.languages)
     && isStringArray(value.lane_coverage)
     && isStringArray(value.models)
+    && isOptional(value, "readiness_status", isString)
+    && isOptional(value, "validation_profile", (candidate) =>
+      candidate === null || isString(candidate)
+    )
+    && isOptional(value, "decision_ready", isBoolean)
+    && isOptional(value, "quality_ready", isBoolean)
+    && isOptional(value, "quality_report_ready", isBoolean)
+    && isOptional(value, "quality_readiness_status", isString)
+    && isOptional(value, "quality_blocking_reasons", isStringArray)
+    && isOptional(value, "blocking_reasons", isStringArray)
+    && isOptional(value, "article_count", isNonNegativeInteger)
+    && isOptional(value, "article_insight_completeness", isRatio)
+    && isOptional(value, "report_section_completeness", isRatio)
+    && isOptional(value, "complete_article_count", isNonNegativeInteger)
+    && isOptional(value, "report_section_count", isNonNegativeInteger)
+    && isOptional(value, "report_sections_complete", isNonNegativeInteger)
     && isOptional(value, "archived", (candidate) => typeof candidate === "boolean")
     && isOptional(value, "archived_at", isNullableString)
     && isOptional(value, "archive_reason", isNullableString);
@@ -597,10 +814,12 @@ function isReportForRun(value: unknown, runId: string): value is ReportPayload {
 
 function isHealthPayload(value: unknown): value is ResearchHealth {
   return isRecord(value)
-    && value.status === "pass"
-    && isString(value.migration_version)
+    && (value.status === "pass" || value.status === "blocked")
+    && isNullableString(value.migration_version)
+    && isOptional(value, "expected_migration_version", isString)
     && isNullableString(value.branch_id)
-    && isString(value.database);
+    && isString(value.database)
+    && isOptional(value, "blocking_reasons", isStringArray);
 }
 
 function isWeeklyResponse(value: unknown): value is WeeklyResponse {
@@ -658,7 +877,8 @@ function isSourceExplorerItem(value: unknown): value is SourceExplorerItem {
     && (value.distillation === null || isArticleDistillation(value.distillation))
     && Array.isArray(value.claims)
     && value.claims.every(isResearchClaim)
-    && isNullableString(value.source_hash);
+    && isNullableString(value.source_hash)
+    && isOptional(value, "fulfillment", isArticleFulfillment);
 }
 
 function isSourceExplorerPage(value: unknown): value is SourceExplorerPage {

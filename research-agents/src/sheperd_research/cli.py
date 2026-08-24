@@ -21,15 +21,25 @@ from langgraph.checkpoint.base import (
 from pydantic import ValidationError
 
 from .contracts import (
+    ArticleDistillation,
     LaneDiscoveryResult,
     ResearchCadence,
     ResearchRunRequest,
     ReviewState,
     RunResult,
     RunStatus,
+    SourceCandidate,
+    ValidationCheck,
+    ValidationReport,
     ValidationStatus,
+    is_free_model,
 )
-from .db import PostgresRepository, _redact_audit_metadata, run_migrations
+from .db import (
+    MIGRATION_VERSION,
+    PostgresRepository,
+    _redact_audit_metadata,
+    run_migrations,
+)
 from .diagnostics import (
     mcp_check,
     run_doctor,
@@ -43,7 +53,10 @@ from .exporters.regional_indexes import generate_regional_indexes
 from .progress import ProgressReporter
 from .providers.capabilities import CapabilityReport, resolve_capabilities
 from .providers.errors import ProviderError
-from .providers.openrouter import OpenRouterProvider
+from .providers.openai import (
+    DEFAULT_OPENAI_MAX_CONCURRENT_REQUESTS,
+    OpenAIProvider,
+)
 from .providers.tavily import TavilyProvider
 from .settings import (
     STRICT_OPENROUTER_MODEL,
@@ -53,7 +66,12 @@ from .settings import (
 )
 from .source_catalog import REGIONS, load_source_catalog, validate_required_sources
 from .topics import load_topic_configs
-from .validation import build_validation_report
+from .validation import (
+    build_validation_report,
+    provider_error_codes_from_run,
+    validation_blocking_reasons,
+)
+from .validators import content_hash, validate_article_distillation_quality
 from .web import create_app
 from .workflow import ResearchWorkflow, checkpoint_serializer
 
@@ -75,6 +93,8 @@ _CHECKPOINT_ALLOWED_CHANNELS = frozenset(
         "partial_reasons",
     }
 )
+TAVILY_RUNTIME_MIN_REQUEST_INTERVAL_SECONDS = 1.5
+FULL_DISCOVERY_QUERY_LIMIT = 6
 
 
 def _redact_checkpoint(checkpoint: Checkpoint) -> Checkpoint:
@@ -218,6 +238,26 @@ def _blocked(args: argparse.Namespace, message: str) -> int:
     return 2
 
 
+def _run_error_code(error: str | None) -> str | None:
+    if not error:
+        return None
+    normalized = error.lower()
+    for marker, code in (
+        ("rate", "rate_limit"),
+        ("429", "rate_limit"),
+        ("timeout", "timeout"),
+        ("extract", "extraction_failed"),
+        ("distill", "distillation_failed"),
+        ("insight", "incomplete_article_insights"),
+        ("synthesis", "synthesis_failed"),
+        ("validation", "validation_failed"),
+        ("evidence", "missing_evidence"),
+    ):
+        if marker in normalized:
+            return code
+    return "workflow_error"
+
+
 def _capability_report(
     settings: Settings,
     models: tuple[str, ...],
@@ -225,11 +265,11 @@ def _capability_report(
     require_tools: bool,
     allow_cached: bool = True,
 ) -> CapabilityReport:
-    if settings.openrouter_api_key is None:
-        raise ProviderError("OPENROUTER_API_KEY is not configured")
+    if settings.openai_api_key is None:
+        raise ProviderError("OPENAI_API_KEY is not configured")
     return asyncio.run(
         resolve_capabilities(
-            settings.openrouter_api_key.get_secret_value(),
+            settings.openai_api_key.get_secret_value(),
             models,
             settings.openrouter_capabilities_cache,
             require_tools=require_tools,
@@ -243,14 +283,22 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
     allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
     if not getattr(args, "strict", True) and not allow_free_fallbacks:
         return _blocked(args, "run requires --strict or --allow-free-fallbacks")
+    if settings.legacy_provider_explicit:
+        legacy_policy_error = strict_openrouter_policy_error(
+            settings.openrouter_model,
+            settings.openrouter_fallback_model_list,
+            raw_fallback_config=settings.openrouter_fallback_models,
+        )
+        if legacy_policy_error is not None:
+            return _blocked(args, legacy_policy_error)
     if not settings.has_database_credentials:
         return _blocked(args, "set pooled DATABASE_URL in the repository-root .env.local")
     if not settings.has_live_provider_credentials:
         return _blocked(
             args,
-            "set replacement Tavily and OpenRouter keys in the repository-root .env.local",
+            "set Tavily and OpenAI keys in the repository-root .env.local",
         )
-    requested_model = args.model or settings.openrouter_model
+    requested_model = args.model or settings.openai_model
     model_chain = settings.model_chain(allow_free_fallbacks=allow_free_fallbacks)
     fallback_models = model_chain[1:]
     policy_error = (
@@ -290,14 +338,17 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
     except ProviderError as error:
         return _blocked(args, str(error))
     if not capabilities.eligible_models:
-        return _blocked(args, "no free model supports discovery tools and structured output")
+        return _blocked(
+            args,
+            "configured OpenAI model does not support discovery tools and structured output",
+        )
     try:
         repository = _database(settings)
     except RuntimeError as error:
         return _blocked(args, str(error))
     try:
-        openrouter_key = settings.openrouter_api_key
-        if not settings.tavily_api_keys or openrouter_key is None:
+        openai_key = settings.openai_api_key
+        if not settings.tavily_api_keys or openai_key is None:
             return _blocked(args, "provider credentials are incomplete")
 
         async def execute() -> RunResult:
@@ -308,10 +359,11 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
                         settings.tavily_api_keys,
                         settings.tavily_project_id,
                         timeout_seconds=15 if getattr(args, "profile", "full") == "canary" else 45,
+                        min_request_interval_seconds=TAVILY_RUNTIME_MIN_REQUEST_INTERVAL_SECONDS,
                         progress=progress,
                     ),
-                    OpenRouterProvider(
-                        openrouter_key.get_secret_value(),
+                    OpenAIProvider(
+                        openai_key.get_secret_value(),
                         request.model,
                         fallback_models=tuple(
                             model
@@ -321,15 +373,7 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
                         allow_free_fallbacks=allow_free_fallbacks,
                         max_output_tokens=settings.llm_max_output_tokens,
                         capability_report=capabilities,
-                        max_concurrent_requests=(
-                            1
-                            if allow_free_fallbacks
-                            else (
-                                2
-                                if getattr(args, "profile", "full") == "canary"
-                                else 1
-                            )
-                        ),
+                        max_concurrent_requests=DEFAULT_OPENAI_MAX_CONCURRENT_REQUESTS,
                         progress=progress,
                     ),
                     load_topic_configs(settings.resolved_topics_path),
@@ -337,6 +381,11 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
                     max_llm_calls=settings.llm_max_calls,
                     max_llm_input_chars=settings.llm_max_input_chars,
                     max_run_seconds=settings.max_run_seconds,
+                    discovery_query_limit=(
+                        1
+                        if getattr(args, "profile", "full") == "canary"
+                        else FULL_DISCOVERY_QUERY_LIMIT
+                    ),
                     progress=progress,
                 )
                 return await workflow.run(request, run_id=args.run_id)
@@ -346,6 +395,123 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
         return 0 if result.validation_status is ValidationStatus.PASS else 2
     finally:
         repository.close()
+
+
+def _repair_command(args: argparse.Namespace, settings: Settings) -> int:
+    if not settings.has_database_credentials:
+        return _blocked(args, "set pooled DATABASE_URL in the repository-root .env.local")
+    if not settings.has_live_provider_credentials:
+        return _blocked(
+            args,
+            "set Tavily and OpenAI keys in the repository-root .env.local",
+        )
+    allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
+    model_chain = settings.model_chain(allow_free_fallbacks=allow_free_fallbacks)
+    fallback_models = model_chain[1:]
+    policy_error = (
+        free_openrouter_policy_error(
+            settings.openai_model,
+            fallback_models,
+            raw_fallback_config=settings.openrouter_fallback_models,
+        )
+        if allow_free_fallbacks
+        else strict_openrouter_policy_error(
+            settings.openai_model,
+            settings.openrouter_fallback_model_list,
+            raw_fallback_config=settings.openrouter_fallback_models,
+        )
+    )
+    if policy_error is not None:
+        return _blocked(args, policy_error)
+    try:
+        capabilities = _capability_report(
+            settings,
+            (settings.openai_model, *fallback_models),
+            require_tools=True,
+            allow_cached=False,
+        )
+        repository = _database(settings)
+        page = 1
+        candidates: list[SourceCandidate] = []
+        while True:
+            page_data = repository.list_source_explorer(page=page, page_size=100)
+            for item in cast(list[dict[str, object]], page_data.get("items", [])):
+                source = item.get("source")
+                distillation = item.get("distillation")
+                if not isinstance(source, SourceCandidate):
+                    continue
+                if (
+                    not isinstance(distillation, ArticleDistillation)
+                    or validate_article_distillation_quality(distillation)
+                ):
+                    candidates.append(source)
+            if not page_data.get("has_more"):
+                break
+            page += 1
+            if page > 10:
+                break
+        if not candidates:
+            return _blocked(args, "no incomplete sources were found")
+        request = ResearchRunRequest(
+            topic_set="dnd-port",
+            cadence=ResearchCadence.WEEKLY,
+            as_of=_parse_datetime(args.as_of) or datetime.now(UTC),
+            max_sources=args.max_sources,
+            model=settings.openai_model,
+            include_topic_seeds=False,
+            validation_profile="canary",
+        )
+        openai_key = settings.openai_api_key
+        if not settings.tavily_api_keys or openai_key is None:
+            return _blocked(args, "provider credentials are incomplete")
+        progress = ProgressReporter(enabled=bool(getattr(args, "verbose", False)))
+
+        async def execute() -> RunResult:
+            async with _checkpoint_saver(settings.database_url or "") as checkpointer:
+                workflow = ResearchWorkflow(
+                    repository,
+                    TavilyProvider(
+                        settings.tavily_api_keys,
+                        settings.tavily_project_id,
+                        min_request_interval_seconds=TAVILY_RUNTIME_MIN_REQUEST_INTERVAL_SECONDS,
+                        progress=progress,
+                    ),
+                    OpenAIProvider(
+                        openai_key.get_secret_value(),
+                        settings.openai_model,
+                        fallback_models=fallback_models,
+                        allow_free_fallbacks=allow_free_fallbacks,
+                        capability_report=capabilities,
+                        progress=progress,
+                    ),
+                    load_topic_configs(settings.resolved_topics_path),
+                    checkpointer=checkpointer,
+                    max_llm_calls=settings.llm_max_calls,
+                    max_llm_input_chars=settings.llm_max_input_chars,
+                    max_run_seconds=settings.max_run_seconds,
+                    progress=progress,
+                )
+                return await workflow.repair(request, candidates, args.run_id)
+
+        result = asyncio.run(execute())
+        _print_json(
+            {
+                "status": result.status.value,
+                "run_id": result.run_id,
+                "selected_source_count": min(len(candidates), args.max_sources),
+                "source_count": result.source_count,
+                "distillation_count": result.distillation_count,
+                "claim_count": result.claim_count,
+                "validation_status": result.validation_status.value,
+                "error": _run_error_code(result.error),
+            }
+        )
+        return 0 if result.status is RunStatus.SUCCEEDED else 2
+    except (ProviderError, RuntimeError, ValueError) as error:
+        return _blocked(args, str(error))
+    finally:
+        if "repository" in locals():
+            repository.close()
 
 
 def _rollup_command(args: argparse.Namespace, settings: Settings) -> int:
@@ -384,6 +550,7 @@ def _audit_command(args: argparse.Namespace, settings: Settings) -> int:
         return _blocked(args, str(error))
     try:
         summary = repository.audit_summary()
+        quality = _quality_audit(repository)
         diagnostics = asyncio.run(
             run_doctor(
                 settings,
@@ -425,6 +592,7 @@ def _audit_command(args: argparse.Namespace, settings: Settings) -> int:
             {
                 "status": status,
                 "database": summary,
+                "quality": quality,
                 "diagnostics": diagnostics,
                 "blockers": blockers,
             }
@@ -449,20 +617,20 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
         _print_json({"status": "blocked", "stages": stages})
         return 2
     if not settings.has_live_provider_credentials:
-        stage("environment", "blocked", message="Tavily and OpenRouter credentials are required")
+        stage("environment", "blocked", message="Tavily and OpenAI credentials are required")
         _print_json({"status": "blocked", "stages": stages})
         return 2
     model_chain = settings.model_chain(allow_free_fallbacks=allow_free_fallbacks)
     fallback_models = model_chain[1:]
     policy_error = (
         free_openrouter_policy_error(
-            settings.openrouter_model,
+            settings.openai_model,
             fallback_models,
             raw_fallback_config=settings.openrouter_fallback_models,
         )
         if allow_free_fallbacks
         else strict_openrouter_policy_error(
-            settings.openrouter_model,
+            settings.openai_model,
             settings.openrouter_fallback_model_list,
             raw_fallback_config=settings.openrouter_fallback_models,
         )
@@ -483,13 +651,17 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
         _print_json({"status": "blocked", "stages": stages})
         return 2
     if not capabilities.eligible_models:
-        stage("environment", "blocked", message="no eligible free discovery model")
+        stage(
+            "environment",
+            "blocked",
+            message="configured OpenAI model is not eligible for discovery",
+        )
         _print_json({"status": "blocked", "stages": stages})
         return 2
     stage(
         "environment",
         "pass",
-        model=settings.openrouter_model,
+        model=settings.openai_model,
         fallback_models=list(capabilities.eligible_models[1:]),
         eligible_models=list(capabilities.eligible_models),
         skipped_models=list(capabilities.skipped_models),
@@ -501,21 +673,33 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
             topic_set="dnd-port",
             as_of=_parse_datetime(args.as_of) or datetime.now(UTC),
             max_sources=3 if args.profile == "canary" else 30,
-            model=settings.openrouter_model,
+            model=settings.openai_model,
             include_topic_seeds=False,
             validation_profile=args.profile,
         )
         repository = _database(settings)
         health = repository.health()
-        stage("database", "pass", migration_version=health.get("migration_version"))
+        migration_version = health.get("migration_version")
+        if health.get("status") != "pass" or migration_version != MIGRATION_VERSION:
+            stage(
+                "database",
+                "blocked",
+                error_code="schema_migration_stale",
+                migration_version=migration_version,
+                expected_migration_version=MIGRATION_VERSION,
+            )
+            repository.close()
+            _print_json({"status": "blocked", "stages": stages})
+            return 2
+        stage("database", "pass", migration_version=migration_version)
     except (RuntimeError, ValueError) as error:
         stage("database", "blocked", message=error.__class__.__name__)
         _print_json({"status": "blocked", "stages": stages})
         return 2
 
     try:
-        openrouter_key = settings.openrouter_api_key
-        assert settings.tavily_api_keys and openrouter_key is not None
+        openai_key = settings.openai_api_key
+        assert settings.tavily_api_keys and openai_key is not None
 
         async def execute() -> RunResult:
             async with _checkpoint_saver(settings.database_url or "") as checkpointer:
@@ -524,27 +708,24 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
                     TavilyProvider(
                         settings.tavily_api_keys,
                         settings.tavily_project_id,
+                        min_request_interval_seconds=TAVILY_RUNTIME_MIN_REQUEST_INTERVAL_SECONDS,
                         progress=progress,
                     ),
-                    OpenRouterProvider(
-                        openrouter_key.get_secret_value(),
+                    OpenAIProvider(
+                        openai_key.get_secret_value(),
                         request.model,
                         fallback_models=fallback_models,
                         allow_free_fallbacks=allow_free_fallbacks,
                         max_output_tokens=settings.llm_max_output_tokens,
                         capability_report=capabilities,
-                        max_concurrent_requests=(
-                            1
-                            if allow_free_fallbacks
-                            else (2 if args.profile == "canary" else 1)
-                        ),
+                        max_concurrent_requests=DEFAULT_OPENAI_MAX_CONCURRENT_REQUESTS,
                         progress=progress,
                     ),
                     load_topic_configs(settings.resolved_topics_path),
                     checkpointer=checkpointer,
                     max_llm_calls=min(
                         settings.llm_max_calls,
-                        5 if args.profile == "canary" else 48,
+                        16 if args.profile == "canary" else 48,
                     ),
                     max_llm_input_chars=min(
                         settings.llm_max_input_chars,
@@ -595,7 +776,7 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
             tool_counts=tool_counts,
             lane_counts=lane_counts,
             resolved_models=resolved_models,
-            error=result.error,
+            error_code=_run_error_code(result.error),
         )
         stage(
             "persistence",
@@ -665,15 +846,15 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
 
 def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
     progress = ProgressReporter(enabled=bool(getattr(args, "verbose", False)))
-    if not settings.tavily_api_key or not settings.openrouter_api_key:
+    if not settings.tavily_api_key or not settings.openai_api_key:
         _print_json(
             {
                 "status": "blocked",
-                "message": "Tavily and OpenRouter credentials are required",
+                "message": "Tavily and OpenAI credentials are required",
             }
         )
         return 2
-    provider: OpenRouterProvider | None = None
+    provider: OpenAIProvider | None = None
     capabilities: CapabilityReport | None = None
     try:
         allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
@@ -681,13 +862,13 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
         fallback_models = model_chain[1:]
         policy_error = (
             free_openrouter_policy_error(
-                settings.openrouter_model,
+                settings.openai_model,
                 fallback_models,
                 raw_fallback_config=settings.openrouter_fallback_models,
             )
             if allow_free_fallbacks
             else strict_openrouter_policy_error(
-                settings.openrouter_model,
+                settings.openai_model,
                 settings.openrouter_fallback_model_list,
                 raw_fallback_config=settings.openrouter_fallback_models,
             )
@@ -701,13 +882,15 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
             allow_cached=False,
         )
         if not capabilities.eligible_models:
-            raise ProviderError("no free model supports discovery tools and structured output")
+            raise ProviderError(
+                "configured OpenAI model does not support discovery tools and structured output"
+            )
         topic = load_topic_configs(settings.resolved_topics_path)["dnd-port"]
         as_of = _parse_datetime(args.as_of) or datetime.now(UTC)
         since = as_of - timedelta(days=topic.lookback_days)
-        provider = OpenRouterProvider(
-            settings.openrouter_api_key.get_secret_value(),
-            settings.openrouter_model,
+        provider = OpenAIProvider(
+            settings.openai_api_key.get_secret_value(),
+            settings.openai_model,
             fallback_models=fallback_models,
             allow_free_fallbacks=allow_free_fallbacks,
             capability_report=capabilities,
@@ -751,20 +934,25 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
                 if isinstance(item, dict) and item.get("resolved_model")
             }
         )
+        eligible_models = set(capabilities.eligible_models)
+
+        def resolved_model_matches_configured(model: str) -> bool:
+            return any(
+                model == eligible or model.startswith(f"{eligible}-")
+                for eligible in eligible_models
+            )
+
         checks = {
             "create_agent": True,
-            "chat_openrouter": True,
+            "chat_openai": True,
             "tavily_search": "tavily_search" in tool_names,
             "tavily_extract": "tavily_extract" in tool_names,
             "structured_output": bool(result.packet.source_urls),
-            "resolved_models_free": all(
-                model in set(capabilities.eligible_models) for model in resolved_models
+            "resolved_models_configured": all(
+                resolved_model_matches_configured(model) for model in resolved_models
             ),
-            "strict_resolved_model": (
-                resolved_models == [STRICT_OPENROUTER_MODEL]
-                if not allow_free_fallbacks
-                else True
-            ),
+            "strict_resolved_model": len(resolved_models) == 1
+            and resolved_model_matches_configured(resolved_models[0]),
         }
         passed = all(checks.values()) and bool(receipts)
         _print_json(
@@ -792,7 +980,10 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
         _print_json(
             {
                 "status": "partial",
-                "message": str(error),
+                "message": (
+                    getattr(error, "error_code", None)
+                    or ("invalid_output" if isinstance(error, ValueError) else "provider_error")
+                ),
                 "error_code": getattr(error, "error_code", None) or attempt_error_code,
                 "capabilities": capabilities.as_dict() if capabilities else None,
                 "attempts": provider.call_history if provider else [],
@@ -801,79 +992,266 @@ def _agent_check_command(args: argparse.Namespace, settings: Settings) -> int:
         return 2
 
 
+def _build_persisted_validation(
+    repository: PostgresRepository, run_id: str
+) -> ValidationReport:
+    run = repository.get_run(run_id)
+    if run is None:
+        raise KeyError(f"run not found: {run_id}")
+    request_value = run.get("request")
+    if not isinstance(request_value, dict):
+        raise ValueError("run request metadata is unavailable")
+    raw_model = request_value.get("model")
+    validation_model = raw_model if isinstance(raw_model, str) else STRICT_OPENROUTER_MODEL
+    normalized_request = dict(request_value)
+    # Legacy runs may contain the retired openrouter/free router identifier.
+    # Normalize only invalid historical values; retain the original model for
+    # the deterministic model-policy validation check.
+    normalized_request["model"] = (
+        raw_model
+        if isinstance(raw_model, str) and is_free_model(raw_model)
+        else STRICT_OPENROUTER_MODEL
+    )
+    request = ResearchRunRequest.model_validate(normalized_request)
+    sources = repository.get_run_sources(run_id)
+    claims = repository.get_run_claims(run_id)
+    get_distillations = getattr(repository, "get_run_distillations", None)
+    distillations = get_distillations(run_id) if callable(get_distillations) else None
+    get_brief = getattr(repository, "get_brief", None)
+    brief = get_brief(run_id) if callable(get_brief) else None
+    strict_profile = request.validation_profile in {"full", "global-canary"}
+    repair_mode = bool(sources) and all(
+        source.source_kind == "repair" for source in sources if not source.is_seed
+    )
+    return build_validation_report(
+        run_id,
+        sources,
+        claims,
+        request.as_of,
+        validation_model,
+        repository.get_run_lane_statuses(run_id),
+        repository.get_run_snapshot_hashes(run_id),
+        minimum_sources=1 if request.validation_profile in {"canary", "global-canary"} else 10,
+        minimum_claims=1 if request.validation_profile in {"canary", "global-canary"} else 5,
+        tool_call_count=sum(
+            1
+            for call in repository.get_run_tool_calls(run_id)
+            if call.get("status") == "succeeded"
+        ),
+        required_tool_lanes={
+            lane: {"tavily_search", "tavily_extract"}.issubset(
+                {
+                    str(call.get("tool_name"))
+                    for call in repository.get_run_tool_calls(run_id)
+                    if call.get("lane") == lane and call.get("status") == "succeeded"
+                }
+            )
+            for lane in ("regulatory", "us-ports", "mexico")
+        }
+        if not repair_mode
+        else None,
+        distillations=distillations,
+        required_geographies=(
+            {
+                "Regulatory",
+                "United States",
+                "West Coast",
+                "East Coast",
+                "Gulf",
+                "Canada",
+                "Mexico",
+                "Europe",
+                "South America",
+                "Middle East",
+            }
+            if strict_profile
+            else set()
+        ),
+        required_regions=(set(REGIONS) - {"global"} if strict_profile else set()),
+        required_lanes=set() if repair_mode else None,
+        brief=brief,
+        provider_error_codes=provider_error_codes_from_run(
+            sources=sources,
+            steps=repository.get_run_steps(run_id),
+            tool_calls=repository.get_run_tool_calls(run_id),
+        ),
+    )
+
+
+def _iter_run_ids(repository: PostgresRepository) -> list[str]:
+    run_ids: list[str] = []
+    offset = 0
+    while True:
+        rows = repository.list_runs(limit=1000, offset=offset)
+        if not rows:
+            break
+        run_ids.extend(
+            str(row["run_id"])
+            for row in rows
+            if isinstance(row.get("run_id"), str)
+        )
+        if len(rows) < 1000:
+            break
+        offset += len(rows)
+    return run_ids
+
+
+def _quality_audit(repository: PostgresRepository) -> dict[str, object]:
+    observations: list[dict[str, object]] = []
+    for run_id in _iter_run_ids(repository):
+        run = repository.get_run(run_id)
+        if run is None or run.get("archived_at") is not None:
+            continue
+        stored = repository.get_validation(run_id)
+        try:
+            current = _build_persisted_validation(repository, run_id)
+            observations.append(
+                {
+                    "run_id": run_id,
+                    "stored_status": stored.status.value if stored else "missing",
+                    "current_status": current.status.value,
+                    "blocking_reasons": validation_blocking_reasons(current),
+                    "article_insight_completeness": next(
+                        (
+                            check.observed
+                            for check in current.checks
+                            if check.name == "article_insight_completeness"
+                        ),
+                        None,
+                    ),
+                    "report_section_status": next(
+                        (
+                            check.status.value
+                            for check in current.checks
+                            if check.name == "report_sections"
+                        ),
+                        "not_recorded",
+                    ),
+                    "stale_validation": stored is None
+                    or stored.content_hash != current.content_hash
+                    or stored.status is not current.status,
+                }
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            observations.append(
+                {
+                    "run_id": run_id,
+                    "stored_status": stored.status.value if stored else "missing",
+                    "current_status": "blocked",
+                    "blocking_reasons": ["stale_validation"],
+                    "error": error.__class__.__name__,
+                    "stale_validation": True,
+                }
+            )
+    current_statuses = [str(item["current_status"]) for item in observations]
+    reason_counts: dict[str, int] = {}
+    for observation in observations:
+        raw_reasons = observation.get("blocking_reasons", [])
+        reasons = raw_reasons if isinstance(raw_reasons, list) else []
+        for reason in reasons:
+            if isinstance(reason, str):
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+    return {
+        "active_runs_checked": len(observations),
+        "current_status_counts": {
+            status: current_statuses.count(status)
+            for status in sorted(set(current_statuses))
+        },
+        "stale_validation_count": sum(
+            bool(item.get("stale_validation")) for item in observations
+        ),
+        "blocking_reason_counts": dict(sorted(reason_counts.items())),
+        "reports": observations,
+    }
+
+
 def _validate_command(args: argparse.Namespace, settings: Settings) -> int:
     if not _require_database(settings):
         return 2
     repository = _database(settings)
     try:
-        run = repository.get_run(args.run_id)
-        if run is None:
+        try:
+            report = _build_persisted_validation(repository, args.run_id)
+        except KeyError:
             print(f"ERROR: run not found: {args.run_id}")
             return 2
-        request_value = run.get("request")
-        if not isinstance(request_value, dict):
-            print("BLOCKED: run request metadata is unavailable")
+        except (TypeError, ValueError) as error:
+            print(f"BLOCKED: {error}")
             return 2
-        request = ResearchRunRequest.model_validate(request_value)
-        sources = repository.get_run_sources(args.run_id)
-        claims = repository.get_run_claims(args.run_id)
-        get_distillations = getattr(repository, "get_run_distillations", None)
-        distillations = get_distillations(args.run_id) if callable(get_distillations) else None
-        get_brief = getattr(repository, "get_brief", None)
-        brief = get_brief(args.run_id) if callable(get_brief) else None
-        strict_profile = request.validation_profile in {"full", "global-canary"}
-        report = build_validation_report(
-            args.run_id,
-            sources,
-            claims,
-            request.as_of,
-            request.model,
-            repository.get_run_lane_statuses(args.run_id),
-            repository.get_run_snapshot_hashes(args.run_id),
-            minimum_sources=1 if request.validation_profile in {"canary", "global-canary"} else 10,
-            minimum_claims=1 if request.validation_profile in {"canary", "global-canary"} else 5,
-            tool_call_count=sum(
-                1
-                for call in repository.get_run_tool_calls(args.run_id)
-                if call.get("status") == "succeeded"
-            ),
-            required_tool_lanes={
-                lane: {
-                    "tavily_search",
-                    "tavily_extract",
-                }.issubset(
+        repository.record_validation(report)
+        _print_json(
+            report.model_dump(mode="json")
+            | {"blocking_reasons": validation_blocking_reasons(report)}
+        )
+        return 0 if report.status is ValidationStatus.PASS else 2
+    finally:
+        repository.close()
+
+
+def _revalidate_command(args: argparse.Namespace, settings: Settings) -> int:
+    if not _require_database(settings):
+        return 2
+    repository = _database(settings)
+    results: list[dict[str, object]] = []
+    try:
+        for run_id in _iter_run_ids(repository):
+            run = repository.get_run(run_id)
+            if run is None:
+                continue
+            if args.scope == "active" and run.get("archived_at") is not None:
+                continue
+            try:
+                report = _build_persisted_validation(repository, run_id)
+                repository.record_validation(report)
+                results.append(
                     {
-                        str(call.get("tool_name"))
-                        for call in repository.get_run_tool_calls(args.run_id)
-                        if call.get("lane") == lane
-                        and call.get("status") == "succeeded"
+                        "run_id": run_id,
+                        "status": report.status.value,
+                        "blocking_reasons": validation_blocking_reasons(report),
                     }
                 )
-                for lane in ("regulatory", "us-ports", "mexico")
-            },
-            distillations=distillations,
-            required_geographies=(
-                {
-                    "Regulatory",
-                    "United States",
-                    "West Coast",
-                    "East Coast",
-                    "Gulf",
-                    "Canada",
-                    "Mexico",
-                    "Europe",
-                    "South America",
-                    "Middle East",
-                }
-                if strict_profile
-                else set()
+            except (TypeError, ValueError, KeyError) as error:
+                blocked = ValidationReport(
+                    run_id=run_id,
+                    status=ValidationStatus.BLOCKED,
+                    checks=[
+                        ValidationCheck(
+                            name="revalidation",
+                            status=ValidationStatus.BLOCKED,
+                            message=error.__class__.__name__,
+                        )
+                    ],
+                    blocking_reasons=["stale_validation"],
+                    content_hash=content_hash(
+                        f"revalidation:{run_id}:{error.__class__.__name__}"
+                    ),
+                )
+                repository.record_validation(blocked)
+                results.append(
+                    {
+                        "run_id": run_id,
+                        "status": "blocked",
+                        "blocking_reasons": ["stale_validation"],
+                        "error": error.__class__.__name__,
+                    }
+                )
+        counts: dict[str, int] = {}
+        for result in results:
+            status = str(result["status"])
+            counts[status] = counts.get(status, 0) + 1
+        payload = {
+            "status": (
+                "pass"
+                if counts.get("failed", 0) == 0 and counts.get("blocked", 0) == 0
+                else "failed"
             ),
-            required_regions=(set(REGIONS) - {"global"} if strict_profile else set()),
-            brief=brief,
-        )
-        repository.record_validation(report)
-        _print_json(report.model_dump(mode="json"))
-        return 0 if report.status is ValidationStatus.PASS else 2
+            "scope": args.scope,
+            "checked": len(results),
+            "counts": dict(sorted(counts.items())),
+            "runs": results,
+        }
+        _print_json(payload)
+        return 0 if payload["status"] == "pass" else 2
     finally:
         repository.close()
 
@@ -1142,8 +1520,21 @@ def _parser() -> argparse.ArgumentParser:
     audit.add_argument("--allow-free-fallbacks", action="store_true")
     audit.add_argument("--json", action="store_true")
 
+    repair = subparsers.add_parser("repair")
+    repair.add_argument("--source-scope", choices=["incomplete"], default="incomplete")
+    repair.add_argument("--run-id", required=True)
+    repair.add_argument("--as-of")
+    repair.add_argument("--max-sources", type=int, default=25)
+    repair.add_argument("--allow-free-fallbacks", action="store_true")
+    repair.add_argument("--verbose", action="store_true")
+    repair.add_argument("--json", action="store_true")
+
     validate = subparsers.add_parser("validate")
     validate.add_argument("--run-id", required=True)
+
+    revalidate = subparsers.add_parser("revalidate")
+    revalidate.add_argument("--scope", choices=["active", "all"], default="active")
+    revalidate.add_argument("--json", action="store_true")
 
     review = subparsers.add_parser("review")
     review.add_argument("--run-id", required=True)
@@ -1168,6 +1559,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _rollup_command(args, settings)
     if args.command == "audit":
         return _audit_command(args, settings)
+    if args.command == "repair":
+        return _repair_command(args, settings)
     if args.command == "e2e":
         return _e2e_command(args, settings)
     if args.command == "agent-check":
@@ -1200,6 +1593,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _index_command(args, settings)
     if args.command == "validate":
         return _validate_command(args, settings)
+    if args.command == "revalidate":
+        return _revalidate_command(args, settings)
     if args.command == "review":
         return _review_command(args, settings)
     if args.command == "export":

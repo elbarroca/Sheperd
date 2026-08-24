@@ -111,6 +111,20 @@ describe("research API runtime validation", () => {
     await expect(getMonthlyRollups()).resolves.toMatchObject({ status: "ok" });
   });
 
+  it("accepts backend report runs without an error field", async () => {
+    if (!validReport.run) throw new Error("test fixture must include a run");
+    const backendRun = { ...validReport.run };
+    delete backendRun.error;
+    delete backendRun.error_code;
+    const backendReport: ReportPayload = {
+      ...validReport,
+      run: backendRun,
+    };
+    fetchMock.mockResolvedValueOnce(jsonResponse(backendReport));
+
+    await expect(getWeeklyReport("run-1")).resolves.toMatchObject({ status: "ok" });
+  });
+
   it("rejects report details whose brief, run, or validation belongs to another run", async () => {
     const mismatchedReports: ReportPayload[] = [
       { ...validReport, brief: { ...validReport.brief, run_id: "run-2" } },
@@ -131,6 +145,44 @@ describe("research API runtime validation", () => {
         error: "Research API returned malformed data",
       });
     }
+  });
+
+  it("rejects report details with placeholder brief bullets", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      ...validReport,
+      brief: {
+        ...validReport.brief,
+        executive_bullets: [{
+          text: "unknown",
+          source_urls: ["https://example.com/source"],
+          evidence_status: "mixed",
+        }],
+      },
+    }));
+
+    await expect(getWeeklyReport("run-1")).resolves.toEqual({
+      status: "unavailable",
+      error: "Research API returned malformed data",
+    });
+  });
+
+  it("rejects report details with placeholder claims", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      ...validReport,
+      claims: [{
+        claim: "   ",
+        source_urls: ["https://example.com/source"],
+        evidence_status: "mixed",
+        confidence: "low",
+        support_locator: null,
+        conflicts: [],
+      }],
+    }));
+
+    await expect(getWeeklyReport("run-1")).resolves.toEqual({
+      status: "unavailable",
+      error: "Research API returned malformed data",
+    });
   });
 
   it("returns unavailable for an unavailable HTTP response", async () => {
@@ -183,5 +235,270 @@ describe("research API runtime validation", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toContain("page=2");
     expect(fetchMock.mock.calls[0]?.[0]).toContain("region=us");
     expect(fetchMock.mock.calls[0]?.[0]).toContain("language=en");
+  });
+
+  it("rejects malformed article insight packets in source explorer data", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      items: [{
+        source: {
+          url: "https://example.com/source",
+          title: "Source",
+          publisher: "Example",
+          published_at: null,
+          retrieved_at: "2026-08-19T00:00:00Z",
+          source_kind: "web",
+          snippet: "Snippet",
+          topics: [],
+          geographies: ["US"],
+          lane: "ports",
+          is_seed: false,
+          evidence_status: "unverified",
+        },
+        distillation: {
+          source_url: "https://example.com/source",
+          summary: "Summary",
+          key_points: ["Point one", "Point two"],
+          entities: [],
+          signals: [],
+          claims: [],
+          limitations: [],
+          published_at: null,
+          model_id: "google/gemma:free",
+          prompt_version: "distill-v6",
+          evidence_status: "mixed",
+          content_hash: "hash",
+          risk_assessment: {
+            status: "deferred",
+            statement: "Bad status",
+            why_it_matters: "Should be rejected",
+            next_step: "Fix backend data",
+          },
+        },
+        claims: [],
+        source_hash: "hash",
+      }],
+      page: 1,
+      page_size: 24,
+      total: 1,
+      has_more: false,
+    }));
+
+    await expect(getResearchSourceExplorer()).resolves.toEqual({
+      status: "unavailable",
+      error: "Research API returned malformed data",
+    });
+  });
+
+  it("rejects supported article insights without evidence", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      items: [{
+        source: {
+          url: "https://example.com/source",
+          title: "Source",
+          publisher: "Example",
+          published_at: null,
+          retrieved_at: "2026-08-19T00:00:00Z",
+          source_kind: "web",
+          snippet: "Snippet",
+          topics: [],
+          geographies: ["US"],
+          lane: "ports",
+          is_seed: false,
+          evidence_status: "unverified",
+        },
+        distillation: {
+          source_url: "https://example.com/source",
+          summary: "Summary",
+          key_points: ["Point one", "Point two"],
+          entities: [],
+          signals: [],
+          claims: [],
+          limitations: [],
+          published_at: null,
+          model_id: "google/gemma:free",
+          prompt_version: "distill-v6",
+          evidence_status: "mixed",
+          content_hash: "hash",
+          risk_assessment: {
+            status: "supported",
+            statement: "Supported risk",
+            why_it_matters: "Requires evidence",
+            next_step: "Add locator or excerpt",
+          },
+          opportunity_assessment: {
+            status: "not_observed",
+            statement: "No opening observed",
+            why_it_matters: "No action yet",
+            next_step: "Check next run",
+          },
+        },
+        claims: [],
+        source_hash: "hash",
+      }],
+      page: 1,
+      page_size: 24,
+      total: 1,
+      has_more: false,
+    }));
+
+    await expect(getResearchSourceExplorer()).resolves.toEqual({
+      status: "unavailable",
+      error: "Research API returned malformed data",
+    });
+  });
+
+  it("rejects article insights with placeholder or whitespace-only required text", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      items: [{
+        source: {
+          url: "https://example.com/source",
+          title: "Source",
+          publisher: "Example",
+          published_at: null,
+          retrieved_at: "2026-08-19T00:00:00Z",
+          source_kind: "web",
+          snippet: "Snippet",
+          topics: [],
+          geographies: ["US"],
+          lane: "ports",
+          is_seed: false,
+          evidence_status: "unverified",
+        },
+        distillation: {
+          source_url: "https://example.com/source",
+          summary: "Summary",
+          key_points: ["Point one", "Point two"],
+          entities: [],
+          signals: [],
+          claims: [],
+          limitations: [],
+          published_at: null,
+          model_id: "google/gemma:free",
+          prompt_version: "distill-v6",
+          evidence_status: "mixed",
+          content_hash: "hash",
+          risk_assessment: {
+            status: "uncertain",
+            statement: "   ",
+            why_it_matters: "Not recorded in this run.",
+            next_step: "Check the next run",
+          },
+        },
+        claims: [],
+        source_hash: "hash",
+      }],
+      page: 1,
+      page_size: 24,
+      total: 1,
+      has_more: false,
+    }));
+
+    await expect(getResearchSourceExplorer()).resolves.toEqual({
+      status: "unavailable",
+      error: "Research API returned malformed data",
+    });
+  });
+
+  it("preserves explicit not observed and uncertain insight statuses", async () => {
+    for (const status of ["not_observed", "uncertain"] as const) {
+      fetchMock.mockResolvedValueOnce(jsonResponse({
+        items: [{
+          source: {
+            url: "https://example.com/source",
+            title: "Source",
+            publisher: "Example",
+            published_at: null,
+            retrieved_at: "2026-08-19T00:00:00Z",
+            source_kind: "web",
+            snippet: "Snippet",
+            topics: [],
+            geographies: ["US"],
+            lane: "ports",
+            is_seed: false,
+            evidence_status: "unverified",
+          },
+          distillation: {
+            source_url: "https://example.com/source",
+            summary: "Summary",
+            key_points: ["Point one", "Point two"],
+            entities: [],
+            signals: [],
+            claims: [],
+            limitations: [],
+            published_at: null,
+            model_id: "google/gemma:free",
+            prompt_version: "distill-v6",
+            evidence_status: "mixed",
+            content_hash: "hash",
+            risk_assessment: {
+              status,
+              statement: "A clear statement.",
+              why_it_matters: "The status is explicit.",
+              next_step: "Review the next run.",
+            },
+          },
+          claims: [],
+          source_hash: "hash",
+        }],
+        page: 1,
+        page_size: 24,
+        total: 1,
+        has_more: false,
+      }));
+
+      await expect(getResearchSourceExplorer()).resolves.toMatchObject({ status: "ok" });
+    }
+  });
+
+  it("rejects incomplete as an article insight status", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      items: [{
+        source: {
+          url: "https://example.com/source",
+          title: "Source",
+          publisher: "Example",
+          published_at: null,
+          retrieved_at: "2026-08-19T00:00:00Z",
+          source_kind: "web",
+          snippet: "Snippet",
+          topics: [],
+          geographies: ["US"],
+          lane: "ports",
+          is_seed: false,
+          evidence_status: "unverified",
+        },
+        distillation: {
+          source_url: "https://example.com/source",
+          summary: "Summary",
+          key_points: ["Point one", "Point two"],
+          entities: [],
+          signals: [],
+          claims: [],
+          limitations: [],
+          published_at: null,
+          model_id: "google/gemma:free",
+          prompt_version: "distill-v6",
+          evidence_status: "mixed",
+          content_hash: "hash",
+          risk_assessment: {
+            status: "incomplete",
+            statement: "A clear statement.",
+            why_it_matters: "The status belongs to quality, not article insights.",
+            next_step: "Review the quality status.",
+          },
+        },
+        claims: [],
+        source_hash: "hash",
+      }],
+      page: 1,
+      page_size: 24,
+      total: 1,
+      has_more: false,
+    }));
+
+    await expect(getResearchSourceExplorer()).resolves.toEqual({
+      status: "unavailable",
+      error: "Research API returned malformed data",
+    });
   });
 });

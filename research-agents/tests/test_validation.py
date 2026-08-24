@@ -3,15 +3,23 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from sheperd_research.contracts import (
+    ArticleDistillation,
     ClaimDraft,
     EvidenceStatus,
+    ExtractionStatus,
     ReportBullet,
     SourceCandidate,
+    ValidationCheck,
+    ValidationReport,
     ValidationStatus,
     WeeklyBrief,
 )
 from sheperd_research.settings import STRICT_OPENROUTER_MODEL
-from sheperd_research.validation import build_validation_report
+from sheperd_research.validation import (
+    build_validation_report,
+    provider_error_codes_from_run,
+    validation_blocking_reasons,
+)
 
 
 def _sources() -> list[SourceCandidate]:
@@ -83,6 +91,7 @@ def test_validation_passes_with_thresholds_and_full_citations() -> None:
     assert report.status is ValidationStatus.PASS
     assert report.citation_coverage == 1.0
     assert report.content_hash
+    assert report.blocking_reasons == []
 
 
 def test_validation_rejects_empty_report_sections_when_brief_is_available() -> None:
@@ -106,6 +115,7 @@ def test_validation_rejects_empty_report_sections_when_brief_is_available() -> N
     assert report.status is ValidationStatus.FAILED
     assert check.status is ValidationStatus.FAILED
     assert "risks" in str(check.observed)
+    assert "empty_report_section" in report.blocking_reasons
 
 
 def test_validation_rejects_uncited_and_unstructured_report_bullets() -> None:
@@ -137,6 +147,7 @@ def test_validation_rejects_uncited_and_unstructured_report_bullets() -> None:
     check = next(check for check in report.checks if check.name == "report_sections")
     assert report.status is ValidationStatus.FAILED
     assert check.status is ValidationStatus.FAILED
+    assert validation_blocking_reasons(report) == report.blocking_reasons
     assert "opportunities" in str(check.observed)
 
 
@@ -165,6 +176,283 @@ def test_validation_requires_europe_geography() -> None:
         ).status
         is ValidationStatus.FAILED
     )
+
+
+def test_validation_blocking_reasons_cover_strict_gate_failures() -> None:
+    source = SourceCandidate(
+        url="https://example.com/failed-source",
+        extraction_status=ExtractionStatus.FAILED,
+        geographies=["Mexico"],
+        lane="regulatory",
+        region="north_america",
+        language_code="en",
+    )
+    report = build_validation_report(
+        "strict-gates",
+        [source],
+        [],
+        datetime(2026, 8, 19, tzinfo=UTC),
+        "openrouter/paid-model",
+        {"regulatory": "failed"},
+        ["hash-1"],
+        minimum_sources=2,
+        minimum_claims=1,
+        tool_call_count=0,
+        required_tool_lanes={"regulatory": False},
+        distillations=[],
+        required_geographies={"Europe"},
+        required_lanes={"regulatory", "us-ports"},
+    )
+
+    assert {
+        "insufficient_sources",
+        "insufficient_claims",
+        "extraction_failed",
+        "incomplete_geography_coverage",
+        "incomplete_lane_coverage",
+        "model_policy_failed",
+        "missing_tool_receipts",
+        "missing_required_tool_calls",
+    }.issubset(report.blocking_reasons)
+    assert "stale_validation" not in report.blocking_reasons
+
+
+def test_validation_blocking_reasons_expose_provider_error_codes() -> None:
+    report = ValidationReport(
+        run_id="provider-errors",
+        status=ValidationStatus.FAILED,
+        checks=[
+            ValidationCheck(
+                name="provider_attempt",
+                status=ValidationStatus.FAILED,
+                observed="rate_limit timeout provider_unavailable",
+                expected="provider success",
+                message="provider failed",
+            )
+        ],
+    )
+
+    assert {
+        "provider_rate_limit",
+        "provider_timeout",
+        "provider_unavailable",
+    }.issubset(validation_blocking_reasons(report))
+
+
+def test_validation_uses_provider_error_shaped_run_evidence() -> None:
+    source = SourceCandidate(
+        url="https://example.com/provider-failed",
+        extraction_status=ExtractionStatus.FAILED,
+        extraction_error_code="provider_unavailable",
+    )
+    provider_error_codes = provider_error_codes_from_run(
+        sources=[source],
+        steps=[
+            {
+                "agent_name": "discovery:regulatory",
+                "status": "failed",
+                "error_code": "rate_limit",
+                "metadata": {"attempts": [{"error_code": "timeout"}]},
+            }
+        ],
+        tool_calls=[
+            {
+                "tool_name": "tavily_extract",
+                "status": "failed",
+                "error_code": "provider_unavailable",
+            }
+        ],
+    )
+    report = build_validation_report(
+        "provider-shaped",
+        [source],
+        [],
+        datetime(2026, 8, 19, tzinfo=UTC),
+        STRICT_OPENROUTER_MODEL,
+        {"regulatory": "failed"},
+        ["hash-1"],
+        minimum_sources=1,
+        minimum_claims=0,
+        provider_error_codes=provider_error_codes,
+    )
+
+    assert {
+        "provider_rate_limit",
+        "provider_timeout",
+        "provider_unavailable",
+        "extraction_failed",
+    }.issubset(report.blocking_reasons)
+
+
+def test_validation_step_error_is_not_provider_error() -> None:
+    assert provider_error_codes_from_run(
+        sources=[],
+        steps=[{"agent_name": "validation", "error_code": "validation"}],
+        tool_calls=[],
+    ) == []
+
+
+def test_recovered_provider_retry_is_not_a_run_blocker() -> None:
+    assert provider_error_codes_from_run(
+        sources=[],
+        steps=[
+            {
+                "agent_name": "critic",
+                "status": "succeeded",
+                "metadata": {
+                    "attempts": [
+                        {
+                            "operation": "critic",
+                            "attempt": 1,
+                            "error_code": "malformed_output",
+                        },
+                        {
+                            "operation": "critic",
+                            "attempt": 2,
+                            "error_code": None,
+                        },
+                    ]
+                },
+            }
+        ],
+        tool_calls=[],
+    ) == []
+
+
+def test_recovered_lane_retry_clears_outer_step_error() -> None:
+    assert provider_error_codes_from_run(
+        sources=[],
+        steps=[
+            {
+                "agent_name": "discovery:mexico",
+                "status": "succeeded",
+                "error_code": "tool_failure",
+                "metadata": {
+                    "call": {
+                        "operation": "discovery:mexico",
+                        "attempt": 2,
+                        "error_code": None,
+                    },
+                    "attempts": [
+                        {
+                            "operation": "discovery:mexico",
+                            "attempt": 1,
+                            "error_code": "tool_failure",
+                        },
+                        {
+                            "operation": "discovery:mexico",
+                            "attempt": 2,
+                            "error_code": None,
+                        },
+                    ],
+                },
+            }
+        ],
+        tool_calls=[],
+    ) == []
+
+
+def test_provider_error_check_does_not_create_evidence_locator_reason() -> None:
+    report = ValidationReport(
+        run_id="provider-check",
+        status=ValidationStatus.FAILED,
+        checks=[
+            ValidationCheck(
+                name="provider_error_codes",
+                status=ValidationStatus.FAILED,
+                observed="malformed_output",
+                expected="none",
+                message="provider/extraction error codes persisted in run evidence",
+            )
+        ],
+    )
+
+    reasons = validation_blocking_reasons(report)
+    assert "provider_malformed_output" in reasons
+    assert "missing_evidence_locator" not in reasons
+
+
+def test_legacy_incomplete_distillation_cannot_remain_pass() -> None:
+    sources = _sources()
+    claims = [
+        ClaimDraft(claim=f"Claim {index}", source_urls=[sources[index].url])
+        for index in range(5)
+    ]
+    report = build_validation_report(
+        "legacy-incomplete",
+        sources,
+        claims,
+        datetime(2026, 8, 19, tzinfo=UTC),
+        STRICT_OPENROUTER_MODEL,
+        {"regulatory": "succeeded", "us-ports": "succeeded", "mexico": "succeeded"},
+        [f"hash-{index}" for index in range(10)],
+        distillations=[
+            ArticleDistillation(
+                source_url=sources[0].url,
+                summary="Legacy summary",
+                key_points=["One point"],
+            )
+        ],
+    )
+
+    check = next(
+        check for check in report.checks if check.name == "article_insight_completeness"
+    )
+    assert report.status is ValidationStatus.FAILED
+    assert check.status is ValidationStatus.FAILED
+
+
+def test_validation_requires_exactly_one_distillation_per_extracted_source() -> None:
+    sources = [
+        source.model_copy(update={"extraction_status": ExtractionStatus.SUCCEEDED})
+        for source in _sources()
+    ]
+    claims = [
+        ClaimDraft(claim=f"Claim {index}", source_urls=[sources[index].url])
+        for index in range(5)
+    ]
+    complete_distillation = ArticleDistillation(
+        source_url=sources[0].url,
+        summary="Complete summary.",
+        key_points=["Point one.", "Point two."],
+        what_happened="The source reports a development.",
+        why_it_matters="It changes the operating picture.",
+        risk_assessment={
+            "status": "not_observed",
+            "statement": "No supported risk was observed.",
+            "why_it_matters": "The source does not establish a risk.",
+            "next_step": "Check an independent source.",
+        },
+        opportunity_assessment={
+            "status": "not_observed",
+            "statement": "No supported opportunity was observed.",
+            "why_it_matters": "The source does not establish an opportunity.",
+            "next_step": "Check an independent source.",
+        },
+        uncertainties=["The source has limited scope."],
+        next_steps=["Review an independent source."],
+        evidence_locators=["paragraph 1"],
+        claims=[claims[0]],
+        quality_status="complete",
+    )
+
+    report = build_validation_report(
+        "duplicate-distillation",
+        sources,
+        claims,
+        datetime(2026, 8, 19, tzinfo=UTC),
+        STRICT_OPENROUTER_MODEL,
+        {"regulatory": "succeeded", "us-ports": "succeeded", "mexico": "succeeded"},
+        [f"hash-{index}" for index in range(10)],
+        distillations=[complete_distillation, complete_distillation],
+    )
+
+    check = next(
+        check for check in report.checks if check.name == "source_distillation_completeness"
+    )
+    assert report.status is ValidationStatus.FAILED
+    assert check.status is ValidationStatus.FAILED
+    assert check.observed == 10
 
 
 def test_provider_partial_is_not_silently_promoted_to_pass() -> None:

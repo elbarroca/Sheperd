@@ -2,16 +2,24 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime
+from decimal import Decimal
 from html import escape
 
 from fastapi import FastAPI, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from .contracts import WeeklyBrief
-from .db import ArchiveScope, RepositoryProtocol
+from .contracts import ReviewState, ValidationReport, ValidationStatus, WeeklyBrief
+from .db import (
+    MIGRATION_VERSION,
+    ArchiveScope,
+    RepositoryProtocol,
+    validation_profile_from_run,
+)
 from .exporters.obsidian import render_weekly_markdown
 from .source_catalog import load_source_catalog
+from .validation import validation_blocking_reasons
+from .validators import quality_metrics
 
 
 def _value(value: object) -> str:
@@ -102,7 +110,7 @@ _PUBLIC_RUN_FIELDS = (
     "topic_set",
     "status",
     "as_of",
-    "error",
+    "error_code",
     "neon_branch_id",
     "migration_version",
     "archived_at",
@@ -151,8 +159,207 @@ def _public_run(run: dict[str, object] | None) -> dict[str, object] | None:
         topic_set = getattr(request, "topic_set", None)
     if isinstance(topic_set, str):
         public_run["topic_set"] = topic_set
+    if "error_code" not in public_run and run.get("status") in {"failed", "partial"}:
+        public_run["error_code"] = (
+            "run_failed" if run.get("status") == "failed" else "run_partial"
+        )
+    profile = validation_profile_from_run(run)
+    if profile is not None:
+        public_run["validation_profile"] = profile
     public_run["archived"] = run.get("archived_at") is not None
     return public_run
+
+
+def _unavailable_response(error: Exception) -> JSONResponse:
+    if isinstance(error, RuntimeError) and str(error) in {
+        "runtime DATABASE_URL is blocked",
+        "runtime NEON_BRANCH_ID is blocked",
+    }:
+        # Preserve the existing Vercel health contract without exposing the message.
+        return JSONResponse(
+            {
+                "status": "unavailable",
+                "error": "database_unavailable",
+                "error_type": "RuntimeError",
+            },
+            status_code=503,
+        )
+    del error
+    return JSONResponse(
+        {
+            "status": "unavailable",
+            "error_code": "database_unavailable",
+        },
+        status_code=503,
+    )
+
+
+def _readiness(
+    run: dict[str, object] | None,
+    validation: ValidationReport | None,
+    quality: dict[str, object],
+    brief: WeeklyBrief | None = None,
+) -> dict[str, object]:
+    raw_reasons = quality.get("blocking_reasons", [])
+    reasons = (
+        {item for item in raw_reasons if isinstance(item, str)}
+        if isinstance(raw_reasons, list)
+        else set()
+    )
+    if validation is None:
+        reasons.add("missing_validation")
+    elif validation.status is not ValidationStatus.PASS:
+        reasons.update(validation_blocking_reasons(validation))
+    if run is None or run.get("status") != "succeeded":
+        reasons.add("run_not_succeeded")
+    if run is not None and run.get("migration_version") != MIGRATION_VERSION:
+        reasons.add("schema_migration_stale")
+    if validation_profile_from_run(run) != "full":
+        reasons.add("validation_profile_not_full")
+    if brief is None or brief.review_state is not ReviewState.APPROVED:
+        reasons.add("brief_not_approved")
+    article_count = quality.get("article_count")
+    complete_article_count = quality.get("complete_article_count")
+    article_complete = (
+        isinstance(article_count, int)
+        and article_count > 0
+        and complete_article_count == article_count
+        and quality.get("article_insight_completeness") == 1.0
+    )
+    report_section_count = quality.get("report_section_count")
+    report_sections_complete = quality.get("report_sections_complete")
+    report_complete = (
+        isinstance(report_section_count, int)
+        and report_section_count > 0
+        and report_sections_complete == report_section_count
+        and quality.get("report_section_completeness") == 1.0
+    )
+    quality_only_reasons = {
+        reason
+        for reason in reasons
+        if reason
+        not in {
+            "run_not_succeeded",
+            "validation_not_passed",
+            "validation_profile_not_full",
+            "brief_not_approved",
+            "schema_migration_stale",
+            "schema_migration_missing",
+        }
+    }
+    quality_report_ready = article_complete and report_complete and not quality_only_reasons
+    ready = not reasons and quality_report_ready
+    return {
+        "ready": ready,
+        "readiness_status": "decision_ready" if ready else "review_required",
+        "blocking_reasons": sorted(reasons),
+        "decision_ready": ready,
+        "quality_ready": quality_report_ready,
+        "quality_report_ready": quality_report_ready,
+        "quality_readiness_status": (
+            "quality_ready" if quality_report_ready else "review_required"
+        ),
+        "quality_blocking_reasons": sorted(quality_only_reasons),
+    }
+
+
+def _summary_readiness(summary: dict[str, object]) -> dict[str, object]:
+    result = dict(summary)
+    raw_reasons = result.get("blocking_reasons", [])
+    reasons = {
+        item
+        for item in raw_reasons
+        if isinstance(item, str)
+    } if isinstance(raw_reasons, list) else set()
+    if result.get("run_status") != "succeeded":
+        reasons.add("run_not_succeeded")
+    if result.get("validation_status") != "pass":
+        reasons.add("validation_not_passed")
+    if result.get("validation_profile") != "full":
+        reasons.add("validation_profile_not_full")
+    if result.get("review_state") != "approved":
+        reasons.add("brief_not_approved")
+    if (
+        "migration_version" in result
+        and result.get("migration_version") != MIGRATION_VERSION
+    ):
+        reasons.add("schema_migration_stale")
+
+    def complete_metric(
+        *,
+        count_key: str,
+        complete_key: str,
+        ratio_key: str,
+        reason: str,
+    ) -> bool:
+        count = result.get(count_key)
+        complete = result.get(complete_key)
+        ratio = result.get(ratio_key)
+        normalized_ratio = float(ratio) if isinstance(ratio, Decimal) else ratio
+        if not (
+            isinstance(count, int)
+            and isinstance(complete, int)
+            and isinstance(normalized_ratio, (int, float))
+        ):
+            reasons.add("legacy_quality_evidence_missing")
+            return False
+        result[ratio_key] = normalized_ratio
+        if count <= 0 or complete != count or float(normalized_ratio) != 1.0:
+            reasons.add(reason)
+            return False
+        return True
+
+    article_complete = complete_metric(
+        count_key="article_count",
+        complete_key="complete_article_count",
+        ratio_key="article_insight_completeness",
+        reason="incomplete_article_insights",
+    )
+    report_complete = complete_metric(
+        count_key="report_section_count",
+        complete_key="report_sections_complete",
+        ratio_key="report_section_completeness",
+        reason="empty_report_section",
+    )
+    quality_blocking_reasons = sorted(
+        reason
+        for reason in reasons
+        if reason not in {
+            "run_not_succeeded",
+            "validation_not_passed",
+            "validation_profile_not_full",
+            "brief_not_approved",
+            "schema_migration_stale",
+            "schema_migration_missing",
+        }
+    )
+    quality_report_ready = (
+        article_complete
+        and report_complete
+        and not quality_blocking_reasons
+    )
+    ready = (
+        result.get("run_status") == "succeeded"
+        and result.get("validation_status") == "pass"
+        and result.get("validation_profile") == "full"
+        and result.get("review_state") == "approved"
+        and quality_report_ready
+        and not reasons
+    )
+    result["quality_ready"] = quality_report_ready
+    result["quality_report_ready"] = quality_report_ready
+    result["quality_readiness_status"] = (
+        "decision_ready"
+        if ready
+        else "quality_ready"
+        if quality_report_ready
+        else "review_required"
+    )
+    result["quality_blocking_reasons"] = quality_blocking_reasons
+    result["readiness_status"] = "decision_ready" if ready else "review_required"
+    result["decision_ready"] = ready
+    result["blocking_reasons"] = sorted(reasons)
+    return result
 
 
 def create_app(repository: RepositoryProtocol) -> FastAPI:
@@ -192,10 +399,14 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         if brief_model and str(brief_model) not in resolved_models:
             resolved_models.append(str(brief_model))
         public_run = _public_run(run)
+        quality = quality_metrics(sources, distillations, selected_brief)
+        readiness = _readiness(run, validation, quality, selected_brief)
         return {
             "brief": selected_brief,
             "run": public_run,
             "validation": validation,
+            "quality": {**quality, **readiness},
+            **readiness,
             "lane_coverage": validation.lane_coverage if validation else [],
             "models": resolved_models,
             "requested_models": requested_models,
@@ -212,15 +423,34 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
             "covered_until": selected_brief.covered_until,
         }
 
+    def schema_guard() -> JSONResponse | None:
+        try:
+            health = repository.health()
+        except Exception as error:
+            return _unavailable_response(error)
+        if health.get("status") == "pass":
+            return None
+        payload: dict[str, object] = {
+            "status": "blocked",
+            "error_code": "database_schema_blocked",
+        }
+        blocking_reasons = health.get("blocking_reasons")
+        if isinstance(blocking_reasons, list):
+            payload["blocking_reasons"] = [
+                item for item in blocking_reasons if isinstance(item, str)
+            ]
+        return JSONResponse(payload, status_code=503)
+
     @app.get("/api/health", response_class=JSONResponse)
     def api_health() -> JSONResponse:
         try:
-            return JSONResponse(jsonable_encoder(repository.health()))
+            health = repository.health()
         except Exception as error:
-            return JSONResponse(
-                {"status": "blocked", "error": error.__class__.__name__},
-                status_code=503,
-            )
+            return _unavailable_response(error)
+        return JSONResponse(
+            jsonable_encoder(health),
+            status_code=503 if health.get("status") != "pass" else 200,
+        )
 
     @app.get("/api/source-catalog", response_class=JSONResponse)
     def api_source_catalog() -> JSONResponse:
@@ -252,28 +482,34 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         offset: int = Query(default=0, ge=0, le=10000),
         archive_scope: ArchiveScope = Query(default="active", max_length=8),  # noqa: B008
     ) -> JSONResponse:
-        reports = repository.list_brief_summaries(
-            review_state=review,
-            since=since,
-            until=until,
-            limit=limit,
-            offset=offset,
-            run_status=run_status,
-            ready_only=ready,
-            archive_scope=archive_scope,
-        )
-        total = repository.count_brief_summaries(
-            review_state=review,
-            since=since,
-            until=until,
-            run_status=run_status,
-            ready_only=ready,
-            archive_scope=archive_scope,
-        )
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
+        try:
+            reports = repository.list_brief_summaries(
+                review_state=review,
+                since=since,
+                until=until,
+                limit=limit,
+                offset=offset,
+                run_status=run_status,
+                ready_only=ready,
+                archive_scope=archive_scope,
+            )
+            total = repository.count_brief_summaries(
+                review_state=review,
+                since=since,
+                until=until,
+                run_status=run_status,
+                ready_only=ready,
+                archive_scope=archive_scope,
+            )
+        except Exception as error:
+            return _unavailable_response(error)
         return JSONResponse(
             jsonable_encoder(
                 {
-                    "reports": reports,
+                    "reports": [_summary_readiness(report) for report in reports],
                     "count": len(reports),
                     "total": total,
                     "limit": limit,
@@ -294,30 +530,36 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         offset: int = Query(default=0, ge=0, le=10000),
         archive_scope: ArchiveScope = Query(default="active", max_length=8),  # noqa: B008
     ) -> JSONResponse:
-        reports = repository.list_brief_summaries(
-            cadence="daily",
-            review_state=review,
-            since=since,
-            until=until,
-            limit=limit,
-            offset=offset,
-            run_status=run_status,
-            ready_only=ready,
-            archive_scope=archive_scope,
-        )
-        total = repository.count_brief_summaries(
-            cadence="daily",
-            review_state=review,
-            since=since,
-            until=until,
-            run_status=run_status,
-            ready_only=ready,
-            archive_scope=archive_scope,
-        )
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
+        try:
+            reports = repository.list_brief_summaries(
+                cadence="daily",
+                review_state=review,
+                since=since,
+                until=until,
+                limit=limit,
+                offset=offset,
+                run_status=run_status,
+                ready_only=ready,
+                archive_scope=archive_scope,
+            )
+            total = repository.count_brief_summaries(
+                cadence="daily",
+                review_state=review,
+                since=since,
+                until=until,
+                run_status=run_status,
+                ready_only=ready,
+                archive_scope=archive_scope,
+            )
+        except Exception as error:
+            return _unavailable_response(error)
         return JSONResponse(
             jsonable_encoder(
                 {
-                    "reports": reports,
+                    "reports": [_summary_readiness(report) for report in reports],
                     "count": len(reports),
                     "total": total,
                     "limit": limit,
@@ -329,6 +571,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
 
     @app.get("/api/regions", response_class=JSONResponse)
     def api_regions() -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         return JSONResponse(
             jsonable_encoder(
                 {"regions": repository.list_regions(), "counts": repository.region_counts()}
@@ -337,21 +582,35 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
 
     @app.get("/api/audit", response_class=JSONResponse)
     def api_audit() -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         try:
-            return JSONResponse(
-                jsonable_encoder({"status": "pass", **repository.audit_summary()})
-            )
+            summary = repository.audit_summary()
         except Exception as error:
-            return JSONResponse(
-                {"status": "blocked", "error": error.__class__.__name__},
-                status_code=503,
-            )
+            return _unavailable_response(error)
+        database = summary.get("database")
+        if isinstance(database, dict) and database.get("status") != "pass":
+            payload: dict[str, object] = {
+                "status": "blocked",
+                "error_code": "database_schema_blocked",
+            }
+            reasons = database.get("blocking_reasons")
+            if isinstance(reasons, list):
+                payload["blocking_reasons"] = [
+                    item for item in reasons if isinstance(item, str)
+                ]
+            return JSONResponse(payload, status_code=503)
+        return JSONResponse(jsonable_encoder({"status": "pass", **summary}))
 
     @app.get("/api/reports/weekly/{run_id}/markdown")
     def api_weekly_markdown(
         run_id: str,
         archive_scope: ArchiveScope = Query(default="active", max_length=8),  # noqa: B008
     ) -> Response:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         brief = repository.get_brief(run_id)
         if brief is None or not _archive_visible(repository.get_run(run_id), archive_scope):
             return Response("weekly report not found", status_code=404)
@@ -384,10 +643,15 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         run_id: str,
         archive_scope: ArchiveScope = Query(default="active", max_length=8),  # noqa: B008
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         try:
             payload = report_payload(run_id, archive_scope=archive_scope)
         except (KeyError, ValueError):
             return JSONResponse({"error": "weekly report not found"}, status_code=404)
+        except Exception as error:
+            return _unavailable_response(error)
         return JSONResponse(jsonable_encoder(payload))
 
     @app.get("/api/reports/monthly", response_class=JSONResponse)
@@ -400,15 +664,21 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         language: str | None = Query(default=None, max_length=12),
         evidence: str | None = Query(default=None, max_length=40),
     ) -> JSONResponse:
-        rollups = repository.monthly_rollup(
-            since=since,
-            until=until,
-            limit=limit,
-            offset=offset,
-            region=region,
-            language=language,
-            evidence=evidence,
-        )
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
+        try:
+            rollups = repository.monthly_rollup(
+                since=since,
+                until=until,
+                limit=limit,
+                offset=offset,
+                region=region,
+                language=language,
+                evidence=evidence,
+            )
+        except Exception as error:
+            return _unavailable_response(error)
         normalized_rollups = [
             {
                 **rollup,
@@ -446,26 +716,40 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         page: int = Query(default=1, ge=1, le=10000),
         page_size: int = Query(default=24, ge=1, le=100),
     ) -> JSONResponse:
-        payload = repository.list_source_explorer(
-            query,
-            geography=geography,
-            lane=lane,
-            evidence_status=evidence,
-            region=region,
-            language=language,
-            freshness=freshness,
-            authority_tier=authority_tier,
-            source_type=source_type,
-            since=since,
-            until=until,
-            page=page,
-            page_size=page_size,
-        )
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
+        try:
+            payload = repository.list_source_explorer(
+                query,
+                geography=geography,
+                lane=lane,
+                evidence_status=evidence,
+                region=region,
+                language=language,
+                freshness=freshness,
+                authority_tier=authority_tier,
+                source_type=source_type,
+                since=since,
+                until=until,
+                page=page,
+                page_size=page_size,
+            )
+        except Exception as error:
+            return _unavailable_response(error)
         return JSONResponse(jsonable_encoder(payload))
 
     @app.get("/api/sources/facets", response_class=JSONResponse)
     def api_source_facets() -> JSONResponse:
-        return JSONResponse(jsonable_encoder({"status": "pass", **repository.source_facets()}))
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
+        try:
+            return JSONResponse(
+                jsonable_encoder({"status": "pass", **repository.source_facets()})
+            )
+        except Exception as error:
+            return _unavailable_response(error)
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
@@ -516,11 +800,12 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
             if brief
             else "<p>No brief recorded.</p>"
         )
+        public_run = _public_run(run)
         body = (
             f"<h1>Run <code>{_value(run_id)}</code></h1>"
             f"<div class='card'><p>Status: <strong>{_value(run.get('status'))}</strong></p>"
             f"<p>Topic: {_value(run.get('topic_set'))}</p><p>As of: {_value(run.get('as_of'))}</p>"
-            f"<p>Error: {_value(run.get('error') or 'none')}</p></div>"
+            f"<p>Error: {_value((public_run or {}).get('error_code') or 'none')}</p></div>"
             f"<div class='card'>{brief_html}</div>"
             f"{steps_html}"
         )
@@ -611,17 +896,24 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         limit: int = Query(default=100, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         return JSONResponse(
             jsonable_encoder(
                 {
-                    "runs": repository.list_runs(
-                        topic_set=topic_set,
-                        status=status,
-                        since=since,
-                        until=until,
-                        limit=limit,
-                        offset=offset,
-                    )
+                    "runs": [
+                        public_run
+                        for run in repository.list_runs(
+                            topic_set=topic_set,
+                            status=status,
+                            since=since,
+                            until=until,
+                            limit=limit,
+                            offset=offset,
+                        )
+                        if (public_run := _public_run(run)) is not None
+                    ]
                 }
             )
         )
@@ -642,27 +934,28 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         limit: int = Query(default=100, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
-        return JSONResponse(
-            jsonable_encoder(
-                {
-                    "sources": repository.list_sources(
-                        query,
-                        geography=geography,
-                        lane=lane,
-                        evidence_status=evidence,
-                        region=region,
-                        language=language,
-                        freshness=freshness,
-                        authority_tier=authority_tier,
-                        source_type=source_type,
-                        since=since,
-                        until=until,
-                        limit=limit,
-                        offset=offset,
-                    )
-                }
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
+        try:
+            sources = repository.list_sources(
+                query,
+                geography=geography,
+                lane=lane,
+                evidence_status=evidence,
+                region=region,
+                language=language,
+                freshness=freshness,
+                authority_tier=authority_tier,
+                source_type=source_type,
+                since=since,
+                until=until,
+                limit=limit,
+                offset=offset,
             )
-        )
+        except Exception as error:
+            return _unavailable_response(error)
+        return JSONResponse(jsonable_encoder({"sources": sources}))
 
     @app.get("/api/distillations", response_class=JSONResponse)
     def api_distillations(
@@ -676,6 +969,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         limit: int = Query(default=100, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         return JSONResponse(
             jsonable_encoder(
                 {
@@ -704,6 +1000,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         limit: int = Query(default=100, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         return JSONResponse(
             jsonable_encoder(
                 {
@@ -731,6 +1030,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         limit: int = Query(default=100, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         return JSONResponse(
             jsonable_encoder(
                 {
@@ -757,6 +1059,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         limit: int = Query(default=20, ge=1, le=1000),
         offset: int = Query(default=0, ge=0, le=10000),
     ) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         return JSONResponse(
             jsonable_encoder(
                 {
@@ -774,39 +1079,60 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
 
     @app.get("/api/runs/{run_id}", response_class=JSONResponse)
     def api_run(run_id: str) -> JSONResponse:
-        run = repository.get_run(run_id)
-        if run is None:
-            return JSONResponse({"error": "run not found"}, status_code=404)
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
+        try:
+            run = repository.get_run(run_id)
+            if run is None:
+                return JSONResponse({"error": "run not found"}, status_code=404)
+            brief = repository.get_brief(run_id)
+            sources = repository.get_run_sources(run_id)
+            distillations = repository.get_run_distillations(run_id)
+            validation = repository.get_validation(run_id)
+            quality = quality_metrics(sources, distillations, brief)
+            readiness = _readiness(run, validation, quality, brief)
+        except Exception as error:
+            return _unavailable_response(error)
         return JSONResponse(
             jsonable_encoder(
                 {
                     "run": _public_run(run),
                     "steps": _public_steps(repository.get_run_steps(run_id)),
-                    "sources": repository.get_run_sources(run_id),
+                    "sources": sources,
                     "claims": repository.get_run_claims(run_id),
-                    "distillations": repository.get_run_distillations(run_id),
+                    "distillations": distillations,
                     "signals": repository.get_run_signal_events(run_id),
                     "tool_calls": _public_tool_calls(repository.get_run_tool_calls(run_id)),
                     "source_hashes": repository.get_run_snapshot_hashes(run_id),
-                    "brief": repository.get_brief(run_id),
-                    "validation": repository.get_validation(run_id),
+                    "brief": brief,
+                    "validation": validation,
+                    "quality": {**quality, **readiness},
+                    **readiness,
                 }
             )
         )
 
     @app.get("/api/runs/{run_id}/audit", response_class=JSONResponse)
     def api_run_audit(run_id: str) -> JSONResponse:
-        run = repository.get_run(run_id)
-        if run is None:
-            return JSONResponse({"error": "run not found"}, status_code=404)
-        steps = _public_steps(repository.get_run_steps(run_id))
-        tool_calls = _public_tool_calls(repository.get_run_tool_calls(run_id))
-        sources = repository.get_run_sources(run_id)
-        distillations = repository.get_run_distillations(run_id)
-        claims = repository.get_run_claims(run_id)
-        signals = repository.get_run_signal_events(run_id)
-        source_hashes = repository.get_run_snapshot_hashes(run_id)
-        validation_report = repository.get_validation(run_id)
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
+        try:
+            run = repository.get_run(run_id)
+            if run is None:
+                return JSONResponse({"error": "run not found"}, status_code=404)
+            steps = _public_steps(repository.get_run_steps(run_id))
+            tool_calls = _public_tool_calls(repository.get_run_tool_calls(run_id))
+            sources = repository.get_run_sources(run_id)
+            distillations = repository.get_run_distillations(run_id)
+            claims = repository.get_run_claims(run_id)
+            signals = repository.get_run_signal_events(run_id)
+            source_hashes = repository.get_run_snapshot_hashes(run_id)
+            validation_report = repository.get_validation(run_id)
+            brief = repository.get_brief(run_id)
+        except Exception as error:
+            return _unavailable_response(error)
         sources_by_region = Counter(source.region for source in sources)
         sources_by_language = Counter(source.language_code for source in sources)
         freshness = Counter(source.freshness_status.value for source in sources)
@@ -817,6 +1143,22 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         claims_by_evidence = Counter(item.evidence_status.value for item in claims)
         independent_sources = Counter(
             str(item.independent_source_count) for item in claims
+        )
+        quality = quality_metrics(sources, distillations, brief)
+        readiness = _readiness(run, validation_report, quality, brief)
+        article_count = (
+            quality["article_count"] if isinstance(quality["article_count"], int) else 0
+        )
+        complete_article_count = (
+            quality["complete_article_count"]
+            if isinstance(quality["complete_article_count"], int)
+            else 0
+        )
+        article_quality = Counter(
+            {
+                "complete": complete_article_count,
+                "incomplete": article_count - complete_article_count,
+            }
         )
         extraction_success_rate = (
             extraction.get("succeeded", 0) / len(sources) if sources else 0.0
@@ -834,7 +1176,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                 {
                     "run_id": run_id,
                     "run": _public_run(run),
-                    "validation": repository.get_validation(run_id),
+                    "validation": validation_report,
+                    "quality": {**quality, **readiness},
+                    **readiness,
                     "steps": steps,
                     "tool_calls": tool_calls,
                     "sources": sources,
@@ -850,7 +1194,19 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                         ),
                         "source_count": len(sources),
                         "source_hash_count": len(source_hashes),
-                        "distillation_count": len(distillations),
+                            "distillation_count": len(distillations),
+                            "article_count": article_count,
+                            "article_insight_quality": dict(sorted(article_quality.items())),
+                            "article_insight_complete_count": article_quality.get("complete", 0),
+                            "article_insight_completeness": quality[
+                                "article_insight_completeness"
+                            ],
+                            "report_section_completeness": quality["report_section_completeness"],
+                            "source_distillation_coverage": quality["source_distillation_coverage"],
+                            "article_quality_issues": quality["article_quality_issues"],
+                            "article_fulfillment": quality["article_fulfillment"],
+                            "report_quality_issues": quality["report_quality_issues"],
+                            "blocking_reasons": readiness["blocking_reasons"],
                         "claim_count": len(claims),
                             "signal_count": len(signals),
                             "sources_by_region": dict(sorted(sources_by_region.items())),
@@ -880,6 +1236,9 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
 
     @app.get("/api/briefs/{brief_id}", response_class=JSONResponse)
     def api_brief(brief_id: str) -> JSONResponse:
+        blocked = schema_guard()
+        if blocked is not None:
+            return blocked
         brief = repository.get_brief(brief_id)
         if brief is None:
             return JSONResponse({"error": "brief not found"}, status_code=404)

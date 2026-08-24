@@ -624,6 +624,63 @@ def test_discovery_persists_failed_tavily_tool_receipt(
     assert attempt["tool_call_receipts"][0]["status"] == "failed"
 
 
+def test_discovery_preserves_successful_tool_receipt_when_agent_fails_after_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TavilyStub:
+        last_call_metadata = {"key_slot": 2, "key_count": 2}
+
+        async def search(self, _: str, **__: object) -> list[SourceCandidate]:
+            return [
+                SourceCandidate(
+                    url="https://www.fmc.gov/example-agent-source",
+                    publisher="fmc.gov",
+                    published_at=datetime(2026, 8, 10, tzinfo=UTC),
+                    geographies=["Regulatory"],
+                )
+            ]
+
+        async def extract(self, _: list[SourceCandidate]) -> dict[str, str]:
+            return {}
+
+    class AgentFailureAfterSearch:
+        def __init__(self, tools: list[BaseTool]) -> None:
+            self.tools = {tool.name: tool for tool in tools}
+
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            await self.tools["tavily_search"].ainvoke({"query": "configured"})
+            raise RuntimeError("OpenRouter 429 after the search tool returned")
+
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+    monkeypatch.setattr(
+        openrouter_module,
+        "create_agent",
+        lambda *, tools, **_: AgentFailureAfterSearch(tools),
+    )
+
+    with pytest.raises(ProviderError, match="OpenRouter discovery:regulatory failed"):
+        asyncio.run(
+            provider.discover_lane(
+                "regulatory",
+                ["configured"],
+                ("Regulatory",),
+                since=datetime(2026, 8, 1, tzinfo=UTC),
+                until=datetime(2026, 8, 20, tzinfo=UTC),
+                include_domains=["fmc.gov"],
+                exclude_domains=[],
+                max_results=1,
+                tavily=TavilyStub(),
+            )
+        )
+
+    attempt = provider.call_history[0]
+    assert attempt["error_code"] == "rate_limit"
+    assert attempt["tool_calls"] == 1
+    assert attempt["tool_call_receipts"][0]["tool_name"] == "tavily_search"
+    assert attempt["tool_call_receipts"][0]["status"] == "succeeded"
+
+
 def test_discovery_rejects_a_zero_tool_response(monkeypatch: pytest.MonkeyPatch) -> None:
     class ZeroToolAgent:
         async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
@@ -720,20 +777,21 @@ def test_discovery_rejects_a_model_invented_url(monkeypatch: pytest.MonkeyPatch)
         lambda *, tools, **_: InventedUrlAgent(tools),
     )
 
-    with pytest.raises(ProviderError, match="introduced an unknown source URL"):
-        asyncio.run(
-            provider.discover_lane(
-                "regulatory",
-                ["configured"],
-                ("Regulatory",),
-                since=datetime(2026, 8, 1, tzinfo=UTC),
-                until=datetime(2026, 8, 20, tzinfo=UTC),
-                include_domains=[],
-                exclude_domains=[],
-                max_results=1,
-                tavily=TavilyStub(),
-            )
+    result = asyncio.run(
+        provider.discover_lane(
+            "regulatory",
+            ["configured"],
+            ("Regulatory",),
+            since=datetime(2026, 8, 1, tzinfo=UTC),
+            until=datetime(2026, 8, 20, tzinfo=UTC),
+            include_domains=[],
+            exclude_domains=[],
+            max_results=1,
+            tavily=TavilyStub(),
         )
+    )
+    assert result.packet.source_urls == ["https://known.example/article"]
+    assert result.metadata["invalid_selected_url_count"] == 1
 
 
 def test_discovery_rejects_unverifiable_tavily_scope_metadata() -> None:
@@ -799,6 +857,24 @@ def test_discovery_maps_live_tavily_fmc_result_to_catalog_geography() -> None:
     )
 
     assert validated.geographies == ["Regulatory", "United States"]
+
+
+def test_discovery_maps_trade_media_port_title_to_lane_geography() -> None:
+    source = SourceCandidate(
+        url="https://theloadstar.com/port-of-seattle-becomes-the-latest-casualty-of-container-congestion",
+        title="Port of Seattle becomes the latest casualty of container congestion",
+        publisher="theloadstar.com",
+        snippet="Container congestion affects the Port of Seattle.",
+    )
+
+    enriched = OpenRouterProvider._enrich_discovery_geographies(
+        source,
+        ("West Coast", "East Coast", "Gulf"),
+        ["latest West Coast port congestion"],
+        ["theloadstar.com"],
+    )
+
+    assert enriched.geographies == ["West Coast"]
 
 
 def test_discovery_maps_every_configured_query_family_from_domain_evidence() -> None:
@@ -1517,9 +1593,32 @@ def test_create_agent_names_all_six_workers(monkeypatch: pytest.MonkeyPatch) -> 
             if self.name == "source_distillation_agent":
                 structured_response = {
                     "summary": "Source-bound summary.",
-                    "key_points": ["Reported point."],
-                    "claims": [],
-                    "limitations": [],
+                    "key_points": ["Reported point.", "Second reported point."],
+                    "what_happened": "The source reports a public development.",
+                    "why_it_matters": "The development changes the operating picture.",
+                    "risk_assessment": {
+                        "status": "not_observed",
+                        "statement": "No supported material risk was observed.",
+                        "why_it_matters": "The source does not establish a material risk.",
+                        "next_step": "Check an independent source for risk evidence.",
+                    },
+                    "opportunity_assessment": {
+                        "status": "not_observed",
+                        "statement": "No supported commercial opportunity was observed.",
+                        "why_it_matters": "The source does not establish an opportunity.",
+                        "next_step": "Check an independent source for opportunity evidence.",
+                    },
+                    "uncertainties": ["The source may not cover the full market."],
+                    "next_steps": ["Compare the report with an independent source."],
+                    "evidence_excerpts": ["A reported point."],
+                    "evidence_locators": ["paragraph 1"],
+                    "claims": [
+                        {
+                            "claim": "A reported point.",
+                            "source_urls": ["https://www.fmc.gov/example-agent-source"],
+                        }
+                    ],
+                    "limitations": ["Public source only."],
                 }
             elif self.name == "critic_agent":
                 structured_response = {"claims": []}
