@@ -5,7 +5,6 @@ from urllib.parse import urlsplit
 from .contracts import SourceCandidate, ValidationStatus
 from .providers.capabilities import resolve_capabilities, resolve_free_model_catalog
 from .providers.errors import ProviderError
-from .providers.neon import NeonApiClient
 from .providers.openrouter import OpenRouterProvider
 from .providers.tavily import TavilyProvider
 from .settings import (
@@ -55,7 +54,6 @@ def _env_check(settings: Settings) -> dict[str, object]:
         "TAVILY_API_KEY_COUNT": settings.tavily_api_key_count,
         "TAVILY_PROJECT_ID": bool(settings.tavily_project_id),
         "OPENROUTER_API_KEY": bool(settings.openrouter_api_key),
-        "NEON_PG_API_KEY": bool(settings.neon_api_key),
         "DATABASE_URL": bool(settings.database_url),
         "DIRECT_DATABASE_URL": bool(settings.direct_database_url),
         "OPENROUTER_MODEL": settings.openrouter_model,
@@ -279,34 +277,14 @@ async def _provider_check(
     return checks
 
 
-def _neon_check(settings: Settings) -> dict[str, object]:
-    if not settings.neon_api_key:
-        return {
-            "status": "not_configured",
-            "message": (
-                "NEON_PG_API_KEY is optional; database URLs are sufficient "
-                "for runtime health"
-            ),
-        }
-    if settings.neon_api_key.get_secret_value().lower().startswith(
-        ("postgres://", "postgresql://")
-    ):
-        return _status(
-            False,
-            "NEON_PG_API_KEY is a database URL; a Neon management API token is required",
-        )
-    client = NeonApiClient(
-        settings.neon_api_key.get_secret_value(),
-        project_id=settings.neon_project_id,
-        project_name=settings.neon_project_name,
-        branch_id=settings.neon_branch_id,
-    )
-    try:
-        return client.inspect()
-    except ProviderError as error:
-        return _status(False, str(error))
-    finally:
-        client.close()
+def _neon_check() -> dict[str, object]:
+    return {
+        "status": "not_configured",
+        "message": (
+            "Neon management uses host-controlled MCP OAuth; "
+            "DATABASE_URL is runtime access and DIRECT_DATABASE_URL is migration access"
+        ),
+    }
 
 
 async def run_doctor(
@@ -321,7 +299,7 @@ async def run_doctor(
             settings, allow_free_fallbacks=allow_free_fallbacks
         ),
         "providers": provider_checks,
-        "neon_management": _neon_check(settings),
+        "neon_management": _neon_check(),
         "database_pooled": _database_check(
             settings.database_url, pooled=True, label="DATABASE_URL"
         ),

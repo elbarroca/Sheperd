@@ -16,7 +16,7 @@ Small, local-first research service for public maritime, port, carrier, terminal
 1. Rotate any credential pasted into chat or other public surfaces.
 2. Put replacement values in the repository-root `.env.local`; do not copy secrets into this folder.
 3. Use the configured Neon project `sheperd-research` and its `main` branch.
-4. Put the pooled `main` connection in `DATABASE_URL`; put the direct `main` migration connection in `DIRECT_DATABASE_URL`. `NEON_PG_API_KEY` is optional management access only; set `NEON_BRANCH_ID` to the main branch ID. The service rejects a direct URL in the pooled slot and a pooled URL in the migration slot.
+4. Put the pooled `main` connection in `DATABASE_URL`; put the direct `main` migration connection in `DIRECT_DATABASE_URL`. Neon management checks use host-controlled MCP OAuth; set `NEON_BRANCH_ID` to the main branch ID. The service rejects a direct URL in the pooled slot and a pooled URL in the migration slot.
 5. Install dependencies and run the checks:
 
 ```bash

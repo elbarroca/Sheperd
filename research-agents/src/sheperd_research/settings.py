@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from pydantic import AliasChoices, Field, SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 STRICT_OPENROUTER_MODEL = "google/gemma-4-26b-a4b-it:free"
@@ -107,10 +107,6 @@ class Settings(BaseSettings):
     repo_root: Path = Field(default_factory=discover_repo_root, exclude=True)
     database_url: str | None = None
     direct_database_url: str | None = None
-    neon_api_key: SecretStr | None = Field(
-        default=None,
-        validation_alias=AliasChoices("NEON_PG_API_KEY", "NEON_API_KEY"),
-    )
     neon_project_id: str | None = None
     neon_project_name: str = "sheperd-research"
     neon_branch_id: str = "main"
@@ -189,10 +185,6 @@ class Settings(BaseSettings):
     @property
     def has_direct_database_credentials(self) -> bool:
         return bool(self.direct_database_url)
-
-    @property
-    def has_neon_management_credentials(self) -> bool:
-        return bool(self.neon_api_key)
 
     @property
     def openrouter_model_chain(self) -> tuple[str, ...]:
