@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
-from psycopg import OperationalError
+from psycopg import InternalError, OperationalError
 
 from sheperd_research.contracts import (
     ArticleDistillation,
@@ -359,6 +359,20 @@ def test_postgres_brief_summaries_recompute_readiness_from_persisted_evidence() 
     assert summaries[0]["quality_ready"] is False
     assert summaries[0]["report_section_count"] == 5
     assert summaries[0]["report_section_completeness"] == 0.0
+
+
+def test_postgres_brief_summary_aggregates_are_scoped_to_the_report_page() -> None:
+    repository = PostgresRepository(Mock())
+    with patch.object(repository, "_execute", return_value=[]) as execute:
+        repository.list_brief_summaries(limit=2, offset=4)
+
+    query = execute.call_args.args[0]
+    assert "page_briefs AS" in query
+    assert "JOIN page_briefs page_source" in query
+    assert "JOIN page_briefs page_distillation" in query
+    assert "JOIN page_briefs page_claim" in query
+    assert "JOIN page_briefs page_signal" in query
+    assert "JOIN page_briefs page_article" in query
 
 
 def test_postgres_brief_summaries_restore_provider_blocking_reasons() -> None:
@@ -1106,5 +1120,28 @@ def test_postgres_repository_reconnects_once_after_connection_loss() -> None:
         )
         assert repository._execute("SELECT 1") == []
 
+    connect.assert_called_once()
+    replacement.commit.assert_called_once()
+
+
+def test_postgres_repository_reconnects_after_aborted_transaction() -> None:
+    disconnected = Mock()
+    disconnected.cursor.side_effect = InternalError("temporary disk quota failure")
+    replacement = Mock()
+    cursor = Mock(description=None)
+    cursor_context = MagicMock()
+    cursor_context.__enter__.return_value = cursor
+    cursor_context.__exit__.return_value = False
+    replacement.cursor.return_value = cursor_context
+
+    with patch("psycopg.connect", return_value=replacement) as connect:
+        repository = PostgresRepository(
+            disconnected,
+            "main",
+            "postgresql://example.test/neondb",
+        )
+        assert repository._execute("SELECT 1") == []
+
+    disconnected.rollback.assert_called_once()
     connect.assert_called_once()
     replacement.commit.assert_called_once()
