@@ -109,6 +109,7 @@ describe("research API runtime validation", () => {
     await expect(getWeeklyReports()).resolves.toMatchObject({ status: "ok" });
     await expect(getWeeklyReport("run-1")).resolves.toMatchObject({ status: "ok" });
     await expect(getMonthlyRollups()).resolves.toMatchObject({ status: "ok" });
+    expect(fetchMock.mock.calls[3]?.[0]).toContain("/api/reports/monthly?limit=1000");
   });
 
   it("accepts backend report runs without an error field", async () => {

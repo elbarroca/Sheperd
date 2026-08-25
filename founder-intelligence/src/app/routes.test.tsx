@@ -77,10 +77,31 @@ describe("production report routes", () => {
   });
 
   it("renders monthly data from the API without fallback content", async () => {
-    const rollup: MonthlyRollup = { month: "2026-08-01", signals: 2, runs: 1, geographies: ["US"] };
+    const rollup: MonthlyRollup = {
+      month: "2026-08-01",
+      date: "2026-08-14",
+      signals: 2,
+      runs: 1,
+      geographies: ["US"],
+      region: "us",
+      language: "en",
+      lane: "ports",
+      authority: "Port authority",
+      signal: "congestion",
+      evidence: "cited",
+    };
     api.getMonthlyRollups.mockResolvedValue({ status: "ok", data: { rollups: [rollup] } });
 
-    expect(renderToStaticMarkup(await MonthlyPage())).toContain("2026-08-01");
+    const markup = renderToStaticMarkup(await MonthlyPage());
+    expect(markup).toContain("2026-08-01");
+    expect(markup).toContain("Port authority");
+    expect(markup).toContain("congestion");
+  });
+
+  it("passes monthly filters to the API", async () => {
+    api.getMonthlyRollups.mockResolvedValue({ status: "ok", data: { rollups: [] } });
+    await MonthlyPage({ searchParams: Promise.resolve({ region: "us", evidence: "cited" }) });
+    expect(api.getMonthlyRollups).toHaveBeenCalledWith({ region: "us", evidence: "cited" });
   });
 
   it("renders the live workflow explanation and persisted run metrics", async () => {
