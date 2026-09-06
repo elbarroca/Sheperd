@@ -48,6 +48,7 @@ export function SeoHead({
       <meta key="og:type" property="og:type" content={metadata.openGraphType} />
       <meta key="og:url" property="og:url" content={metadata.canonicalUrl} />
       <meta key="og:site_name" property="og:site_name" content={metadata.siteName} />
+      <meta key="og:locale" property="og:locale" content="en_US" />
       <meta key="og:title" property="og:title" content={metadata.title} />
       <meta
         key="og:description"
@@ -55,6 +56,7 @@ export function SeoHead({
         content={metadata.description}
       />
       <meta key="og:image" property="og:image" content={metadata.socialImageUrl} />
+      <meta key="og:image:type" property="og:image:type" content="image/png" />
       <meta key="og:image:width" property="og:image:width" content="1200" />
       <meta key="og:image:height" property="og:image:height" content="630" />
       <meta

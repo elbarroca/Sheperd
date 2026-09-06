@@ -31,7 +31,7 @@ export function SiteFooter() {
         </div>
       </div>
       <div className="container footer-bottom">
-        <span>SheperD. Case-specific review. No guaranteed recovery.</span>
+        <span>SheperD. A clearer record. An informed next step.</span>
         <nav aria-label="Legal links"><a href="/privacy">Privacy notice</a><a href="/terms">Use notice</a></nav>
       </div>
     </footer>

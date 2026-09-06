@@ -1,14 +1,17 @@
 import { expect, test } from "@playwright/test";
 
 const CANONICAL_ORIGIN = "https://sheperd-website.vercel.app";
+const IS_PRODUCTION = process.env.SHEPERD_QA_PRODUCTION === "1";
 
-test("uses the preview robots policy and canonical homepage origin", async ({ page }) => {
-  await page.goto("/", { waitUntil: "networkidle" });
+test("uses the build's robots policy and canonical homepage origin", async ({ page }) => {
+  const response = await page.goto("/", { waitUntil: "networkidle" });
+  const expectedRobots = IS_PRODUCTION ? "index, follow" : "noindex, nofollow, noarchive";
 
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
     "content",
-    /noindex.*nofollow/i,
+    expectedRobots,
   );
+  expect(response?.headers()["x-robots-tag"]).toBe(expectedRobots);
   const canonicalHref = await page
     .locator('link[rel="canonical"]')
     .getAttribute("href");
@@ -39,12 +42,17 @@ test("serves crawl policy and sitemap endpoints", async ({ request }) => {
   expect(robotsResponse.status()).toBe(200);
   const robotsBody = await robotsResponse.text();
   expect(robotsBody).toMatch(/user-agent:\s*\*/i);
-  expect(robotsBody).toMatch(/disallow:\s*\//i);
+  expect(robotsBody).toMatch(IS_PRODUCTION ? /^allow:\s*\//im : /^disallow:\s*\//im);
 
   const sitemapResponse = await request.get("/sitemap.xml");
   expect(sitemapResponse.status()).toBe(200);
   expect(sitemapResponse.headers()["content-type"]).toMatch(/xml|text/i);
   const sitemapBody = await sitemapResponse.text();
   expect(sitemapBody).toMatch(/<urlset[\s>]/i);
-  expect(sitemapBody).not.toContain("<loc>");
+  if (IS_PRODUCTION) {
+    expect(sitemapBody.match(/<loc>/g)).toHaveLength(1);
+    expect(sitemapBody).toContain(`<loc>${CANONICAL_ORIGIN}/</loc>`);
+  } else {
+    expect(sitemapBody).not.toContain("<loc>");
+  }
 });

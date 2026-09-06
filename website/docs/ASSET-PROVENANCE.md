@@ -52,7 +52,8 @@ Use boundary: generic industry-context imagery only. It does not depict a Sheper
   caption. It remains illustrative terminal imagery, not a customer record.
 - `website/public/og/sheperd-recovery.png` is a 1200 × 630 social graphic rendered
   with Next.js `ImageResponse` from that artwork, the existing SheperD animal
-  logo, and the approved headline and recovery qualification. Georgia and Arial
+  logo, and the approved headline. The footer qualification was removed in the
+  latest visual revision. Georgia and Arial
   were used to render the graphic; no font binaries are shipped.
 
 ## September 2026 atmospheric loop

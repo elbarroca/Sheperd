@@ -18,6 +18,9 @@ test("presents the centered recovery hero with contained, loaded imagery", async
   await expect(hero).toBeVisible();
   await expect(heading).toBeVisible();
   await expect(heading).toHaveCSS("text-align", "center");
+  for (const selector of [".recovery-hero", '[data-section-motion="closing"]', "footer"]) {
+    await expect(page.locator(selector)).not.toContainText(/case-specific review|no guaranteed recovery/i);
+  }
 
   const heroImages = hero.locator("img");
   const imageDetails = await heroImages.evaluateAll((images) =>

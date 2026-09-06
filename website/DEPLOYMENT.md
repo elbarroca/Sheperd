@@ -16,6 +16,10 @@ The approved September 2026 redesign releases to this existing project. The
 founder dashboard and research API are separate projects. Do not deploy this
 website through the repository root's research deployment configuration.
 
+Keep the project's Preview Vercel Toolbar setting off. The toolbar injects an
+external script that conflicts with this site's self-only script policy. A
+setting change needs a fresh build to remove previously bundled toolbar code.
+
 ## Build and search policy
 
 `lib/seo.ts` owns metadata, robots, and sitemap policy. Vercel's build-time
@@ -60,8 +64,18 @@ control is rendered, following the approved motion revision.
 The GIF export is retained in `public/media/recovery-terminal-loop.gif`; normal
 page loading uses WebM or the H.264 fallback. Asset provenance and the generation
 prompt are in `docs/ASSET-PROVENANCE.md`; `scripts/render-hero-loop.sh` rebuilds
-the derivatives with FFmpeg. Scroll reveals use the installed Motion mini API,
-with readable server-rendered content and reduced-motion support.
+the derivatives with FFmpeg. Scroll reveals use the installed Motion mini API.
+Section-specific groups bind to scroll progress, including reverse scrolling:
+editorial lines, process assembly, side-entry evidence, terminal light, converging
+pilot columns, quiet trust content, and the closing headline. A fixed viewport
+distance at each boundary keeps tall sections still and opaque while reading.
+Keyboard focus restores static content; pointer focus freezes control positions.
+Reduced motion and hidden tabs stop work; offscreen sections release controls.
+Server-rendered content remains readable without JavaScript.
+
+Lenis 1.3.26 loads on the client for gentle wheel and anchor scrolling. Touch
+scrolling stays native. Reduced motion and an open pilot dialog disable Lenis;
+hidden tabs stop its animation frame loop. Skip navigation remains immediate.
 
 ## Pilot intake remains disabled
 

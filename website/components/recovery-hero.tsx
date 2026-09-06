@@ -98,9 +98,6 @@ export function RecoveryHero(): ReactElement {
           <PilotLink className="button">Request a pilot</PilotLink>
           <a className="button button-outline" href="#process">See the recovery path</a>
         </div>
-        <p className="hero-boundary">
-          Case-specific review <span aria-hidden="true">·</span> No guaranteed recovery
-        </p>
       </div>
       <div ref={sceneRef} className="hero-scene" data-testid="hero-scene" data-motion={isRunning ? "running" : "paused"}>
         <picture>

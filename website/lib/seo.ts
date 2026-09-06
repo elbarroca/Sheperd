@@ -2,7 +2,7 @@ export const CANONICAL_ORIGIN = "https://sheperd-website.vercel.app";
 export const SOCIAL_IMAGE_PATH = "/og/sheperd-recovery.png";
 export const SOCIAL_IMAGE_URL = `${CANONICAL_ORIGIN}${SOCIAL_IMAGE_PATH}`;
 export const ORGANIZATION_LOGO_URL = `${CANONICAL_ORIGIN}/brand/sheperd-icon-512.png`;
-export const SOCIAL_IMAGE_ALT = "Shipping containers at a port terminal";
+export const SOCIAL_IMAGE_ALT = "SheperD: Recover the D&D money hiding in your invoices, over a container terminal at dusk.";
 
 export const INDEXABLE_ROBOTS = "index, follow";
 export const NOINDEX_ROBOTS = "noindex, nofollow, noarchive";

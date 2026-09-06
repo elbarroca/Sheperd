@@ -9,9 +9,11 @@ const REVEAL_ROOT_MARGIN = "0px 0px -8% 0px";
 const REVEAL_DURATION = 0.62;
 const HEADING_OFFSET = "translateY(110%)";
 const LIFT_OFFSET = "translateY(24px)";
+const SLIDE_OFFSET = "translateX(28px)";
 
 type ScrollRevealTag = "article" | "div" | "h2" | "h3" | "li" | "p";
-type ScrollRevealVariant = "lift" | "mask";
+export type ScrollRevealVariant = "fade" | "lift" | "mask" | "slide";
+export type ScrollHeadingTreatment = "line" | "block" | "word" | "plain";
 
 export interface ScrollRevealProps {
   children: ReactNode;
@@ -28,9 +30,15 @@ export interface ScrollHeadingProps {
   lines: readonly string[];
   className?: string;
   id?: string;
+  treatment?: ScrollHeadingTreatment;
 }
 
 type AnimationControl = { stop: () => void };
+
+interface RevealTransforms {
+  from: string;
+  to: string;
+}
 
 function joinClasses(...classes: Array<string | undefined>): string {
   return classes.filter((className): className is string => Boolean(className)).join(" ");
@@ -70,6 +78,13 @@ function markPending(elements: readonly HTMLElement[], targetSelector?: string):
   }
 }
 
+function getRevealTransforms(variant: ScrollRevealVariant): RevealTransforms {
+  if (variant === "mask") return { from: HEADING_OFFSET, to: "none" };
+  if (variant === "slide") return { from: SLIDE_OFFSET, to: "none" };
+  if (variant === "fade") return { from: "none", to: "none" };
+  return { from: LIFT_OFFSET, to: "none" };
+}
+
 function animateReveal(
   elements: readonly HTMLElement[],
   variant: ScrollRevealVariant,
@@ -77,14 +92,14 @@ function animateReveal(
   stagger: number,
 ): AnimationControl[] {
   const animations: AnimationControl[] = [];
-  const offset = variant === "mask" ? HEADING_OFFSET : LIFT_OFFSET;
+  const transforms = getRevealTransforms(variant);
 
   elements.forEach((element, index) => {
     const animation = animate(
       element,
       {
         opacity: [0, 1],
-        transform: [offset, "translateY(0px)"],
+        transform: [transforms.from, transforms.to],
       },
       {
         delay: delay + index * stagger,
@@ -185,33 +200,53 @@ export function ScrollReveal({
   return <Element ref={setElementRef} className={classes} data-scroll-reveal={variant} id={id}>{children}</Element>;
 }
 
-export function ScrollHeading({ lines, className, id }: ScrollHeadingProps): ReactElement {
+function renderPlainLines(lines: readonly string[]): ReactElement[] {
+  return lines.flatMap((line, index) => {
+    const content = <Fragment key={`line-${index}`}>{line}</Fragment>;
+    return index === 0 ? [content] : [<br key={`break-${index}`} />, content];
+  });
+}
+
+function renderAnimatedLines(lines: readonly string[], treatment: "line" | "word"): ReactElement[] {
+  return lines.flatMap((line, lineIndex) => {
+    const lineContent = treatment === "line"
+      ? <span className="scroll-heading-line-text">{line}</span>
+      : line.trim().split(/\s+/u).map((word, wordIndex) => (
+        <Fragment key={`${word}-${wordIndex}`}>
+          {wordIndex > 0 ? " " : null}
+          <span className="scroll-heading-word">{word}</span>
+        </Fragment>
+      ));
+    const lineElement = <span className="scroll-heading-line" key={`line-${lineIndex}`}>{lineContent}</span>;
+    return lineIndex === 0 ? [lineElement] : [<Fragment key={`space-${lineIndex}`}> </Fragment>, lineElement];
+  });
+}
+
+export function ScrollHeading({ lines, className, id, treatment = "plain" }: ScrollHeadingProps): ReactElement {
+  const classes = joinClasses("scroll-heading", `scroll-heading-${treatment}`, className);
+
+  if (treatment === "plain") {
+    return <h2 className={classes} id={id}>{renderPlainLines(lines)}</h2>;
+  }
+
+  if (treatment === "block") {
+    return (
+      <ScrollReveal as="h2" className={classes} id={id} variant="fade">
+        {renderPlainLines(lines)}
+      </ScrollReveal>
+    );
+  }
+
   return (
     <ScrollReveal
       as="h2"
-      className={joinClasses("scroll-heading", className)}
+      className={classes}
       id={id}
-      stagger={0.055}
-      targetSelector=".scroll-heading-word"
+      stagger={treatment === "line" ? 0.1 : 0.055}
+      targetSelector={treatment === "line" ? ".scroll-heading-line-text" : ".scroll-heading-word"}
       variant="mask"
     >
-      {lines.map((line, lineIndex) => {
-        const words = line.trim().split(/\s+/u);
-
-        return (
-          <Fragment key={`${line}-${lineIndex}`}>
-            {lineIndex > 0 ? " " : null}
-            <span className="scroll-heading-line">
-              {words.map((word, wordIndex) => (
-                <Fragment key={`${word}-${wordIndex}`}>
-                  {wordIndex > 0 ? " " : null}
-                  <span className="scroll-heading-word">{word}</span>
-                </Fragment>
-              ))}
-            </span>
-          </Fragment>
-        );
-      })}
+      {renderAnimatedLines(lines, treatment)}
     </ScrollReveal>
   );
 }
