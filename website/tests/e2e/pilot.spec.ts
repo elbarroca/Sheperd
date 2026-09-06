@@ -202,7 +202,7 @@ test("keeps the disabled /pilot form inert without JavaScript", async ({ browser
     }
   });
 
-  await page.goto("/pilot", { waitUntil: "domcontentloaded" });
+  await page.goto("/pilot", { waitUntil: "load" });
   const form = page.locator("form").filter({ hasText: "Work email" }).first();
   await expect(form).toHaveAttribute("method", "post");
   await expect(form).toHaveAttribute("action", "/api/pilot");
@@ -214,6 +214,8 @@ test("keeps the disabled /pilot form inert without JavaScript", async ({ browser
   ).toBe(true);
   const submit = form.locator('button[type="submit"]');
   await expect(submit).toBeDisabled();
+  await submit.scrollIntoViewIfNeeded();
+  await expect(submit).toBeInViewport();
   await submit.click({ force: true });
   expect(requests).toEqual([]);
   await expect(page).toHaveURL(/\/pilot\/?$/);
