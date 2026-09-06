@@ -5,6 +5,23 @@ const HERO_TITLE = "Recover the D&D money hiding in your invoices.";
 const ANCHOR_IDS = ["process", "evidence", "pilot-scope", "trust"] as const;
 const ROUTES = ["/", "/pilot", "/privacy", "/terms"] as const;
 
+for (const width of [390, 1440]) {
+  test(`downloads only the matching hero image at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const heroRequests: string[] = [];
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === "/_next/image" && url.searchParams.get("url")?.startsWith("/media/recovery-terminal")) {
+        heroRequests.push(url.searchParams.get("url") ?? "");
+      }
+    });
+    await page.goto("/", { waitUntil: "networkidle" });
+    expect(heroRequests).toEqual([
+      width < 768 ? "/media/recovery-terminal-mobile.png" : "/media/recovery-terminal.png",
+    ]);
+  });
+}
+
 test("presents the centered recovery hero with contained, loaded imagery", async ({
   page,
 }) => {

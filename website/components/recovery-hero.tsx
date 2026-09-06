@@ -14,7 +14,7 @@ const { props: mobileImage } = getImageProps({
   width: 820,
   height: 820,
   sizes: "820px",
-  quality: 90,
+  quality: 78,
 });
 
 function subscribeToMotionPreference(onChange: () => void): () => void {
