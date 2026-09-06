@@ -40,3 +40,10 @@ nothing. Keep delivery flags false in `.env.example` and hosting settings.
 See [DEPLOYMENT.md](DEPLOYMENT.md) for the build policy, release checks, and
 future intake boundary. Historical claims and research records remain in
 `docs/FACTS-AND-CONSTRAINTS.md`.
+
+## Website review
+
+The [6 September website review](docs/WEBSITE-LEARNINGS-AND-NEXT-ITERATION.md)
+records development lessons, a fresh live UX audit, a proposed section story,
+and a container-video production brief with inspected footage references.
+Its proposed copy and media are not deployed changes.
