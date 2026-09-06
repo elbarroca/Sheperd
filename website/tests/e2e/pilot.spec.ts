@@ -114,6 +114,81 @@ test("keeps keyboard focus inside the dialog and preserves modified /pilot links
   await expect(dialog).toBeHidden();
 });
 
+// A 720x450 CSS viewport models desktop reflow at 200% zoom on a 1440x900 window.
+// CSS body zoom would scale dialog coordinates without updating viewport units.
+for (const viewport of [
+  { name: "mobile", width: 390, height: 844 },
+  { name: "200 percent desktop reflow", width: 720, height: 450 },
+]) {
+  test(`scrolls the ${viewport.name} pilot dialog without moving the page`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/", { waitUntil: "networkidle" });
+
+    const cta = page
+      .locator('a[href="/pilot"]:visible')
+      .filter({ hasText: PILOT_CTA })
+      .last();
+    await cta.scrollIntoViewIfNeeded();
+    const pageScrollBeforeOpen = await page.evaluate(() => window.scrollY);
+    expect(pageScrollBeforeOpen).toBeGreaterThan(0);
+    await cta.click();
+
+    const dialog = page.getByRole("dialog", { name: PILOT_CTA });
+    await expect(dialog).toBeVisible();
+    const submit = dialog.locator('button[type="submit"]');
+    await expect(submit).toBeDisabled();
+
+    const beforeScroll = await dialog.evaluate((element) => {
+      const pilotDialog = element as HTMLDialogElement;
+      return {
+        clientHeight: pilotDialog.clientHeight,
+        overflowY: getComputedStyle(pilotDialog).overflowY,
+        scrollHeight: pilotDialog.scrollHeight,
+        scrollTop: pilotDialog.scrollTop,
+      };
+    });
+    expect(beforeScroll.overflowY).toBe("auto");
+    expect(beforeScroll.scrollHeight).toBeGreaterThan(beforeScroll.clientHeight);
+
+    await dialog.evaluate((element) => {
+      const pilotDialog = element as HTMLDialogElement;
+      pilotDialog.scrollTop = pilotDialog.scrollHeight;
+    });
+
+    const afterScroll = await dialog.evaluate((element) => {
+      const pilotDialog = element as HTMLDialogElement;
+      const submitButton = pilotDialog.querySelector<HTMLButtonElement>(
+        'button[type="submit"]',
+      );
+      if (!submitButton) {
+        throw new Error("Pilot dialog submit button is missing");
+      }
+
+      const dialogRect = pilotDialog.getBoundingClientRect();
+      const submitRect = submitButton.getBoundingClientRect();
+      return {
+        dialogBottom: Math.min(dialogRect.bottom, window.innerHeight),
+        dialogTop: Math.max(dialogRect.top, 0),
+        pageScrollY: window.scrollY,
+        scrollTop: pilotDialog.scrollTop,
+        submitBottom: submitRect.bottom,
+        submitTop: submitRect.top,
+      };
+    });
+    expect(afterScroll.scrollTop).toBeGreaterThan(beforeScroll.scrollTop);
+    expect(afterScroll.pageScrollY).toBe(pageScrollBeforeOpen);
+    expect(afterScroll.submitTop).toBeGreaterThanOrEqual(afterScroll.dialogTop);
+    expect(afterScroll.submitBottom).toBeLessThanOrEqual(afterScroll.dialogBottom);
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(cta).toBeFocused();
+    expect(await page.evaluate(() => window.scrollY)).toBe(pageScrollBeforeOpen);
+  });
+}
+
 test("keeps the disabled /pilot form inert without JavaScript", async ({ browser }) => {
   const context = await browser.newContext({
     javaScriptEnabled: false,

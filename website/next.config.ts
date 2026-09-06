@@ -16,6 +16,8 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   env: {
     NEXT_PUBLIC_SHEPERD_SEO_INDEXABLE: isProduction ? "true" : "false",
+    // Intake activation requires a separate release, not an environment-only toggle.
+    NEXT_PUBLIC_PILOT_DELIVERY_ENABLED: "false",
   },
   images: {
     formats: ["image/avif", "image/webp"],

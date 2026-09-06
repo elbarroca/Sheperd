@@ -302,6 +302,7 @@ img { display: block; max-width: 100%; }
 
 /* Native dialog uses the browser top layer, above the sticky navigation. */
 .marketing-site .pilot-dialog {
+  overflow-y: auto;
   width: min(720px, calc(100% - 32px));
   max-height: calc(100dvh - 40px);
   padding: 0;
