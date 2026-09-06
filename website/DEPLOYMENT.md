@@ -49,10 +49,26 @@ change to `main`. Verify the production commit and alias, rendering, HTTP and
 HTML indexing directives, social image, robots, sitemap, and disabled intake.
 Report Lighthouse lab measurements separately from field Core Web Vitals.
 
+## Motion delivery
+
+The full-width hero uses an optimized silent video loop over a responsive
+Next.js image. Playback starts after the image loads and stops when the section
+is offscreen, the tab is hidden, or reduced motion is requested. The static
+artwork also covers unsupported or blocked autoplay. No visible player or pause
+control is rendered, following the approved motion revision.
+
+The GIF export is retained in `public/media/recovery-terminal-loop.gif`; normal
+page loading uses WebM or the H.264 fallback. Asset provenance and the generation
+prompt are in `docs/ASSET-PROVENANCE.md`; `scripts/render-hero-loop.sh` rebuilds
+the derivatives with FFmpeg. Scroll reveals use the installed Motion mini API,
+with readable server-rendered content and reduced-motion support.
+
 ## Pilot intake remains disabled
 
 Keep `PILOT_DELIVERY_ENABLED` and `NEXT_PUBLIC_PILOT_DELIVERY_ENABLED` false or
-unset in every environment. This release adds a native dialog and a direct
+unset in every environment. The build also forces the public flag off, so a
+public environment flag alone cannot enable collection. Future activation needs
+a separately reviewed change to that build guard. This release adds a native dialog and a direct
 `/pilot` page. Both explain availability before the disabled fields. No request
 is transmitted or persisted through the disabled interface, and no receipt is
 claimed. Forms use POST even without JavaScript; disabled fields are never

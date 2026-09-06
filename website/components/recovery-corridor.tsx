@@ -5,6 +5,7 @@ import { evidenceLayers, faqItems, pilotScope, processSteps, sourceLinks } from 
 
 import { PilotLink } from "./pilot-link";
 import { RecoveryHero } from "./recovery-hero";
+import { ScrollHeading, ScrollReveal } from "./scroll-reveals";
 import { SiteFooter } from "./site-footer";
 import { SiteHeader } from "./site-header";
 
@@ -22,13 +23,13 @@ export function RecoveryCorridor() {
 
         <section className="intro-section section-paper" aria-labelledby="intro-title">
           <div className="container intro-layout">
-            <h2 id="intro-title">The invoice starts the question.<br />The record carries it.</h2>
-            <p>
+            <ScrollHeading id="intro-title" lines={["The invoice starts the question.", "The record carries it."]} />
+            <ScrollReveal as="p">
               A charge is easy to see. The dates, events, and terms behind it take
               a closer look. We bring those records together so your team can
               understand what supports the charge, what is missing, and what to
               review next.
-            </p>
+            </ScrollReveal>
           </div>
         </section>
 
@@ -37,20 +38,20 @@ export function RecoveryCorridor() {
             <div className="section-heading">
               <div>
                 <p className="eyebrow">How it works</p>
-                <h2 id="process-title">From billed<br />to reviewed.</h2>
+                <ScrollHeading id="process-title" lines={["From billed", "to reviewed."]} />
               </div>
-              <p>Three deliberate steps. One clear record. Every conclusion stays tied to the evidence.</p>
+              <ScrollReveal as="p">Three deliberate steps. One clear record. Every conclusion stays tied to the evidence.</ScrollReveal>
             </div>
             <ol className="process-list">
-              {processSteps.map((step) => (
-                <li className="process-item" key={step.number}>
+              {processSteps.map((step, index) => (
+                <ScrollReveal as="li" className="process-item" delay={index * 0.08} key={step.number}>
                   <span className="step-number" aria-hidden="true">{step.number}</span>
                   <h3>{step.title}</h3>
                   <p>{step.description}</p>
-                </li>
+                </ScrollReveal>
               ))}
             </ol>
-            <p className="process-boundary"><Check aria-hidden="true" size={17} /> Human review before any carrier credit or refund outcome.</p>
+            <ScrollReveal as="p" className="process-boundary" delay={0.28}><Check aria-hidden="true" size={17} /> Human review before any carrier credit or refund outcome.</ScrollReveal>
           </div>
         </section>
 
@@ -58,19 +59,19 @@ export function RecoveryCorridor() {
           <div className="container evidence-layout">
             <div className="evidence-intro">
               <p className="eyebrow">What we review</p>
-              <h2 id="evidence-title">One charge.<br />Three records.</h2>
-              <p>No single document tells the whole story. The useful work is in connecting what was billed to what happened, and what governs it.</p>
+              <ScrollHeading id="evidence-title" lines={["One charge.", "Three records."]} />
+              <ScrollReveal as="p">No single document tells the whole story. The useful work is in connecting what was billed to what happened, and what governs it.</ScrollReveal>
               <a className="text-link" href="#pilot-scope">Explore the pilot scope <ArrowDown aria-hidden="true" size={17} /></a>
             </div>
             <div className="evidence-list">
-              {evidenceLayers.map((layer) => (
-                <article className="evidence-row" key={layer.icon}>
+              {evidenceLayers.map((layer, index) => (
+                <ScrollReveal as="article" className="evidence-row" delay={index * 0.08} key={layer.icon}>
                   <p className="record-label">{layer.label}</p>
                   <h3>{layer.title}</h3>
                   <p>{layer.description}</p>
-                </article>
+                </ScrollReveal>
               ))}
-              <p className="evidence-note">Missing a record? Mark the gap. Keep the question open.</p>
+              <ScrollReveal as="p" className="evidence-note" delay={0.24}>Missing a record? Mark the gap. Keep the question open.</ScrollReveal>
             </div>
           </div>
         </section>
@@ -81,8 +82,8 @@ export function RecoveryCorridor() {
           </div>
           <div className="container story-band-copy">
             <p className="eyebrow">Beyond the line item</p>
-            <h2 id="story-title">The details move<br />through the terminal<br />before the ledger.</h2>
-            <p>Availability, appointments, holds, and empty returns can change what a billed day means.</p>
+            <ScrollHeading id="story-title" lines={["The details move", "through the terminal", "before the ledger."]} />
+            <ScrollReveal as="p">Availability, appointments, holds, and empty returns can change what a billed day means.</ScrollReveal>
           </div>
         </section>
 
@@ -90,22 +91,22 @@ export function RecoveryCorridor() {
           <div className="container pilot-scope-layout">
             <div className="pilot-scope-copy">
               <p className="eyebrow">Pilot scope</p>
-              <h2 id="pilot-scope-title">Start with<br />a focused review.</h2>
-              <p>Bring the charge and the surrounding record into the same conversation. Agree the scope before the work begins.</p>
+              <ScrollHeading id="pilot-scope-title" lines={["Start with", "a focused review."]} />
+              <ScrollReveal as="p">Bring the charge and the surrounding record into the same conversation. Agree the scope before the work begins.</ScrollReveal>
               <PilotLink className="button">Request a pilot</PilotLink>
               <p className="availability-note">Pilot intake is currently unavailable.</p>
             </div>
             <dl className="pilot-scope-list">
-              {pilotScope.map((scope) => (
-                <div className="pilot-scope-item" key={scope.number}>
+              {pilotScope.map((scope, index) => (
+                <ScrollReveal as="div" className="pilot-scope-item" delay={index * 0.07} key={scope.number}>
                   <dt>{scope.title}</dt>
                   <dd>{scope.description}</dd>
-                </div>
+                </ScrollReveal>
               ))}
-              <div className="pilot-scope-item">
+              <ScrollReveal as="div" className="pilot-scope-item" delay={0.21}>
                 <dt>A clear boundary</dt>
                 <dd>No public invoice uploads. No guaranteed recovery. Any engagement and data handling are agreed separately.</dd>
-              </div>
+              </ScrollReveal>
             </dl>
           </div>
         </section>
@@ -115,8 +116,8 @@ export function RecoveryCorridor() {
             <div className="trust-layout">
               <div>
                 <p className="eyebrow">Trust and transparency</p>
-                <h2 id="trust-title">Evidence first.<br />Claims second.</h2>
-                <p className="trust-summary">D&amp;D review is fact-specific. Start with the source, keep the gaps visible, and leave interpretation to a qualified reviewer.</p>
+                <ScrollHeading id="trust-title" lines={["Evidence first.", "Claims second."]} />
+                <ScrollReveal as="p" className="trust-summary">D&amp;D review is fact-specific. Start with the source, keep the gaps visible, and leave interpretation to a qualified reviewer.</ScrollReveal>
               </div>
               <div className="source-list">
                 <p className="record-label">Read the original sources</p>
@@ -130,7 +131,7 @@ export function RecoveryCorridor() {
               </div>
             </div>
             <div className="faq-block">
-              <h3>Questions before a pilot</h3>
+              <ScrollReveal as="h3">Questions before a pilot</ScrollReveal>
               <div className="faq-list">
                 {faqItems.map((item) => (
                   <details key={item.question}>
@@ -146,8 +147,8 @@ export function RecoveryCorridor() {
         <section className="closing-cta" aria-labelledby="closing-title">
           <div className="container closing-copy">
             <p className="eyebrow">The next step</p>
-            <h2 id="closing-title">Bring the next question<br />to the record.</h2>
-            <p>A clearer starting point for your team, your records, and the review ahead.</p>
+            <ScrollHeading id="closing-title" lines={["Bring the next question", "to the record."]} />
+            <ScrollReveal as="p">A clearer starting point for your team, your records, and the review ahead.</ScrollReveal>
             <PilotLink className="button button-light">Request a pilot</PilotLink>
             <p className="hero-boundary">Case-specific review. No guaranteed recovery.</p>
           </div>

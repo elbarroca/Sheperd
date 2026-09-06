@@ -1,13 +1,21 @@
 "use client";
 
-import { Pause, Play } from "@phosphor-icons/react";
-import Image from "next/image";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import Image, { getImageProps } from "next/image";
+import { type ReactElement, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { PilotLink } from "./pilot-link";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const MINIMUM_VISIBLE_RATIO = 0.05;
+const HERO_IMAGE_ALT = "Rows of shipping containers in an atmospheric terminal scene.";
+const { props: mobileImage } = getImageProps({
+  src: "/media/recovery-terminal-mobile.png",
+  alt: HERO_IMAGE_ALT,
+  width: 820,
+  height: 820,
+  sizes: "820px",
+  quality: 90,
+});
 
 function subscribeToMotionPreference(onChange: () => void): () => void {
   const preference = window.matchMedia(REDUCED_MOTION_QUERY);
@@ -32,14 +40,15 @@ function serverIsVisible(): boolean {
   return false;
 }
 
-export function RecoveryHero() {
+export function RecoveryHero(): ReactElement {
   const sceneRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [isInView, setIsInView] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
   const reducedMotion = useSyncExternalStore(subscribeToMotionPreference, prefersReducedMotion, serverIsVisible);
   const pageVisible = useSyncExternalStore(subscribeToVisibility, pageIsVisible, serverIsVisible);
-  const [paused, setPaused] = useState(false);
-  const isRunning = isInView && pageVisible && !reducedMotion && !paused;
-  const motionLabel = reducedMotion ? "Motion off" : paused ? "Resume animation" : "Pause animation";
+  const isRunning = isInView && pageVisible && !reducedMotion;
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -52,6 +61,25 @@ export function RecoveryHero() {
     observer.observe(scene);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (!isRunning || !imageLoaded) {
+      video.pause();
+      return;
+    }
+
+    let active = true;
+    void video.play().catch(() => {
+      // Autoplay restrictions or unavailable media leave the original artwork visible.
+      if (active) setVideoReady(false);
+    });
+    return () => {
+      active = false;
+      video.pause();
+    };
+  }, [imageLoaded, isRunning]);
 
   return (
     <section className="recovery-hero" aria-labelledby="hero-title">
@@ -75,28 +103,39 @@ export function RecoveryHero() {
         </p>
       </div>
       <div ref={sceneRef} className="hero-scene" data-testid="hero-scene" data-motion={isRunning ? "running" : "paused"}>
-        <Image
-          src="/media/recovery-terminal.png"
-          alt="Rows of shipping containers in an atmospheric terminal scene."
-          fill
-          preload
-          fetchPriority="high"
-          sizes="(max-width: 767px) 100vw, (max-width: 1600px) calc(100vw - 64px), 1536px"
-          quality={90}
-          className="hero-image"
-        />
-        <div className="hero-fog" aria-hidden="true" />
-        <div className="hero-light" aria-hidden="true" />
-        <div className="hero-scrim" aria-hidden="true" />
-        <button
-          type="button"
-          className="motion-toggle"
-          disabled={Boolean(reducedMotion)}
-          onClick={() => setPaused((current) => !current)}
+        <picture>
+          <source media="(max-width: 767px)" srcSet={mobileImage.srcSet} sizes={mobileImage.sizes} />
+          <Image
+            src="/media/recovery-terminal.png"
+            alt={HERO_IMAGE_ALT}
+            fill
+            loading="eager"
+            fetchPriority="high"
+            sizes="100vw"
+            quality={90}
+            className="hero-image"
+            onLoad={() => setImageLoaded(true)}
+          />
+        </picture>
+        <video
+          ref={videoRef}
+          className="hero-video"
+          data-testid="hero-video"
+          data-ready={videoReady ? "true" : "false"}
+          aria-hidden="true"
+          tabIndex={-1}
+          autoPlay={isRunning && imageLoaded}
+          loop
+          muted
+          playsInline
+          preload="none"
+          onPlaying={() => setVideoReady(true)}
+          onError={() => setVideoReady(false)}
         >
-          {paused || reducedMotion ? <Play size={13} weight="fill" aria-hidden="true" /> : <Pause size={13} weight="fill" aria-hidden="true" />}
-          <span>{motionLabel}</span>
-        </button>
+          <source src="/media/recovery-terminal-loop.webm" type="video/webm" />
+          <source src="/media/recovery-terminal-loop.mp4" type="video/mp4" />
+        </video>
+        <div className="hero-scrim" aria-hidden="true" />
       </div>
     </section>
   );

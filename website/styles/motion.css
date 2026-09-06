@@ -1,0 +1,32 @@
+.marketing-site .scroll-heading-line {
+  display: block;
+  overflow: hidden;
+}
+
+.marketing-site .scroll-heading-word {
+  display: inline-block;
+}
+
+.marketing-site [data-scroll-reveal-state="pending"] {
+  opacity: 0;
+  transform: translateY(24px);
+}
+
+.marketing-site [data-scroll-reveal-target-state="pending"] {
+  opacity: 0;
+  transform: translateY(110%);
+}
+
+.marketing-site [data-scroll-reveal-state="revealed"],
+.marketing-site [data-scroll-reveal-target-state="revealed"] {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marketing-site [data-scroll-reveal-state="pending"],
+  .marketing-site [data-scroll-reveal-target-state="pending"] {
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -2,7 +2,7 @@
 
 The React/Next.js marketing site for SheperD detention and demurrage invoice
 review. The design uses a centered Georgia hero, optimized container artwork,
-ambient CSS motion, and a shared visual system across the homepage, pilot,
+an atmospheric video loop, scroll reveals, and a shared visual system across the homepage, pilot,
 privacy, and use-notice pages.
 
 ## Local setup

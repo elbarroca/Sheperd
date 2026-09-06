@@ -20,6 +20,7 @@ for (const viewport of visualViewports) {
     page,
   }) => {
     await page.setViewportSize(viewport);
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/", { waitUntil: "networkidle" });
 
     await expect(page).toHaveScreenshot(`home-redesign-${viewport.name}-full.png`, {

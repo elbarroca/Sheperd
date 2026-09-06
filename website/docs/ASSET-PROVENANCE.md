@@ -47,10 +47,38 @@ Use boundary: generic industry-context imagery only. It does not depict a Sheper
 
 - `website/public/media/recovery-terminal.png` is an unchanged copy of the
   approved `website/mockups/shepherd-v2/hero-direction-01-art.png` (1918 × 820).
-  Next.js generates responsive delivery formats. Fog and light are separate CSS
-  layers; the asset contains no invoice panel, route line, evidence labels, or
+  Next.js generates responsive delivery formats. The asset contains no invoice
+  panel, route line, evidence labels, or
   caption. It remains illustrative terminal imagery, not a customer record.
 - `website/public/og/sheperd-recovery.png` is a 1200 × 630 social graphic rendered
   with Next.js `ImageResponse` from that artwork, the existing SheperD animal
   logo, and the approved headline and recovery qualification. Georgia and Arial
   were used to render the graphic; no font binaries are shipped.
+
+## September 2026 atmospheric loop
+
+- Method: OpenAI built-in image generation produced a separate ground-fog plate,
+  with `recovery-terminal.png` supplied only as a lighting reference. No external
+  image API or fallback generation CLI was used.
+- Generated source: `/Users/barroca888/.codex/generated_images/01a0775e-8a66-7a21-80bf-137878a67d1c/exec-5ca257f2-b0af-49fe-9241-f3db2c5c0203.png`
+- Retained project plate: `website/design-experiments/assets/recovery-ground-fog.png`
+- Plate SHA-256: `60d5888c6bd8801ba2ffdb9cb5c06d2874c62d05e65bf9c1ba3fcd795b795f90`
+- `scripts/render-hero-loop.sh` uses FFmpeg to composite that plate over the
+  unchanged terminal artwork. Periodic horizontal drift and soft light variation
+  form a continuous 20-second loop; terminal geometry does not morph.
+- Browser derivatives: `public/media/recovery-terminal-loop.webm` (1600 × 684,
+  24 fps, 174,200 bytes) and `.mp4` (same dimensions and timing, H.264 fallback).
+- `public/media/recovery-terminal-mobile.png` is an 820 × 820 delivery crop
+  of the original artwork, preserving the same mobile focal position. Native
+  picture selection and Next.js image optimization avoid decoding the unused
+  panorama on phones; no scene content is generated or altered in this crop.
+- Portable GIF: `public/media/recovery-terminal-loop.gif` (960 × 410, 12 fps,
+  20 seconds). The website delivers the smaller video rather than downloading
+  this export on page load.
+- Static Next.js imagery remains visible until playback starts, and whenever
+  reduced motion or a media failure prevents playback. The loop is decorative,
+  silent, and contains no claims, customer data, overlays, or labels.
+
+Exact generation prompt:
+
+> Create one production VFX texture asset for a very restrained, slow atmospheric animation of the referenced container terminal. The reference is ONLY for the cool blue-gray lighting and ground-level fog character. Output a wide 1536 x 864 image containing ONLY pale blue-gray wisps of photorealistic ground fog on a perfectly pure black background. No port, containers, buildings, horizon, ground surface, lights, lettering, captions, diagrams or objects. The fog is a shallow horizontal bank concentrated in the lower middle third, layered with irregular soft wisps, small transparent-looking gaps, very gentle light diffusion, and almost-black falloff on all four edges. Fine natural volumetric texture, subdued low opacity appearance suitable for screen compositing over a dark maritime scene. The left and right edges must fade completely to pure black so the fog can drift without visible seams. Top half almost entirely black. Premium film VFX plate; calm, not a smoke explosion.
