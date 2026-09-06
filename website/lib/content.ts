@@ -75,12 +75,12 @@ export const faqItems = [
   {
     question: "What happens after I request a pilot?",
     answer:
-      "The pilot conversation confirms scope, owners, available records, and the next approved data step. No invoice upload happens on this public form.",
+      "Pilot intake is currently unavailable, and the form does not accept or send your details. When intake opens, the first conversation will cover scope, owners, available records, and the next data step.",
   },
   {
     question: "Do I need to upload invoices now?",
     answer:
-      "No. Start with metadata only. Any file transfer is a separate secure intake step after scope and data handling are approved.",
+      "No. This website does not accept invoice files. Any file transfer would be a separate secure step after scope and data handling are agreed.",
   },
   {
     question: "Does SheperD guarantee a refund?",
@@ -95,7 +95,7 @@ export const faqItems = [
   {
     question: "What does the pilot cost?",
     answer:
-      "Commercial terms are agreed before any engagement. This Preview does not publish an unapproved fee or success-fee percentage.",
+      "Commercial terms are agreed before any engagement. No fee or success-fee percentage is published on this website.",
   },
   {
     question: "How long does a review take?",

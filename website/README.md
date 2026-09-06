@@ -1,8 +1,9 @@
-# SheperD Website
+# SheperD website
 
-The Recovery Corridor is the public-facing SheperD website. It explains the
-shipping-container demurrage and detention recovery workflow while keeping
-form delivery disabled until its separate intake approvals are complete.
+The React/Next.js marketing site for SheperD detention and demurrage invoice
+review. The design uses a centered Georgia hero, optimized container artwork,
+an atmospheric video loop, scroll reveals, and a shared visual system across the homepage, pilot,
+privacy, and use-notice pages.
 
 ## Local setup
 
@@ -13,26 +14,29 @@ corepack pnpm install --frozen-lockfile
 corepack pnpm dev
 ```
 
-Open `http://127.0.0.1:3000`.
+Open http://127.0.0.1:3000.
 
 ## Verification
 
 ```sh
-corepack pnpm lint
-corepack pnpm typecheck
-corepack pnpm test
+corepack pnpm check
 corepack pnpm build
-corepack pnpm test:e2e
+corepack pnpm test:e2e --workers=3
 ```
 
-The audit form validates locally but does not transmit or store submissions by
-default. Keep the flags in `.env.example` false unless the approvals and
-server-only delivery values in `DEPLOYMENT.md` are complete.
+The browser suite covers three engines, responsive layouts, keyboard behavior,
+reduced motion, no-JavaScript navigation, accessibility, image containment,
+metadata, and the disabled pilot flow. Visual baselines belong to Chromium.
 
-## Deployment boundary
+## Deployment
 
-Deploy this directory as its own public Vercel project with Root Directory
-`website`. Publication was explicitly authorized on 2026-07-15. The unresolved
-legal, claims, privacy, contact, and ownership risks remain recorded in
-`docs/FACTS-AND-CONSTRAINTS.md`. See `DEPLOYMENT.md` and `../obsidian/VERCEL.md` for the
-exact settings.
+Production: https://sheperd-website.vercel.app
+
+Keep the existing `sheperd-website` Vercel project with Root Directory `website`.
+Only production homepage indexing is enabled. Pilot intake remains unavailable:
+its fields and submission are disabled, and the interface sends or stores
+nothing. Keep delivery flags false in `.env.example` and hosting settings.
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the build policy, release checks, and
+future intake boundary. Historical claims and research records remain in
+`docs/FACTS-AND-CONSTRAINTS.md`.
