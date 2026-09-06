@@ -15,8 +15,8 @@ const sections = [
     body: "The site is hosted on Vercel. Visiting a website involves requests to its hosting provider, which may process technical connection information to deliver and secure the site.",
   },
   {
-    heading: "External sources",
-    body: "Links to official sources open websites operated by other organizations. Their own privacy notices apply when you visit them.",
+    heading: "Contact and external links",
+    body: "Email and phone links use your own email or calling app. Those conversations are separate from this website's disabled form. Links to sheperd.io and official sources open separate websites. Their privacy practices may differ.",
   },
   {
     heading: "Before intake opens",
@@ -28,7 +28,7 @@ export default function PrivacyPage() {
   return (
     <>
       <SeoHead title="Privacy notice | SheperD" description="How the SheperD website handles pilot intake, hosting, external links, and measurement." path="/privacy" indexable={false} />
-      <NoticePage eyebrow="Privacy notice" title="Your information stays out of the form." summary="Pilot intake is currently unavailable. The form is disabled, and this website does not accept invoice files or pilot submissions." sections={sections} />
+      <NoticePage eyebrow="Privacy notice" title="Your information stays out of the form." summary="Pilot intake on this website is currently unavailable. The form is disabled, and this website does not accept invoice files or pilot submissions." sections={sections} />
     </>
   );
 }

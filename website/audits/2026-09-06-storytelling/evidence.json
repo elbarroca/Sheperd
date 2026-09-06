@@ -1,0 +1,214 @@
+{
+  "capturedOn": "2026-09-06",
+  "receiptCreatedAt": "2026-09-06T21:54:44.227238+00:00",
+  "site": "https://sheperd-website.vercel.app/",
+  "productionCommit": "7d32cab7923decf199b90c1bd7ec5cb8ec87a62a",
+  "productionDeployment": "dpl_9e7HPNNBivFqxPdXMxD85FjiJ1Zu",
+  "browser": "Codex in-app browser",
+  "checksThisPass": {
+    "liveFlow": "hero, method, evidence, scope, FAQ, dialog; mobile hero",
+    "keyboard": "anchor target focus; Escape closes dialog and restores initiating link",
+    "mobileWidth": {
+      "viewport": 390,
+      "document": 390,
+      "body": 390
+    },
+    "metadata": "English; canonical home; index, follow; complete OG; large Twitter card",
+    "lint": "PASS",
+    "typecheck": "PASS",
+    "unitTests": 19,
+    "noDataEnteredOrSubmitted": true
+  },
+  "footageInspection": "Provider player previews sampled; no download, purchase, full-speed or loop approval",
+  "limits": [
+    "No new Lighthouse run",
+    "No repeated full cross-browser suite",
+    "No screen-reader audit",
+    "No customer research or conversion data"
+  ],
+  "screenshots": [
+    {
+      "path": "audits/2026-09-06-storytelling/01-hero.jpg",
+      "format": "jpeg",
+      "width": 1254,
+      "height": 1264,
+      "bytes": 133544,
+      "sha256": "b2af0274eefa6bedfedcdcf930e14e027b6965e920fb20990a802ff4ae4f3446"
+    },
+    {
+      "path": "audits/2026-09-06-storytelling/01b-mobile-hero.jpg",
+      "format": "jpeg",
+      "width": 390,
+      "height": 844,
+      "bytes": 45315,
+      "sha256": "3e5dc0c1ced638e992a6da30c0f3b2f85077239240f7672bd1aa42518cdb124b"
+    },
+    {
+      "path": "audits/2026-09-06-storytelling/02-method-evidence.jpg",
+      "format": "jpeg",
+      "width": 1254,
+      "height": 1264,
+      "bytes": 100283,
+      "sha256": "52641dcbb65d7b3b85420d99699b94883c4163c47751daa4005809b4e57cebeb"
+    },
+    {
+      "path": "audits/2026-09-06-storytelling/02b-evidence.jpg",
+      "format": "jpeg",
+      "width": 1254,
+      "height": 1264,
+      "bytes": 94677,
+      "sha256": "059828f1fb6223bd5e92c69fb0f83941c9d039db3b26976ef2b1cc508727fc80"
+    },
+    {
+      "path": "audits/2026-09-06-storytelling/03-pilot-scope.jpg",
+      "format": "jpeg",
+      "width": 1254,
+      "height": 1264,
+      "bytes": 95564,
+      "sha256": "b877b834b36f5b43bcb88d80407c84d7f44326d826b8ab53f1c90d435a91ba62"
+    },
+    {
+      "path": "audits/2026-09-06-storytelling/04-closing.jpg",
+      "format": "jpeg",
+      "width": 1254,
+      "height": 1264,
+      "bytes": 67847,
+      "sha256": "41a29bee0ac6380449d17757f8c62862829828d9dcffa43dff52b74dbec05bbd"
+    },
+    {
+      "path": "audits/2026-09-06-storytelling/04-trust-faq.jpg",
+      "format": "jpeg",
+      "width": 1254,
+      "height": 1264,
+      "bytes": 91486,
+      "sha256": "ee1e19b10d054d8287d45bfa7f9b088576d93610d57c8c32769fbd6d9f8f8d07"
+    },
+    {
+      "path": "audits/2026-09-06-storytelling/05-pilot-dialog.jpg",
+      "format": "jpeg",
+      "width": 1254,
+      "height": 1264,
+      "bytes": 72888,
+      "sha256": "e84960af09593a4031f8691f68acea3c541ac3a6a6c9b17233bb6bed3e936cac"
+    },
+    {
+      "path": "audits/2026-09-06-storytelling/06-footage-lift-reference.jpg",
+      "format": "jpeg",
+      "width": 1280,
+      "height": 720,
+      "bytes": 118644,
+      "sha256": "5abe5ce32230a77a3f0ef5b9051e486f2774d61f703e941816c3ee0835916f4d"
+    },
+    {
+      "path": "audits/2026-09-06-storytelling/06b-footage-dusk-reference.jpg",
+      "format": "jpeg",
+      "width": 1280,
+      "height": 720,
+      "bytes": 121614,
+      "sha256": "00a575274aae227c7766e677863f6f45ea353d9c1f0a2b8293f5ead874c62e57"
+    }
+  ],
+  "missingLocalLinks": [],
+  "historicalReleaseBaseline": {
+    "source": "production-receipt.json from the preceding release",
+    "sourceSha256": "bf71f00b98ad46cdb68055610483af561b12d5421eb1f010ab57eae938c6f204",
+    "receipt": {
+      "commit": "7d32cab7923decf199b90c1bd7ec5cb8ec87a62a",
+      "deployment": "dpl_9e7HPNNBivFqxPdXMxD85FjiJ1Zu",
+      "verifiedAt": "2026-09-06T19:11:08.907Z",
+      "pages": [
+        {
+          "path": "/",
+          "status": 200,
+          "robotsHeader": "index, follow",
+          "robotsMeta": "index, follow",
+          "canonical": "https://sheperd-website.vercel.app/"
+        },
+        {
+          "path": "/pilot",
+          "status": 200,
+          "robotsHeader": "noindex, nofollow, noarchive",
+          "robotsMeta": "noindex, nofollow, noarchive",
+          "canonical": "https://sheperd-website.vercel.app/pilot"
+        },
+        {
+          "path": "/privacy",
+          "status": 200,
+          "robotsHeader": "noindex, follow, noarchive",
+          "robotsMeta": "noindex, follow, noarchive",
+          "canonical": "https://sheperd-website.vercel.app/privacy"
+        },
+        {
+          "path": "/terms",
+          "status": 200,
+          "robotsHeader": "noindex, follow, noarchive",
+          "robotsMeta": "noindex, follow, noarchive",
+          "canonical": "https://sheperd-website.vercel.app/terms"
+        },
+        {
+          "path": "/robots.txt",
+          "status": 200,
+          "robotsHeader": "index, follow",
+          "policy": "User-agent: *\nAllow: /\n\nSitemap: https://sheperd-website.vercel.app/sitemap.xml\n"
+        },
+        {
+          "path": "/sitemap.xml",
+          "status": 200,
+          "robotsHeader": "index, follow",
+          "policy": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n\n  <url>\n    <loc>https://sheperd-website.vercel.app/</loc>\n  </url>\n</urlset>\n"
+        }
+      ],
+      "socialImage": {
+        "status": 200,
+        "width": 1200,
+        "height": 630,
+        "bytes": 635988
+      },
+      "mobilePoster": {
+        "status": 200,
+        "bytes": 18011
+      },
+      "gif": {
+        "status": 200,
+        "type": "image/gif"
+      },
+      "emptyPilotProbe": {
+        "status": 503,
+        "body": {
+          "ok": false,
+          "message": "Pilot delivery is not configured."
+        }
+      },
+      "missingHeaderProbe": {
+        "status": 403
+      },
+      "validation": {
+        "lint": "PASS",
+        "typecheck": "PASS",
+        "unitTests": 19,
+        "productionBrowserTests": 170,
+        "intentionalVisualSkips": 4,
+        "engines": [
+          "Chromium",
+          "Firefox",
+          "WebKit"
+        ],
+        "worktreeClean": true,
+        "contentMatchesOriginMain": true
+      },
+      "lighthouseMobile": {
+        "context": "Fresh browser, warmed CDN; lab metrics, not field Core Web Vitals",
+        "scores": {
+          "performance": 100,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 100
+        },
+        "lcpMs": 1856.7849999999999,
+        "cls": 0,
+        "tbtMs": 40.499999999999886,
+        "warnings": []
+      }
+    }
+  }
+}

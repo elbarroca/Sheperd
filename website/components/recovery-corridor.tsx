@@ -15,7 +15,7 @@ export function RecoveryCorridor() {
     <>
       <a className="skip-link" href="#main-content">Skip to content</a>
       <div className="announcement">
-        <p>D&amp;D recovery for importer finance teams</p>
+        <p>Detention &amp; demurrage support for U.S. importers</p>
         <a href="#process">A closer look at the method <ArrowUpRight aria-hidden="true" size={13} /></a>
       </div>
       <SiteHeader />
@@ -24,12 +24,12 @@ export function RecoveryCorridor() {
 
         <ScrollSection className="intro-section section-paper" labelledBy="intro-title" variant="intro">
           <div className="container intro-layout">
-            <ScrollHeading id="intro-title" lines={["The invoice starts the question.", "The record carries it."]} treatment="line" />
+            <ScrollHeading id="intro-title" lines={["One point of contact.", "Across the D&D process."]} treatment="line" />
             <p>
-              A charge is easy to see. The dates, events, and terms behind it take
-              a closer look. We bring those records together so your team can
-              understand what supports the charge, what is missing, and what to
-              review next.
+              Invoices, terminal events, and carrier correspondence often sit
+              with different teams. SheperD brings them together, helping finance
+              and logistics move from a billing question to a documented next
+              step. A service team alongside yours.
             </p>
           </div>
         </ScrollSection>
@@ -41,7 +41,7 @@ export function RecoveryCorridor() {
                 <p className="eyebrow">How it works</p>
                 <ScrollHeading id="process-title" lines={["From billed", "to reviewed."]} treatment="word" />
               </div>
-              <p>Three deliberate steps. One clear record. Every conclusion stays tied to the evidence.</p>
+              <p>Share the context. Let the team coordinate the review. Follow the carrier response through to the outcome.</p>
             </div>
             <ol className="process-list">
               {processSteps.map((step, index) => (
@@ -93,9 +93,9 @@ export function RecoveryCorridor() {
             <div className="pilot-scope-copy">
               <p className="eyebrow">Pilot scope</p>
               <ScrollHeading id="pilot-scope-title" lines={["Start with", "a focused review."]} treatment="block" />
-              <p>Bring the charge and the surrounding record into the same conversation. Agree the scope before the work begins.</p>
+              <p>Begin with the invoices and the support your team needs. Invoice monitoring, carrier coordination, and dispute work are agreed around your scope.</p>
               <PilotLink className="button">Request a pilot</PilotLink>
-              <p className="availability-note">Pilot intake is currently unavailable.</p>
+              <p className="availability-note">Pilot intake on this website is currently unavailable. Contact details are in the footer.</p>
             </div>
             <dl className="pilot-scope-list">
               {pilotScope.map((scope, index) => (
@@ -148,8 +148,8 @@ export function RecoveryCorridor() {
         <ScrollSection className="closing-cta" labelledBy="closing-title" variant="closing">
           <div className="container closing-copy">
             <p className="eyebrow">The next step</p>
-            <ScrollHeading id="closing-title" lines={["Bring the next question", "to the record."]} treatment="block" />
-            <p>A clearer starting point for your team, your records, and the review ahead.</p>
+            <ScrollHeading id="closing-title" lines={["Bring your D&D questions", "to one team."]} treatment="block" />
+            <p>Start with the invoice, the shipment context, and the support your team needs.</p>
             <PilotLink className="button button-light">Request a pilot</PilotLink>
           </div>
         </ScrollSection>

@@ -114,7 +114,7 @@ export function PilotForm({ idPrefix = "pilot" }: PilotFormProps) {
           role="status"
         >
           <WarningCircle aria-hidden="true" size={20} weight="fill" />
-          Pilot intake is currently unavailable. No details are collected,
+          Pilot intake on this website is currently unavailable. No details are collected,
           stored, or sent.
         </p>
       ) : null}

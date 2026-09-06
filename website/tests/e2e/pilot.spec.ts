@@ -27,6 +27,10 @@ test("opens a native pilot dialog from each visible CTA and restores focus", asy
       await dialog.evaluate((element) => element instanceof HTMLDialogElement),
     ).toBe(true);
     await expect(dialog.locator("form")).toBeVisible();
+    await expect(dialog.getByRole("link", { name: "avi@sheperd.io" })).toHaveAttribute(
+      "href",
+      "mailto:avi@sheperd.io",
+    );
     await expect(
       dialog.getByText(/No details are collected|Nothing is transmitted or stored/i),
     ).toBeVisible();
@@ -83,11 +87,16 @@ test("keeps keyboard focus inside the dialog and preserves modified /pilot links
   const dialog = page.getByRole("dialog", { name: PILOT_CTA });
   await expect(dialog).toBeVisible();
   const closeButton = dialog.getByRole("button", { name: /close/i });
+  const contactLink = dialog.getByRole("link", { name: "avi@sheperd.io" });
   await closeButton.focus();
   await page.keyboard.press("Tab");
-  expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  await expect(contactLink).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(closeButton).toBeFocused();
   await page.keyboard.press("Shift+Tab");
-  expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  await expect(contactLink).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(closeButton).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await expect(cta).toBeFocused();
@@ -203,6 +212,10 @@ test("keeps the disabled /pilot form inert without JavaScript", async ({ browser
   });
 
   await page.goto("/pilot", { waitUntil: "load" });
+  await expect(page.locator("main").getByRole("link", { name: "avi@sheperd.io" })).toHaveAttribute(
+    "href",
+    "mailto:avi@sheperd.io",
+  );
   const form = page.locator("form").filter({ hasText: "Work email" }).first();
   await expect(form).toHaveAttribute("method", "post");
   await expect(form).toHaveAttribute("action", "/api/pilot");

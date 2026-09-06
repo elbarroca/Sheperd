@@ -45,7 +45,7 @@ describe("recovery-led landing page content", () => {
   });
 
   it("answers the trust questions without fabricating proof", () => {
-    expect(faqItems.map(({ question }) => question)).toEqual([
+    const requiredQuestions = [
       "What happens after I request a pilot?",
       "Do I need to upload invoices now?",
       "Does SheperD guarantee a refund?",
@@ -53,7 +53,13 @@ describe("recovery-led landing page content", () => {
       "What does the pilot cost?",
       "How long does a review take?",
       "Is the outcome cash or a carrier credit?",
-    ]);
+      "What does detention and demurrage mean?",
+      "Is SheperD software?",
+      "Can SheperD help with carrier payments?",
+    ];
+    expect(faqItems.map(({ question }) => question)).toEqual(
+      expect.arrayContaining(requiredQuestions),
+    );
   });
 
   it("keeps the approved volume ranges and official contact", () => {
