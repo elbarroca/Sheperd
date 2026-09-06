@@ -10,19 +10,19 @@ export const processSteps = [
     number: "01",
     title: "Bring the invoice and operating record",
     description:
-      "Start with the charge as billed, then gather the dates, events, and terms that explain what happened.",
+      "Start with your existing invoices and shipment context. Agree which charges to review and which records are needed.",
   },
   {
     number: "02",
     title: "Build the case from the evidence",
     description:
-      "SheperD organizes the billing record, operational timeline, governing terms, and visible gaps into one review path.",
+      "SheperD connects the billing record, shipment timeline, and governing terms, then coordinates the questions and supporting material with the carrier.",
   },
   {
     number: "03",
     title: "Support the dispute and track the outcome",
     description:
-      "Where the evidence supports a case, the pilot can define next steps toward a carrier credit or refund. No outcome is guaranteed.",
+      "Where the record supports a dispute, SheperD handles carrier correspondence and tracks the response, including any credit or refund. No outcome is guaranteed.",
   },
 ] as const;
 
@@ -55,7 +55,7 @@ export const pilotScope = [
     number: "01",
     title: "A focused record review",
     description:
-      "Start with the charge, the owner, the review period, and the records already available.",
+      "Define the invoices, review period, and support your finance or logistics team needs, with one point of contact for the work.",
   },
   {
     number: "02",
@@ -67,7 +67,7 @@ export const pilotScope = [
     number: "03",
     title: "A next-step conversation",
     description:
-      "Agree the scope, data path, responsibilities, and decision boundary before any secure file handoff.",
+      "Agree responsibilities, carrier coordination, reporting, and a secure data path before work begins. Payment and credit arrangements are scoped separately.",
   },
 ] as const;
 
@@ -75,7 +75,22 @@ export const faqItems = [
   {
     question: "What happens after I request a pilot?",
     answer:
-      "Pilot intake is currently unavailable, and the form does not accept or send your details. When intake opens, the first conversation will cover scope, owners, available records, and the next data step.",
+      "Pilot intake on this website is currently unavailable, and the form does not accept or send your details. You can contact the SheperD team using the email or phone in the footer to discuss your needs. Agree a secure handoff before sharing invoice files.",
+  },
+  {
+    question: "What does detention and demurrage mean?",
+    answer:
+      "Demurrage concerns a container staying at a marine terminal beyond its free time. Detention concerns extended use of intermodal equipment. The applicable terms, dates, and shipment facts determine how a charge should be reviewed.",
+  },
+  {
+    question: "Is SheperD software?",
+    answer:
+      "SheperD is a managed service for U.S. importers. The team handles D&D invoice review, carrier coordination, disputes, and recovery work; it is not a separate software platform your team has to operate.",
+  },
+  {
+    question: "Can SheperD help with carrier payments?",
+    answer:
+      "Payment and cargo-release support can be discussed alongside invoice review. Any payment, financing, or credit arrangement requires a separate agreement; requesting information does not arrange a payment or release.",
   },
   {
     question: "Do I need to upload invoices now?",
@@ -143,6 +158,10 @@ export const sourceLinks = [
 ] as const;
 
 export const liveSource = {
-  contactEmail: "info@sheperd.io",
-  linkedin: "https://www.linkedin.com/company/sheperdio/?viewAsMember=true",
+  url: "https://sheperd.io/",
+  contactEmail: "avi@sheperd.io",
+  contactPhone: "+972537252334",
+  contactPhoneLabel: "+972 53 7252 334",
+  description:
+    "Managed detention and demurrage support for U.S. importers, from invoice review and carrier coordination to disputes and recovery.",
 } as const;

@@ -243,6 +243,25 @@ for (const route of ["/pilot", "/privacy", "/terms"] as const) {
   });
 }
 
+test("keeps footer contact links working across public routes", async ({
+  page,
+}) => {
+  const contactLinks = [
+    "mailto:avi@sheperd.io",
+    "tel:+972537252334",
+    "https://sheperd.io/",
+  ];
+
+  for (const route of ROUTES) {
+    await page.goto(route, { waitUntil: "networkidle" });
+    const footer = page.locator("footer").first();
+    await expect(footer).toBeVisible();
+    for (const href of contactLinks) {
+      await expect(footer.locator(`a[href="${href}"]`)).toHaveCount(1);
+    }
+  }
+});
+
 test("keeps the complete content and native navigation path without JavaScript", async ({
   browser,
 }) => {

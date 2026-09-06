@@ -15,6 +15,7 @@ import {
 } from "react";
 
 import { PilotForm } from "@/components/pilot-form";
+import { liveSource } from "@/lib/content";
 
 export interface PilotDialogContextValue {
   isOpen: boolean;
@@ -190,18 +191,12 @@ export function PilotDialogProvider({
           ? focusableElements.indexOf(activeElement)
           : -1;
 
-      if (event.shiftKey) {
-        if (activeIndex <= 0) {
-          event.preventDefault();
-          focusableElements.at(-1)?.focus({ preventScroll: true });
-        }
-        return;
-      }
-
-      if (activeIndex === -1 || activeIndex === focusableElements.length - 1) {
-        event.preventDefault();
-        focusableElements[0]?.focus({ preventScroll: true });
-      }
+      // WebKit's default tab order can skip links, so handle every step.
+      event.preventDefault();
+      const nextIndex = event.shiftKey
+        ? (activeIndex <= 0 ? focusableElements.length - 1 : activeIndex - 1)
+        : (activeIndex + 1) % focusableElements.length;
+      focusableElements[nextIndex]?.focus();
     },
     [],
   );
@@ -235,15 +230,15 @@ export function PilotDialogProvider({
             <span className="visually-hidden">Close</span>
           </button>
 
-          <p className="eyebrow eyebrow-blue">Case-specific conversation</p>
+          <p className="eyebrow eyebrow-blue">D&amp;D support for U.S. importers</p>
           <h2 className="pilot-dialog-heading" id="pilot-dialog-heading">
             Request a pilot
           </h2>
           <p id="pilot-dialog-description" className="pilot-dialog-description">
-            Pilot intake is currently unavailable for this release. If it
-            reopens, the conversation will cover scope, ownership, and
-            evidence context for a case-specific pilot. No invoice upload
-            happens here.
+            Pilot intake on this website is currently unavailable. To discuss
+            invoice review, carrier coordination, or disputes, email{" "}
+            <a className="text-link" href={`mailto:${liveSource.contactEmail}`}>{liveSource.contactEmail}</a>.
+            Agree a secure handoff before sharing invoice files.
           </p>
           <PilotForm idPrefix="pilot-dialog" />
         </div>

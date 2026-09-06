@@ -4,35 +4,44 @@
 
 The next improvement should make the service easier to understand. Keep the visual identity we have established, show what a review contains, and give visitors a useful next step while intake is closed. Use one carefully selected operational video to bring the terminal to life.
 
-This document records the current website and proposes the next iteration. Proposed copy, layouts, and footage below are **not deployed changes**.
+This document records the website at commit `7d32cab` and proposes the next iteration. The company-copy correction below is implemented in the application; the illustrative example, layout proposals, and replacement footage remain **future work**. The dated screenshots show the original audit, before this copy update.
+
+### Company-copy correction — 6 September 2026
+
+The owner confirmed [sheperd.io](https://sheperd.io/) as the real company website. Its published offer is a managed D&D service for U.S. importers: invoice handling, carrier coordination, disputes, and recovery. The application now uses that context in its hero summary, process, pilot explanation, FAQ, footer, and search/social descriptions. The visual direction and Vercel canonical origin stay as configured.
+
+Published contact details are **avi@sheperd.io** and **+972 53 7252 334**. Native email and phone links give visitors a contact route while this website's intake remains disabled. They do not activate its API or form. Payment, financing, and credit require a separate agreement. The FAQ's short D&D definition follows the [Federal Maritime Commission](https://www.fmc.gov/detention-and-demurrage/).
+
+The company site supplies positioning, not independent evidence of results. This adaptation does not import its recovery percentages, monetary examples, same-day language, blanket invoice-age eligibility, or success-fee promises. Engagement scope, operating capacity, timing, pricing, secure handoff, and customer proof still need case-specific confirmation.
 
 ## 1. The context we are designing for
 
-SheperD's chosen audience is importer finance and logistics teams dealing with detention and demurrage charges. Finance needs to understand the bill; operations holds much of the shipment history. The website's job is to connect those perspectives and explain the proposed review clearly.
+SheperD's published audience is U.S. importers, including finance and logistics teams dealing with detention and demurrage charges. Finance needs to understand the bill; operations holds much of the shipment history. The website's job is to connect those perspectives and explain how the service team supports the work.
 
 The central story is:
 
 **A charge arrives → the invoice is matched to events and terms → gaps become visible → a human reviewer determines the next step.**
 
-The internal [audience brief](AUDIENCE-AND-JOB.md) treats this as an audience hypothesis. The material reviewed does not establish customer demand, recovery rates, service turnaround, pricing, or a proven conversion funnel. These should not become decorative statistics or unsupported promises.
+The older internal [audience brief](AUDIENCE-AND-JOB.md) treated this as an audience hypothesis. The company website now establishes its published positioning, but does not independently prove customer demand, recovery rates, turnaround, or conversion. These should not become decorative statistics or unsupported promises.
 
 ### Which website is which
 
 | Surface | Role and status |
 |---|---|
-| [sheperd-website.vercel.app](https://sheperd-website.vercel.app/) | Current public SheperD website; canonical origin. |
+| [sheperd.io](https://sheperd.io/) | Existing company website, confirmed by the owner; first-party source for business copy and contact details. |
+| [sheperd-website.vercel.app](https://sheperd-website.vercel.app/) | This repository's public redesign and configured canonical origin; no domain migration is included. |
 | `sheperd-website` Vercel project, root `website` | Existing React/Next.js application; production branch `main`. |
 | Local development and feature previews | Places to review changes before release; their URLs do not replace the canonical origin. |
 | `website/mockups/` | Art-direction references, not deployed interfaces. |
-| [shepherd.com](https://www.brannans.com/domain/shepherd-com/) | Redirected to a Brannans domain-sale listing when checked on 6 September. No affiliation or ownership has been established. |
+| [shepherd.com](https://www.brannans.com/domain/shepherd-com/) | Earlier mistaken reference, corrected by the owner to `sheperd.io`. The domain-sale listing is unrelated to the copy adaptation. |
 
-Vercel currently identifies production as commit `7d32cab7923decf199b90c1bd7ec5cb8ec87a62a`, deployment `dpl_9e7HPNNBivFqxPdXMxD85FjiJ1Zu`, state `READY`. The review branch starts from that commit. There is no WordPress implementation in this website.
+At the original audit, Vercel identified production as commit `7d32cab7923decf199b90c1bd7ec5cb8ec87a62a`, deployment `dpl_9e7HPNNBivFqxPdXMxD85FjiJ1Zu`, state `READY`. The review branch starts from that commit. There is no WordPress implementation in this website.
 
 The approved September direction supersedes the old educational-only Preview strategy in several July documents. Use [DEPLOYMENT.md](../DEPLOYMENT.md) and the current application for release behavior. Retain the older documents as history and sources of factual constraints; do not treat their old ban on CTAs as the current product brief. Publication approval does not establish customer outcomes or an operational capability by itself.
 
 ## 2. What the current visitor journey shows
 
-These observations come from a fresh inspection of the live site in the Codex in-app browser. Desktop captures use its existing **1254 × 1264** viewport; the mobile first impression uses **390 × 844**. Screenshots were inspected before inclusion. Findings about comprehension are design judgments, not results from customer testing.
+These observations describe the original live-site audit at `7d32cab`, before the company-copy update above. Desktop captures use the Codex in-app browser's **1254 × 1264** viewport; the mobile first impression uses **390 × 844**. Screenshots were inspected before inclusion. Findings about comprehension are design judgments, not results from customer testing.
 
 ### Step 1 — Arrive at the hero: strong visual identity; incomplete offer clarity
 
@@ -117,7 +126,7 @@ The continuously looping hero has no in-page stop mechanism, following the selec
 
 Keep the existing navy, teal, paper, ice, and cobalt system. Keep Georgia for display type and system sans-serif for reading. The next iteration changes the information each section earns, not the identity of the site.
 
-The copy below is a **working draft**, not newly verified service claims.
+The table below is the **original working draft**, not the final company-copy adaptation. The correction above resolves the service category and public contact route; the example, layout, and motion proposals remain unimplemented.
 
 | Section | Visitor question | Proposed content and layout | Motion role |
 |---|---|---|---|
@@ -252,7 +261,7 @@ For the next build, keep Lighthouse mobile performance at least 90, lab LCP at m
 | 4 | Refine section spacing and motion around the revised content. | Different section treatments serve different jobs; reading areas settle; touch remains native; controls stay stable. |
 | 5 | Update affected metadata/social art and release through the existing project. | Lint, typecheck, unit tests, build, cross-browser checks, accessibility inspection, preview review, and production commit/alias checks pass. |
 
-The service category, supported pilot criteria, review owner, deliverable, timing, pricing, secure handoff, and any customer proof need facts from the team before stronger claims can be written. These questions do not block the illustrative example, clearer available-state navigation, or footage research. Paid asset acquisition needs a selected item and budget; this review creates no purchase commitment.
+The managed-service category and U.S. importer audience are company-published. Specific pilot criteria, review owner, deliverable, timing, pricing, secure handoff, and customer proof still need facts from the team before stronger claims can be written. These questions do not block the illustrative example or footage research. Paid asset acquisition needs a selected item and budget; this review creates no purchase commitment.
 
 Before release, run the existing 320/390/768/1440/1920 layout checks, 200% zoom/reflow, keyboard navigation, reduced motion, no JavaScript, dialog focus/scroll handling, disabled intake, broken-link and asset checks, and visual review against the selected composition. Do not update baselines merely to make a test pass.
 
@@ -269,6 +278,7 @@ For a small comprehension check, show the revised page to five relevant finance/
 | The image pipeline matters more than a preload slogan. | A mobile crop and quality reduction cut transfer size; additional preload/decoding experiments did not consistently improve the result and were reverted. | Measure one change at a time on a production build. Retain only improvements supported by the actual render and timing. |
 | Video format and visual action are separate decisions. | WebM made the fog loop small, but did not make the containers move. | Specify the physical action and composition before choosing an encoding format or generation tool. |
 | A disabled form can be technically correct and still disappoint. | Collection is safely disabled, but the visitor is repeatedly invited to request something unavailable. | Design around the task visitors can complete today; keep future intake capability behind its existing boundary. |
+| A new contact link can change keyboard behavior. | WebKit skipped the dialog email link in its default tab order, exposing a gap in the existing focus trap. | Handle each Tab step within the dialog and test forward and reverse focus movement in all three engines. |
 | More spacing cannot supply missing information. | The new page is calm and readable, but repeated abstract copy still leaves the offer and deliverable unclear. | Spend the next pass on an example, fit, responsibility, and next action before adding more visual effects. |
 | Passing tests and Lighthouse does not prove business clarity. | The release passed broad technical checks; no comprehension or conversion study was performed. | Report release quality, accessibility limitations, field performance, and customer understanding separately. |
 | Design decisions need dated documentation. | July Preview-only rules coexist with the approved September recovery-led release. | Keep historical material, identify what supersedes it, and maintain one current production copy/claims register. |

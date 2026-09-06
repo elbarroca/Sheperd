@@ -4,7 +4,7 @@ import { SeoHead } from "@/components/seo-head";
 const sections = [
   {
     heading: "Information, not a case decision",
-    body: "This website describes an approach to detention and demurrage invoice review. It does not assess a charge, determine eligibility or liability, or provide legal advice.",
+    body: "This website describes SheperD's managed detention and demurrage services and invoice review approach. It does not assess a charge, determine eligibility or liability, or provide legal advice.",
   },
   {
     heading: "No guaranteed recovery",
@@ -12,7 +12,7 @@ const sections = [
   },
   {
     heading: "Pilot availability",
-    body: "Pilot intake is currently unavailable. Viewing the form does not submit a request, establish an engagement, or create a commercial relationship. Scope, responsibilities, commercial terms, and data handling are agreed separately before any work.",
+    body: "Pilot intake on this website is currently unavailable. Viewing the form does not submit a request or establish an engagement. Scope, responsibilities, commercial terms, and data handling are agreed before work begins. Payment, financing, and credit arrangements require separate agreement.",
   },
   {
     heading: "Sources and imagery",

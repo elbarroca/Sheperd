@@ -16,6 +16,17 @@ test("uses the build's robots policy and canonical homepage origin", async ({ pa
     .locator('link[rel="canonical"]')
     .getAttribute("href");
   expect([CANONICAL_ORIGIN, `${CANONICAL_ORIGIN}/`]).toContain(canonicalHref);
+
+  const title = "SheperD | D&D Services for U.S. Importers";
+  await expect(page).toHaveTitle(title);
+  const description = await page.locator('meta[name="description"]').getAttribute("content");
+  expect(description).toMatch(/Managed detention and demurrage support for U\.S\. importers/);
+  for (const selector of ['meta[property="og:title"]', 'meta[name="twitter:title"]']) {
+    await expect(page.locator(selector)).toHaveAttribute("content", title);
+  }
+  for (const selector of ['meta[property="og:description"]', 'meta[name="twitter:description"]']) {
+    await expect(page.locator(selector)).toHaveAttribute("content", description!);
+  }
 });
 
 test("keeps /pilot out of search indexing in every environment", async ({ page }) => {
