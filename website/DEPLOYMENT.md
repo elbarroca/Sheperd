@@ -1,67 +1,70 @@
-# SheperD Website Deployment
+# SheperD website deployment
 
-Status: public Vercel Production deployment authorized
-Checked: 2026-07-15
+## Existing project
 
-## Vercel project
-
-- Repository: `https://github.com/elbarroca/Sheperd`
+- Repository: https://github.com/elbarroca/Sheperd
+- Vercel project: `sheperd-website` (`prj_3mhF2TaczFJn4qudpafnzSde0Oso`)
+- Team: `elbarrocas-projects`
+- Root directory: `website`
 - Production branch: `main`
-- Deployment Protection: disabled; all generated URLs are public
-- Root Directory: `website`
-- Framework: Next.js
-- Install command: `pnpm install --frozen-lockfile`
-- Build command: `pnpm build`
-- Node.js: 24.x
+- Canonical origin: https://sheperd-website.vercel.app
+- Framework: Next.js, Node.js 24.x, pnpm 10.33.2
+- Install: `pnpm install --frozen-lockfile`
+- Build: `pnpm build`
 
-Pushes to `main` create public Production deployments. The application keeps
-noindex headers and form delivery disabled. Publication was explicitly
-authorized on 2026-07-15; the unresolved evidence and legal risks remain
-recorded below.
+The approved September 2026 redesign releases to this existing project. The
+founder dashboard and research API are separate projects. Do not deploy this
+website through the repository root's research deployment configuration.
 
-The repository-level two-project setup is documented in `../VERCEL.md`.
+## Build and search policy
 
-## Local verification
+`lib/seo.ts` owns metadata, robots, and sitemap policy. Vercel's build-time
+`VERCEL_ENV=production` enables indexing for the homepage. Preview, development,
+and ordinary local builds stay excluded. The configuration serializes the same
+policy for server and client rendering, avoiding hydration changes to metadata.
+
+The pilot, privacy, and terms pages retain `noindex`; the production sitemap
+contains only the homepage. Production robots allows crawling so search engines
+can read these directives. Preview robots disallows crawling. Every canonical
+and social URL uses the production origin.
+
+`pnpm build:production` explicitly emulates production indexing locally; it does
+not deploy. Do not use it for Vercel preview builds.
+
+## Verification
 
 ```sh
 corepack pnpm install --frozen-lockfile
 corepack pnpm check
 corepack pnpm build
+corepack pnpm test:e2e --workers=3
 ```
 
-Run `corepack pnpm test:e2e` against the optimized server for browser and visual
-verification.
+Playwright starts an optimized server on port 3100 and covers Chromium, Firefox,
+and WebKit. Chromium owns the manually reviewed visual baselines. Review the
+render before updating them with `pnpm test:visual --update-snapshots`.
 
-## Resend audit-form setup
+Validate the feature-branch deployment first, then merge the reviewed website
+change to `main`. Verify the production commit and alias, rendering, HTTP and
+HTML indexing directives, social image, robots, sitemap, and disabled intake.
+Report Lighthouse lab measurements separately from field Core Web Vitals.
 
-The form keeps its local no-transmission Preview behavior by default. The
-server route validates every field, uses a honeypot, sends plain-text intake to
-the approved SheperD inbox, and applies a per-submission idempotency key. It does
-not log form data.
+## Pilot intake remains disabled
 
-Before enabling delivery:
+Keep `PILOT_DELIVERY_ENABLED` and `NEXT_PUBLIC_PILOT_DELIVERY_ENABLED` false or
+unset in every environment. This release adds a native dialog and a direct
+`/pilot` page. Both explain availability before the disabled fields. No request
+is transmitted or persisted through the disabled interface, and no receipt is
+claimed. Forms use POST even without JavaScript; disabled fields are never
+serialized into a URL.
 
-1. Verify the sending domain in Resend and approve the sender and recipient.
-2. Approve the privacy notice, intake retention policy, response owner, and a
-   durable rate-limit or abuse-control decision for the deployed environment.
-3. Set the server-only `RESEND_API_KEY`, `SHEPERD_AUDIT_FROM_EMAIL`, and
-   `SHEPERD_AUDIT_TO_EMAIL` values using `.env.example` as the key contract.
-4. Set both `FORM_DELIVERY_ENABLED=true` and
-   `NEXT_PUBLIC_AUDIT_DELIVERY_ENABLED=true`, rebuild, and test exactly one
-   bounded request before broader traffic.
+The existing `/api/pilot` payload and delivery contract are unchanged. An empty
+request with the expected form header must return 503 while delivery is disabled.
+A request without the form header returns 403. Production checks use no personal
+data and do not test live delivery.
 
-Do not place the Resend API key in a `NEXT_PUBLIC_` variable or commit a local
-environment file. If either the server flag or any required server value is
-missing, the API returns a non-delivery response and sends nothing.
-
-## Unresolved publication risks
-
-1. Verified legal entity, publishable brand identity, and publication owner.
-2. Approved company/product positioning and exact claim evidence with named approvers and dates.
-3. Approved privacy notice, terms, intake/data controls, and commercial terms.
-4. Approved CTA/contact destination and response owner.
-5. Canonical origin, indexing, metadata, analytics decision, deployment target, and explicit deploy/domain/DNS authority.
-
-The complete evidence contract is in `docs/FACTS-AND-CONSTRAINTS.md`. Public
-deployment does not approve indexing, domain attachment, form delivery,
-analytics, or unsupported claims.
+Future activation requires separate approval of the response owner, sending and
+receiving addresses, provider configuration, privacy and retention terms, and
+abuse controls. It is outside this release. Existing legacy audit delivery flags
+also remain disabled. Do not add advertising trackers, change domains, or enable
+email as part of the redesign.

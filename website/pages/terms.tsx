@@ -1,35 +1,30 @@
-import Head from "next/head";
-
 import { NoticePage } from "@/components/notice-page";
+import { SeoHead } from "@/components/seo-head";
 
 const sections = [
   {
-    heading: "Local marketing Preview",
-    body: "The page recreates the currently selected SheperD marketing direction for design and engineering review. It does not evaluate a charge, determine compliance, or provide legal advice.",
+    heading: "Information, not a case decision",
+    body: "This website describes an approach to detention and demurrage invoice review. It does not assess a charge, determine eligibility or liability, or provide legal advice.",
   },
   {
-    heading: "No submitted request",
-    body: "The audit form has no backend, email delivery, persistence, CRM, or response workflow. Completing the local interaction does not create a service request or commercial relationship.",
+    heading: "No guaranteed recovery",
+    body: "Any recovery opportunity depends on the available records, governing terms, operational facts, and applicable process. A carrier credit or refund is never guaranteed.",
   },
   {
-    heading: "Use current sources and qualified review",
-    body: "Official material can change and case conclusions depend on specific facts. Verify current source text and keep interpretation with a qualified human reviewer.",
+    heading: "Pilot availability",
+    body: "Pilot intake is currently unavailable. Viewing the form does not submit a request, establish an engagement, or create a commercial relationship. Scope, responsibilities, commercial terms, and data handling are agreed separately before any work.",
+  },
+  {
+    heading: "Sources and imagery",
+    body: "Official source material can change. Verify the current source and keep interpretation with a qualified human reviewer. Terminal imagery is illustrative and does not depict a customer shipment, actual case, or recovery outcome.",
   },
 ] as const;
 
 export default function TermsPage() {
   return (
     <>
-      <Head>
-        <title>Use notice | SheperD Preview</title>
-        <meta name="robots" content="noindex,nofollow,noarchive" />
-      </Head>
-      <NoticePage
-        eyebrow="Preview use notice"
-        title="A design Preview, not a service decision."
-        summary="Use this local build to review the selected visual system and conversion path before publication approvals are complete."
-        sections={sections}
-      />
+      <SeoHead title="Use notice | SheperD" description="The scope and limits of information on the SheperD website, including pilot availability and case-specific review." path="/terms" indexable={false} />
+      <NoticePage eyebrow="Use notice" title="A clear starting point. A defined boundary." summary="Use this website to understand the review approach and the records involved. Case decisions require current sources and qualified human review." sections={sections} />
     </>
   );
 }

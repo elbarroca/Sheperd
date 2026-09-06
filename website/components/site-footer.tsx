@@ -1,8 +1,8 @@
-import { ArrowRight, ArrowUpRight } from "@phosphor-icons/react";
+import { ArrowUpRight } from "@phosphor-icons/react";
 
 import { navigationItems, sourceLinks } from "@/lib/content";
-
 import { BrandLogo } from "./brand-logo";
+import { PilotLink } from "./pilot-link";
 
 export function SiteFooter() {
   return (
@@ -10,60 +10,29 @@ export function SiteFooter() {
       <div className="container footer-main">
         <div className="footer-overview">
           <BrandLogo compact />
-          <p>
-            SheperD helps importer teams turn D&amp;D review into an
-            evidence-led recovery process.
-          </p>
-          <a className="footer-cta" href="/pilot">
-            Request a pilot
-            <ArrowRight aria-hidden="true" size={18} />
-          </a>
+          <p>A clearer record.<br />A more informed next step.</p>
+          <PilotLink className="text-link">Request a pilot <ArrowUpRight aria-hidden="true" size={16} /></PilotLink>
         </div>
-
         <div className="footer-column">
           <p className="footer-heading">Explore</p>
           <nav className="footer-links" aria-label="Footer navigation">
-            {navigationItems.map((item) => (
-              <a href={`/${item.href}`} key={item.href}>
-                {item.label}
-              </a>
-            ))}
+            {navigationItems.map((item) => <a href={"/" + item.href} key={item.href}>{item.label}</a>)}
           </nav>
         </div>
-
-        <div className="footer-column footer-contact">
-          <p className="footer-heading">Contact</p>
-          <a href="/pilot">
-            Start with a pilot conversation
-            <ArrowUpRight aria-hidden="true" size={16} />
-          </a>
-          <span className="footer-muted">Public form: metadata only</span>
-        </div>
-
         <div className="footer-column">
-          <p className="footer-heading">Sources</p>
+          <p className="footer-heading">Original sources</p>
           <nav className="footer-links" aria-label="Official sources">
-            {sourceLinks.slice(0, 2).map((source) => (
-              <a
-                href={source.href}
-                key={source.title}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {source.issuer}
-                <ArrowUpRight aria-hidden="true" size={16} />
+            {sourceLinks.map((source) => (
+              <a href={source.href} key={source.title} target="_blank" rel="noopener noreferrer">
+                {source.issuer}<ArrowUpRight aria-hidden="true" size={13} />
               </a>
             ))}
           </nav>
         </div>
       </div>
-
       <div className="container footer-bottom">
-        <span>SheperD · Recovery-led landing page Preview</span>
-        <nav aria-label="Legal links">
-          <a href="/privacy">Privacy Policy</a>
-          <a href="/terms">Use Notice</a>
-        </nav>
+        <span>SheperD. Case-specific review. No guaranteed recovery.</span>
+        <nav aria-label="Legal links"><a href="/privacy">Privacy notice</a><a href="/terms">Use notice</a></nav>
       </div>
     </footer>
   );

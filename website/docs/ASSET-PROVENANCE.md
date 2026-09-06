@@ -42,3 +42,15 @@ Prompt:
 > Use case: photorealistic-natural. Asset type: responsive landing-page editorial image for a shipping-container charge recovery company. Create an original, credible container-terminal operations photograph that instantly reads as import logistics to an industry audience. Show a working marine container yard at blue hour, orderly rows of generic intermodal containers, one rubber-tired gantry crane and a terminal tractor moving through a clear operational lane, distant ship-to-shore cranes, and soft harbor atmosphere. Use high-end documentary logistics photography, realistic industrial scale, physically plausible container geometry and handling equipment, natural textures, a restrained cinematic finish, deep navy, steel blue, cobalt, neutral gray, and limited safety orange. Use a wide 16:10 landscape composition with no company names, shipping-line logos, readable container IDs, flags, people, text overlays, UI, charts, or watermarks.
 
 Use boundary: generic industry-context imagery only. It does not depict a SheperD customer, actual shipment, real terminal event, verified product capability, or recovery outcome.
+
+## September 2026 redesign assets
+
+- `website/public/media/recovery-terminal.png` is an unchanged copy of the
+  approved `website/mockups/shepherd-v2/hero-direction-01-art.png` (1918 × 820).
+  Next.js generates responsive delivery formats. Fog and light are separate CSS
+  layers; the asset contains no invoice panel, route line, evidence labels, or
+  caption. It remains illustrative terminal imagery, not a customer record.
+- `website/public/og/sheperd-recovery.png` is a 1200 × 630 social graphic rendered
+  with Next.js `ImageResponse` from that artwork, the existing SheperD animal
+  logo, and the approved headline and recovery qualification. Georgia and Arial
+  were used to render the graphic; no font binaries are shipped.
