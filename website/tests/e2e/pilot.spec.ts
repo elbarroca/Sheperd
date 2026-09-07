@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 const PILOT_CTA = "Request a pilot";
@@ -46,6 +47,12 @@ test("opens a native pilot dialog from each visible CTA and restores focus", asy
       ),
     ).toBe(true);
     await expect(dialog.locator('button[type="submit"]')).toBeDisabled();
+    if (index === 0) {
+      const accessibility = await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+        .analyze();
+      expect(accessibility.violations).toEqual([]);
+    }
 
     const lockState = await page.evaluate(() => ({
       bodyOverflow: getComputedStyle(document.body).overflowY,
@@ -62,15 +69,12 @@ test("opens a native pilot dialog from each visible CTA and restores focus", asy
     await expect(dialog).toBeHidden();
     await expect(cta).toBeFocused();
 
-    const unlockedState = await page.evaluate(() => ({
-      bodyOverflow: getComputedStyle(document.body).overflowY,
-      documentOverflow: getComputedStyle(document.documentElement).overflowY,
-    }));
-    expect(
-      [unlockedState.bodyOverflow, unlockedState.documentOverflow].some((value) =>
-        ["hidden", "clip"].includes(value),
+    // Native close events and the React scroll-lock cleanup are asynchronous.
+    await expect.poll(() => page.evaluate(() =>
+      [document.body, document.documentElement].some((element) =>
+        ["hidden", "clip"].includes(getComputedStyle(element).overflowY),
       ),
-    ).toBe(false);
+    )).toBe(false);
   }
 });
 
@@ -306,4 +310,85 @@ test("renders FAQ answers with native details disclosure", async ({ browser }) =
   await firstSummary.click();
   await expect(firstItem).not.toHaveAttribute("open", "");
   await context.close();
+});
+
+test("keeps native modality and scroll locking throughout the dialog exit", async ({ page }) => {
+  await page.goto("/", { waitUntil: "networkidle" });
+  const cta = page.locator(".header-pilot");
+  await cta.click();
+  const dialog = page.locator(".pilot-dialog");
+  await expect(dialog).toBeVisible();
+
+  const exiting = await dialog.evaluate((element) => {
+    const modal = element as HTMLDialogElement;
+    modal.querySelector<HTMLButtonElement>(".pilot-dialog-close")?.click();
+    const exit = modal.getAnimations().find((animation) => !(animation instanceof CSSAnimation));
+    if (!exit) throw new Error("The dialog must animate before native close.");
+    exit.pause();
+    return {
+      open: modal.open,
+      modal: modal.matches(":modal"),
+      closing: modal.dataset.closing,
+      locked: document.body.style.overflow === "hidden",
+    };
+  });
+  expect(exiting).toEqual({ open: true, modal: true, closing: "true", locked: true });
+  await page.keyboard.press("Tab");
+  expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+
+  await dialog.evaluate((element) => {
+    element.getAnimations().find((animation) => !(animation instanceof CSSAnimation))?.finish();
+  });
+  await expect(dialog).toBeHidden();
+  await expect(cta).toBeFocused();
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).not.toBe("hidden");
+
+  await cta.click();
+  await expect(dialog).not.toHaveAttribute("data-closing");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+});
+
+test("honors reduced motion when opening and during an active dialog exit", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/", { waitUntil: "networkidle" });
+  const cta = page.locator(".header-pilot");
+  const dialog = page.locator(".pilot-dialog");
+  await cta.click();
+  expect(await dialog.evaluate((element) => element.getAnimations({ subtree: true }).length)).toBe(0);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(cta).toBeFocused();
+
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await cta.click();
+  await dialog.evaluate((element) => {
+    element.querySelector<HTMLButtonElement>(".pilot-dialog-close")?.click();
+    element.getAnimations().find((animation) => !(animation instanceof CSSAnimation))?.pause();
+  });
+  await expect(dialog).toHaveAttribute("data-closing", "true");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(dialog).toBeHidden();
+  await expect(cta).toBeFocused();
+});
+
+test("can reopen before a queued native close event has finished", async ({ page }) => {
+  await page.goto("/", { waitUntil: "networkidle" });
+  const cta = page.locator(".header-pilot");
+  const dialog = page.locator(".pilot-dialog");
+  await cta.click();
+  await dialog.evaluate((element) => {
+    // Reproduce reopening between native close and React's close-event cleanup.
+    element.addEventListener("close", () => {
+      document.querySelector<HTMLAnchorElement>(".header-pilot")?.click();
+    }, { once: true, capture: true });
+  });
+  await dialog.getByRole("button", { name: /close/i }).click();
+  await expect(dialog).not.toHaveAttribute("data-closing");
+  await expect(dialog).toHaveAttribute("open", "");
+  await expect(dialog).toHaveCSS("opacity", "1");
+  expect(await dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(cta).toBeFocused();
 });

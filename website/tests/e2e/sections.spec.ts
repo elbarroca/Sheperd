@@ -719,7 +719,10 @@ test("keeps all section content readable without JavaScript on a tall 320px view
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   await page.locator("#process").scrollIntoViewIfNeeded();
   await expect(
-    page.getByRole("heading", { level: 2, name: /From billed to reviewed/i }),
+    page.getByRole("heading", {
+      level: 2,
+      name: /Your invoices\. Our next move\./i,
+    }),
   ).toBeVisible();
   const processList = page.locator("#process .process-list");
   await expect(processList).toBeVisible();

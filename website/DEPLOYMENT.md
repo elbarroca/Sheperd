@@ -98,3 +98,34 @@ receiving addresses, provider configuration, privacy and retention terms, and
 abuse controls. It is outside this release. Existing legacy audit delivery flags
 also remain disabled. Do not add advertising trackers, change domains, or enable
 email as part of the redesign.
+
+### Resend activation handoff
+
+The installed Resend SDK already receives a plain-text message, an approved
+sender and recipient, the visitor's address as `replyTo`, and a submission-based
+idempotency key. `tests/unit/pilot-api.test.ts` exercises this route with a mocked
+provider, including disabled configuration, invalid input, and delivery failures.
+These checks do not prove inbox delivery.
+
+Before the separate activation release:
+
+1. Confirm the response owner and exact sender/recipient. The public contact
+   address is not automatically the intake recipient.
+2. Verify the sending domain in Resend, including SPF and DKIM. Configure a
+   sending-only API key in Vercel's server environment. Keep it out of public
+   variables and Git. See [Resend domain setup](https://resend.com/docs/dashboard/domains/introduction).
+3. Agree privacy, retention, and response handling; add rate limiting or
+   equivalent abuse controls. The existing custom header and honeypot alone are
+   not sufficient protection for a public sending endpoint.
+4. Release the reviewed public build-guard change and matching server flag to a
+   controlled preview. Update unavailable messaging at the same time. Run one
+   separately authorized delivery to the approved recipient and verify the
+   provider result and actual mailbox receipt.
+5. Enable production only after those checks. Monitor provider failures without
+   logging form contents. To stop delivery, set `PILOT_DELIVERY_ENABLED=false`;
+   restore the disabled public build and redeploy so visitors cannot enter data.
+
+The dialog keeps its native modal state until its exit animation finishes.
+Reduced motion and route changes bypass the exit delay. FAQ disclosures use
+native exclusive `details` groups, so keyboard and no-JavaScript access work
+without a separate accordion library.

@@ -2,7 +2,6 @@ import { PilotForm } from "@/components/pilot-form";
 import { SeoHead } from "@/components/seo-head";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
-import { liveSource } from "@/lib/content";
 
 export default function PilotPage() {
   return (
@@ -31,17 +30,13 @@ export default function PilotPage() {
                 needs. Scope, responsibilities, and a secure record handoff are
                 agreed before work begins.
               </p>
-              <p>
-                This website&apos;s form is disabled. You can contact the team at{" "}
-                <a className="text-link" href={`mailto:${liveSource.contactEmail}`}>{liveSource.contactEmail}</a>.
-              </p>
               <p className="hero-boundary">
                 No guaranteed recovery. No public file upload.
               </p>
             </div>
 
             <div className="pilot-form-card">
-              <div className="section-marker">PILOT INTAKE / METADATA ONLY</div>
+              <div className="section-marker">YOUR TEAM / YOUR PRIORITIES</div>
               <PilotForm />
             </div>
           </div>

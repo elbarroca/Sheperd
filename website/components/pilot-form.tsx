@@ -7,7 +7,7 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import { roleOptions, volumeOptions } from "@/lib/content";
+import { liveSource, roleOptions, volumeOptions } from "@/lib/content";
 
 type SubmitState = "idle" | "submitting" | "sent" | "error";
 
@@ -114,8 +114,12 @@ export function PilotForm({ idPrefix = "pilot" }: PilotFormProps) {
           role="status"
         >
           <WarningCircle aria-hidden="true" size={20} weight="fill" />
-          Pilot intake on this website is currently unavailable. No details are collected,
-          stored, or sent.
+          <span>
+            <strong>Online intake is currently unavailable.</strong>
+            No details are collected, stored, or sent. Contact{" "}
+            <a className="text-link" href={`mailto:${liveSource.contactEmail}`}>{liveSource.contactEmail}</a>{" "}
+            to discuss a pilot.
+          </span>
         </p>
       ) : null}
 
@@ -255,7 +259,7 @@ export function PilotForm({ idPrefix = "pilot" }: PilotFormProps) {
       <p className="form-privacy">
         {isAvailable
           ? "Your details go only to the approved SheperD pilot owner."
-          : "Pilot delivery is disabled for this release."}
+          : "Agree a secure handoff with the team before sharing invoice files."}
       </p>
 
       {submitState === "sent" ? (

@@ -100,6 +100,7 @@ export function ScrollSection({
     }, { rootMargin: "15% 0px", threshold: 0 });
 
     const onFocusIn = (event: FocusEvent): void => {
+      cancelAnimationFrame(focusFrame);
       const pointerFocus = event.target instanceof HTMLElement &&
         !event.target.matches(":focus-visible");
       const transforms = targets.map((target) => getComputedStyle(target).transform);

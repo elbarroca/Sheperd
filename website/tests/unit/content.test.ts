@@ -21,9 +21,9 @@ describe("recovery-led landing page content", () => {
 
   it("keeps the process explicit without promising recovery", () => {
     expect(processSteps.map(({ title }) => title)).toEqual([
-      "Bring the invoice and operating record",
-      "Build the case from the evidence",
-      "Support the dispute and track the outcome",
+      "Share the invoices",
+      "We review and coordinate",
+      "Follow the resolution",
     ]);
     expect(processSteps.at(-1)?.description).toContain("credit or refund");
   });

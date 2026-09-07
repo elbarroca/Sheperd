@@ -80,18 +80,14 @@
 .marketing-site [data-scroll-reveal-target-state="pending"] { opacity: 0; transform: translateY(110%); }
 .marketing-site [data-scroll-reveal-state="revealed"],
 .marketing-site [data-scroll-reveal-target-state="revealed"] { opacity: 1; transform: none; }
-.marketing-site .process-item { position: relative; border-top: none; }
-.marketing-site .process-item::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto;
-  height: 1px;
-  background: rgb(198 213 223 / 35%);
+.marketing-site .process-connector {
   transform-origin: left;
   transition: transform 850ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
-.marketing-site .process-item[data-scroll-reveal-state="pending"]::before { transform: scaleX(0); }
+.marketing-site .process-item[data-scroll-reveal-state="pending"] .process-connector { transform: scaleX(0); }
 @media (max-width: 767px) {
+  .marketing-site .process-connector { transform-origin: top; }
+  .marketing-site .process-item[data-scroll-reveal-state="pending"] .process-connector { transform: scaleY(0); }
   .marketing-site .evidence-list { --section-entry: translateX(16px); --section-exit: translateX(8px); }
   .marketing-site .pilot-scope-copy { --section-entry: translateY(24px); --section-exit: translateY(-12px); }
   .marketing-site .pilot-scope-list { --section-entry: translateY(40px); --section-exit: translateY(-18px); }

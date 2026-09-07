@@ -8,21 +8,21 @@ export const navigationItems = [
 export const processSteps = [
   {
     number: "01",
-    title: "Bring the invoice and operating record",
+    title: "Share the invoices",
     description:
-      "Start with your existing invoices and shipment context. Agree which charges to review and which records are needed.",
+      "Start with the invoices you already have. Agree the review scope and a secure way to share the shipment records.",
   },
   {
     number: "02",
-    title: "Build the case from the evidence",
+    title: "We review and coordinate",
     description:
-      "SheperD connects the billing record, shipment timeline, and governing terms, then coordinates the questions and supporting material with the carrier.",
+      "SheperD checks the charges against shipment events and terms, builds the supporting record, and handles the carrier questions.",
   },
   {
     number: "03",
-    title: "Support the dispute and track the outcome",
+    title: "Follow the resolution",
     description:
-      "Where the record supports a dispute, SheperD handles carrier correspondence and tracks the response, including any credit or refund. No outcome is guaranteed.",
+      "Your point of contact follows the dispute and carrier response, keeping you informed of any credit or refund. Outcomes depend on the case.",
   },
 ] as const;
 
@@ -73,54 +73,64 @@ export const pilotScope = [
 
 export const faqItems = [
   {
+    group: "Getting started",
     question: "What happens after I request a pilot?",
     answer:
-      "Pilot intake on this website is currently unavailable, and the form does not accept or send your details. You can contact the SheperD team using the email or phone in the footer to discuss your needs. Agree a secure handoff before sharing invoice files.",
+      "Online intake is currently unavailable. Contact the team by email or phone to discuss your invoices, priorities, and review scope. Agree a secure handoff before sharing files.",
   },
   {
+    group: "Scope and outcomes",
     question: "What does detention and demurrage mean?",
     answer:
       "Demurrage concerns a container staying at a marine terminal beyond its free time. Detention concerns extended use of intermodal equipment. The applicable terms, dates, and shipment facts determine how a charge should be reviewed.",
   },
   {
+    group: "Getting started",
     question: "Is SheperD software?",
     answer:
-      "SheperD is a managed service for U.S. importers. The team handles D&D invoice review, carrier coordination, disputes, and recovery work; it is not a separate software platform your team has to operate.",
+      "SheperD is a managed service for U.S. importers. A dedicated team handles invoice review, carrier coordination, and disputes. There is no software for your team to install or operate.",
   },
   {
+    group: "Scope and outcomes",
     question: "Can SheperD help with carrier payments?",
     answer:
       "Payment and cargo-release support can be discussed alongside invoice review. Any payment, financing, or credit arrangement requires a separate agreement; requesting information does not arrange a payment or release.",
   },
   {
+    group: "Getting started",
     question: "Do I need to upload invoices now?",
     answer:
       "No. This website does not accept invoice files. Any file transfer would be a separate secure step after scope and data handling are agreed.",
   },
   {
+    group: "Scope and outcomes",
     question: "Does SheperD guarantee a refund?",
     answer:
       "No. Eligibility and value depend on invoice language, dates, governing terms, operational facts, and available evidence. The page does not promise a refund.",
   },
   {
+    group: "Scope and outcomes",
     question: "What if the review does not support a recovery path?",
     answer:
-      "The review should make that boundary clear and identify the missing evidence or next decision rather than manufacture a result.",
+      "The team explains what the records support, what is missing, and whether there is a next step. A review can end without a recovery claim.",
   },
   {
+    group: "Getting started",
     question: "What does the pilot cost?",
     answer:
-      "Commercial terms are agreed before any engagement. No fee or success-fee percentage is published on this website.",
+      "The team will confirm scope and commercial terms before work begins. Pricing and any payment, financing, or credit arrangement are agreed separately.",
   },
   {
+    group: "Getting started",
     question: "How long does a review take?",
     answer:
-      "Timing is scoped with the pilot owner after the records, review capacity, and responsibilities are confirmed. No blanket SLA is promised.",
+      "Timing depends on the records available and the carrier response. The team agrees the review scope and update cadence with you before work begins.",
   },
   {
+    group: "Scope and outcomes",
     question: "Is the outcome cash or a carrier credit?",
     answer:
-      "That depends on the carrier process and case facts. A pilot must distinguish cash refunds from credits and record what was actually realized.",
+      "A resolution may be a cash refund or a carrier credit. SheperD tracks the actual outcome and makes the distinction clear in its reporting.",
   },
 ] as const;
 
