@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUpRight, Check, Plus } from "@phosphor-icons/react";
+import { ArrowDown, ArrowRight, ArrowUpRight, ChatsCircle, Check, FileMagnifyingGlass, Files, Plus } from "@phosphor-icons/react";
 import Image from "next/image";
 
 import { evidenceLayers, faqItems, pilotScope, processSteps, sourceLinks } from "@/lib/content";
@@ -10,13 +10,18 @@ import { ScrollSection } from "./scroll-section";
 import { SiteFooter } from "./site-footer";
 import { SiteHeader } from "./site-header";
 
+const processIcons = [Files, FileMagnifyingGlass, ChatsCircle] as const;
+const faqGroups = ["Getting started", "Scope and outcomes"] as const;
+
 export function RecoveryCorridor() {
   return (
     <>
       <a className="skip-link" href="#main-content">Skip to content</a>
       <div className="announcement">
-        <p>Detention &amp; demurrage support for U.S. importers</p>
-        <a href="#process">A closer look at the method <ArrowUpRight aria-hidden="true" size={13} /></a>
+        <div className="container announcement-inner">
+          <p>One team for your detention &amp; demurrage.</p>
+          <a className="arrow-link" href="#process">See how it works <ArrowUpRight aria-hidden="true" size={15} /></a>
+        </div>
       </div>
       <SiteHeader />
       <main id="main-content" tabIndex={-1}>
@@ -26,10 +31,10 @@ export function RecoveryCorridor() {
           <div className="container intro-layout">
             <ScrollHeading id="intro-title" lines={["One point of contact.", "Across the D&D process."]} treatment="line" />
             <p>
-              Invoices, terminal events, and carrier correspondence often sit
-              with different teams. SheperD brings them together, helping finance
-              and logistics move from a billing question to a documented next
-              step. A service team alongside yours.
+              Keep your team focused on moving cargo. SheperD coordinates
+              invoice review, carrier questions, and dispute work through one
+              point of contact. Payment and cargo-release support can be scoped
+              separately when your shipment needs it.
             </p>
           </div>
         </ScrollSection>
@@ -39,18 +44,27 @@ export function RecoveryCorridor() {
             <div className="section-heading">
               <div>
                 <p className="eyebrow">How it works</p>
-                <ScrollHeading id="process-title" lines={["From billed", "to reviewed."]} treatment="word" />
+                <ScrollHeading id="process-title" lines={["Your invoices.", "Our next move."]} treatment="word" />
               </div>
-              <p>Share the context. Let the team coordinate the review. Follow the carrier response through to the outcome.</p>
+              <p>Three steps, one point of contact. You bring the context; SheperD takes care of the review and carrier follow-up.</p>
             </div>
             <ol className="process-list">
-              {processSteps.map((step, index) => (
-                <ScrollReveal as="li" className="process-item" delay={index * 0.08} key={step.number} variant="slide">
-                  <span className="step-number" aria-hidden="true">{step.number}</span>
-                  <h3>{step.title}</h3>
-                  <p>{step.description}</p>
-                </ScrollReveal>
-              ))}
+              {processSteps.map((step, index) => {
+                const StepIcon = processIcons[index];
+                return (
+                  <ScrollReveal as="li" className="process-item" delay={index * 0.08} key={step.number} variant="slide">
+                    <div className="process-visual" aria-hidden="true">
+                      <span className="step-number">{index + 1}</span>
+                      {StepIcon ? <StepIcon size={46} weight="light" /> : null}
+                      {index < processSteps.length - 1 ? <span className="process-connector"><ArrowRight size={18} /></span> : null}
+                    </div>
+                    <div className="process-description">
+                      <h3>{step.title}</h3>
+                      <p>{step.description}</p>
+                    </div>
+                  </ScrollReveal>
+                );
+              })}
             </ol>
             <ScrollReveal as="p" className="process-boundary" delay={0.28} variant="fade"><Check aria-hidden="true" size={17} /> Human review before any carrier credit or refund outcome.</ScrollReveal>
           </div>
@@ -62,7 +76,7 @@ export function RecoveryCorridor() {
               <p className="eyebrow">What we review</p>
               <ScrollHeading id="evidence-title" lines={["One charge.", "Three records."]} treatment="plain" />
               <p>No single document tells the whole story. The useful work is in connecting what was billed to what happened, and what governs it.</p>
-              <a className="text-link" href="#pilot-scope">Explore the pilot scope <ArrowDown aria-hidden="true" size={17} /></a>
+              <a className="text-link arrow-link arrow-link-down" href="#pilot-scope">Explore the pilot scope <ArrowDown aria-hidden="true" size={17} /></a>
             </div>
             <div className="evidence-list">
               {evidenceLayers.map((layer, index) => (
@@ -123,7 +137,7 @@ export function RecoveryCorridor() {
               <div className="source-list">
                 <p className="record-label">Read the original sources</p>
                 {sourceLinks.map((source) => (
-                  <a href={source.href} key={source.title} target="_blank" rel="noopener noreferrer">
+                  <a className="arrow-link" href={source.href} key={source.title} target="_blank" rel="noopener noreferrer">
                     <span><strong>{source.title}</strong><small>{source.issuer}</small></span>
                     <ArrowUpRight aria-hidden="true" size={20} />
                   </a>
@@ -131,17 +145,30 @@ export function RecoveryCorridor() {
                 <p className="source-note">Official sources frame the review. They do not guarantee eligibility, liability, or a refund.</p>
               </div>
             </div>
-            <div className="faq-block">
-              <h3>Questions before a pilot</h3>
-              <div className="faq-list">
-                {faqItems.map((item) => (
-                  <details key={item.question}>
-                    <summary>{item.question}<Plus aria-hidden="true" size={19} /></summary>
-                    <p>{item.answer}</p>
-                  </details>
+            <section className="faq-block" aria-labelledby="faq-title">
+              <div className="faq-heading">
+                <div>
+                  <p className="eyebrow">A few useful answers</p>
+                  <h3 id="faq-title">Before we get started.</h3>
+                </div>
+                <p>What working together looks like, from your first question to the carrier response.</p>
+              </div>
+              <div className="faq-groups">
+                {faqGroups.map((group) => (
+                  <div className="faq-group" key={group}>
+                    <h4>{group}</h4>
+                    <div className="faq-list">
+                      {faqItems.filter((item) => item.group === group).map((item) => (
+                        <details name="pilot-faq" key={item.question}>
+                          <summary>{item.question}<span className="faq-toggle"><Plus aria-hidden="true" size={18} /></span></summary>
+                          <p>{item.answer}</p>
+                        </details>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
-            </div>
+            </section>
           </div>
         </ScrollSection>
 

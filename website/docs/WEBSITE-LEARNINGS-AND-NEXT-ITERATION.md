@@ -282,3 +282,17 @@ For a small comprehension check, show the revised page to five relevant finance/
 | More spacing cannot supply missing information. | The new page is calm and readable, but repeated abstract copy still leaves the offer and deliverable unclear. | Spend the next pass on an example, fit, responsibility, and next action before adding more visual effects. |
 | Passing tests and Lighthouse does not prove business clarity. | The release passed broad technical checks; no comprehension or conversion study was performed. | Report release quality, accessibility limitations, field performance, and customer understanding separately. |
 | Design decisions need dated documentation. | July Preview-only rules coexist with the approved September recovery-led release. | Keep historical material, identify what supersedes it, and maintain one current production copy/claims register. |
+
+### 7 September refinement
+
+The process now uses connected numbered steps, and the FAQ groups practical
+questions separately from scope and outcomes. Shorter hero and footer copy follow
+the managed-service positioning on [sheperd.io](https://sheperd.io/). Existing
+routes, canonical metadata, and disabled intake remain in place.
+
+Two interaction details mattered in verification: a native dialog must remain
+modal until its exit finishes, and reduced-motion rules must explicitly cover
+`::backdrop` as well as the panel. Mobile form fields also need enough width for
+their labels and values, even when intake is unavailable. Future Resend activation
+is documented in [DEPLOYMENT.md](../DEPLOYMENT.md); mocked sends are contract
+checks, not proof of delivery.

@@ -3,8 +3,6 @@
 import Image, { getImageProps } from "next/image";
 import { type ReactElement, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { liveSource } from "@/lib/content";
-
 import { PilotLink } from "./pilot-link";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
@@ -85,13 +83,13 @@ export function RecoveryHero(): ReactElement {
 
   return (
     <section className="recovery-hero" aria-labelledby="hero-title">
-      <div className="hero-copy">
+      <div className="container hero-copy">
         <p className="eyebrow">D&amp;D services for U.S. importers</p>
         <h1 id="hero-title">
           <span>Recover the D&amp;D money</span>
           <span>hiding in your invoices.</span>
         </h1>
-        <p className="hero-summary">{liveSource.description}</p>
+        <p className="hero-summary">One team to review your D&amp;D invoices, coordinate with carriers, and follow recovery through.</p>
         <div className="hero-actions">
           <PilotLink className="button">Request a pilot</PilotLink>
           <a className="button button-outline" href="#process">See the recovery path</a>

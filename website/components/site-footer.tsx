@@ -10,8 +10,8 @@ export function SiteFooter() {
       <div className="container footer-main">
         <div className="footer-overview">
           <BrandLogo compact />
-          <p>{liveSource.description}</p>
-          <PilotLink className="text-link">Request a pilot <ArrowUpRight aria-hidden="true" size={16} /></PilotLink>
+          <p>Your D&amp;D service team. Invoice review, carrier coordination, disputes, and recovery support for U.S. importers.</p>
+          <PilotLink className="text-link arrow-link">Request a pilot <ArrowUpRight aria-hidden="true" size={16} /></PilotLink>
         </div>
         <div className="footer-column">
           <p className="footer-heading">Explore</p>
@@ -24,14 +24,14 @@ export function SiteFooter() {
           <nav className="footer-links" aria-label="Contact SheperD">
             <a href={`mailto:${liveSource.contactEmail}`}>{liveSource.contactEmail}</a>
             <a href={`tel:${liveSource.contactPhone}`}>{liveSource.contactPhoneLabel}</a>
-            <a href={liveSource.url} target="_blank" rel="noopener noreferrer">
+            <a className="arrow-link" href={liveSource.url} target="_blank" rel="noopener noreferrer">
               sheperd.io<ArrowUpRight aria-hidden="true" size={13} />
             </a>
           </nav>
         </div>
       </div>
       <div className="container footer-bottom">
-        <span>SheperD · D&amp;D services for U.S. importers.</span>
+        <span>© {new Date().getFullYear()} SheperD · D&amp;D services for U.S. importers.</span>
         <nav aria-label="Legal links"><a href="/privacy">Privacy notice</a><a href="/terms">Use notice</a></nav>
       </div>
     </footer>

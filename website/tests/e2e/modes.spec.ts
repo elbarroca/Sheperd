@@ -208,7 +208,7 @@ test("reveals below-fold headings with WAAPI while preserving accessible names",
   const processSection = page.locator("#process");
   const heading = page.getByRole("heading", {
     level: 2,
-    name: /From billed to reviewed/i,
+    name: /Your invoices\. Our next move\./i,
   });
   const headingWords = heading.locator(".scroll-heading-word");
   await expect(headingWords.first()).toHaveAttribute(
@@ -247,7 +247,7 @@ test("reveals below-fold headings with WAAPI while preserving accessible names",
       { timeout: REVEAL_SETTLED_TIMEOUT_MS },
     )
     .toBe(true);
-  await expect(heading).toHaveAccessibleName("From billed to reviewed.");
+  await expect(heading).toHaveAccessibleName("Your invoices. Our next move.");
 });
 
 test("stops active scroll reveals and shows content when reduced motion changes", async ({
@@ -327,7 +327,10 @@ test("keeps the recovery hero readable with JavaScript disabled", async ({
   const processSection = page.locator("#process");
   await processSection.scrollIntoViewIfNeeded();
   await expect(
-    page.getByRole("heading", { level: 2, name: /From billed to reviewed/i }),
+    page.getByRole("heading", {
+      level: 2,
+      name: /Your invoices\. Our next move\./i,
+    }),
   ).toBeVisible();
   const processList = processSection.locator(".process-list");
   await expect(processList).toBeVisible();

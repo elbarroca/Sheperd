@@ -15,7 +15,6 @@ import {
 } from "react";
 
 import { PilotForm } from "@/components/pilot-form";
-import { liveSource } from "@/lib/content";
 
 export interface PilotDialogContextValue {
   isOpen: boolean;
@@ -30,6 +29,9 @@ export interface PilotDialogProviderProps {
 const PilotDialogContext = createContext<
   PilotDialogContextValue | undefined
 >(undefined);
+
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+const CLOSE_DURATION_MS = 200;
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -88,9 +90,15 @@ export function PilotDialogProvider({
   const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
+  const closeAnimationRef = useRef<Animation | null>(null);
   const [isOpen, setIsOpen] = useState(false);
 
   const handleDialogClose = useCallback(() => {
+    // A queued close event must not finalize a dialog that has reopened.
+    if (dialogRef.current?.open) return;
+    closeAnimationRef.current?.cancel();
+    closeAnimationRef.current = null;
+    dialogRef.current?.removeAttribute("data-closing");
     setIsOpen(false);
 
     const trigger = triggerRef.current;
@@ -103,19 +111,39 @@ export function PilotDialogProvider({
 
   const closePilotDialog = useCallback(() => {
     const dialog = dialogRef.current;
+    if (!dialog?.open || closeAnimationRef.current) return;
 
-    if (dialog?.open) {
+    if (
+      window.matchMedia(REDUCED_MOTION_QUERY).matches ||
+      document.visibilityState !== "visible" ||
+      typeof dialog.animate !== "function"
+    ) {
       dialog.close();
+      return;
     }
 
-    handleDialogClose();
-  }, [handleDialogClose]);
+    const styles = window.getComputedStyle(dialog);
+    const from = { opacity: styles.opacity, transform: styles.transform };
+    dialog.dataset.closing = "true";
+    const animation = dialog.animate(
+      [from, { opacity: 0, transform: "translateY(10px) scale(0.985)" }],
+      { duration: CLOSE_DURATION_MS, easing: "ease-in", fill: "forwards" },
+    );
+    closeAnimationRef.current = animation;
+    // Keep native modal semantics and the scroll lock until the visual exit ends.
+    animation.onfinish = () => {
+      if (closeAnimationRef.current === animation) dialog.close();
+    };
+  }, []);
 
   const openPilotDialog = useCallback((trigger: HTMLElement): boolean => {
     const dialog = dialogRef.current;
 
     if (!dialog) return false;
 
+    closeAnimationRef.current?.cancel();
+    closeAnimationRef.current = null;
+    dialog.removeAttribute("data-closing");
     if (dialog.open) {
       dialog.querySelector<HTMLElement>(".pilot-dialog-close")?.focus();
       return true;
@@ -127,6 +155,7 @@ export function PilotDialogProvider({
 
     try {
       dialog.showModal();
+      dialog.scrollTop = 0;
     } catch {
       triggerRef.current = null;
       return false;
@@ -138,9 +167,7 @@ export function PilotDialogProvider({
 
   useEffect(() => {
     const handleRouteChange = () => {
-      if (dialogRef.current?.open) {
-        closePilotDialog();
-      }
+      dialogRef.current?.close();
     };
 
     router.events.on("routeChangeStart", handleRouteChange);
@@ -148,7 +175,23 @@ export function PilotDialogProvider({
     return () => {
       router.events.off("routeChangeStart", handleRouteChange);
     };
-  }, [closePilotDialog, router.events]);
+  }, [router.events]);
+
+  useEffect(() => {
+    const preference = window.matchMedia(REDUCED_MOTION_QUERY);
+    const finishExit = (): void => {
+      if (preference.matches || document.visibilityState !== "visible") {
+        closeAnimationRef.current?.finish();
+      }
+    };
+    preference.addEventListener("change", finishExit);
+    document.addEventListener("visibilitychange", finishExit);
+    return () => {
+      preference.removeEventListener("change", finishExit);
+      document.removeEventListener("visibilitychange", finishExit);
+      closeAnimationRef.current?.cancel();
+    };
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -235,10 +278,8 @@ export function PilotDialogProvider({
             Request a pilot
           </h2>
           <p id="pilot-dialog-description" className="pilot-dialog-description">
-            Pilot intake on this website is currently unavailable. To discuss
-            invoice review, carrier coordination, or disputes, email{" "}
-            <a className="text-link" href={`mailto:${liveSource.contactEmail}`}>{liveSource.contactEmail}</a>.
-            Agree a secure handoff before sharing invoice files.
+            Invoice questions, carrier follow-up, or a recovery review.
+            Start with your team&apos;s priorities.
           </p>
           <PilotForm idPrefix="pilot-dialog" />
         </div>
