@@ -1,8 +1,9 @@
-import { ArrowUpRight } from "@phosphor-icons/react";
+import { ArrowRight, ArrowUpRight } from "@phosphor-icons/react";
 
-import { liveSource, navigationItems } from "@/lib/content";
+import { navigationItems, sourceLinks } from "@/lib/content";
+import { recoveryCta } from "@/lib/recovery-content";
+
 import { BrandLogo } from "./brand-logo";
-import { PilotLink } from "./pilot-link";
 
 export function SiteFooter() {
   return (
@@ -10,29 +11,59 @@ export function SiteFooter() {
       <div className="container footer-main">
         <div className="footer-overview">
           <BrandLogo compact />
-          <p>Your D&amp;D service team. Invoice review, carrier coordination, disputes, and recovery support for U.S. importers.</p>
-          <PilotLink className="text-link arrow-link">Request a pilot <ArrowUpRight aria-hidden="true" size={16} /></PilotLink>
+          <p>
+            You send the invoices. We handle the recovery.
+          </p>
+          <a className="footer-cta" href="/pilot">
+            {recoveryCta}
+            <ArrowRight aria-hidden="true" size={18} />
+          </a>
         </div>
+
         <div className="footer-column">
           <p className="footer-heading">Explore</p>
           <nav className="footer-links" aria-label="Footer navigation">
-            {navigationItems.map((item) => <a href={"/" + item.href} key={item.href}>{item.label}</a>)}
+            {navigationItems.map((item) => (
+              <a href={item.href} key={item.href}>
+                {item.label}
+              </a>
+            ))}
           </nav>
         </div>
+
+        <div className="footer-column footer-contact">
+          <p className="footer-heading">Contact</p>
+          <a href="/pilot">
+            Start a recovery enquiry
+            <ArrowUpRight aria-hidden="true" size={16} />
+          </a>
+          <span className="footer-muted">Detention &amp; demurrage recovery for importers</span>
+        </div>
+
         <div className="footer-column">
-          <p className="footer-heading">Contact SheperD</p>
-          <nav className="footer-links" aria-label="Contact SheperD">
-            <a href={`mailto:${liveSource.contactEmail}`}>{liveSource.contactEmail}</a>
-            <a href={`tel:${liveSource.contactPhone}`}>{liveSource.contactPhoneLabel}</a>
-            <a className="arrow-link" href={liveSource.url} target="_blank" rel="noopener noreferrer">
-              sheperd.io<ArrowUpRight aria-hidden="true" size={13} />
-            </a>
+          <p className="footer-heading">Sources</p>
+          <nav className="footer-links" aria-label="Official sources">
+            {sourceLinks.slice(0, 2).map((source) => (
+              <a
+                href={source.href}
+                key={source.title}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {source.issuer}
+                <ArrowUpRight aria-hidden="true" size={16} />
+              </a>
+            ))}
           </nav>
         </div>
       </div>
+
       <div className="container footer-bottom">
-        <span>© {new Date().getFullYear()} SheperD · D&amp;D services for U.S. importers.</span>
-        <nav aria-label="Legal links"><a href="/privacy">Privacy notice</a><a href="/terms">Use notice</a></nav>
+        <span>SheperD. Outcomes depend on the facts of individual charges and claims.</span>
+        <nav aria-label="Legal links">
+          <a href="/privacy">Privacy Policy</a>
+          <a href="/terms">Use Notice</a>
+        </nav>
       </div>
     </footer>
   );

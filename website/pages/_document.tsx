@@ -5,7 +5,7 @@ export default function Document() {
     <Html lang="en">
       <Head>
         <meta name="color-scheme" content="dark light" />
-        <meta name="theme-color" content="#061220" />
+        <meta name="theme-color" content="#101313" />
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link
           rel="icon"
@@ -22,7 +22,7 @@ export default function Document() {
       </Head>
       <body>
         <noscript>
-          <style>{`.motion-reveal { opacity: 1 !important; transform: none !important; } .motion-toggle { display: none !important; } html { scroll-behavior: auto !important; }`}</style>
+          <style>{`.motion-reveal { opacity: 1 !important; transform: none !important; } .replay-button, .mobile-nav-toggle { display: none !important; } .freight-track span, .value-track span { animation: none !important; }`}</style>
         </noscript>
         <Main />
         <NextScript />

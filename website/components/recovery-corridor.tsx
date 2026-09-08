@@ -1,187 +1,28 @@
-import { ArrowDown, ArrowRight, ArrowUpRight, ChatsCircle, Check, FileMagnifyingGlass, Files, Plus } from "@phosphor-icons/react";
-import Image from "next/image";
+import type { ReactElement } from "react";
+import { RecoveryLayout } from "./recovery-layout";
+import {
+  CfoSection,
+  ClosingSection,
+  EconomicsSection,
+  ImporterSection,
+  MissedValueSection,
+  ProcessSection,
+  RecoveryHero,
+} from "./recovery-sections";
 
-import { evidenceLayers, faqItems, pilotScope, processSteps, sourceLinks } from "@/lib/content";
-
-import { PilotLink } from "./pilot-link";
-import { RecoveryHero } from "./recovery-hero";
-import { ScrollHeading, ScrollReveal } from "./scroll-reveals";
-import { ScrollSection } from "./scroll-section";
-import { SiteFooter } from "./site-footer";
-import { SiteHeader } from "./site-header";
-
-const processIcons = [Files, FileMagnifyingGlass, ChatsCircle] as const;
-const faqGroups = ["Getting started", "Scope and outcomes"] as const;
-
-export function RecoveryCorridor() {
+export function RecoveryCorridor(): ReactElement {
   return (
-    <>
-      <a className="skip-link" href="#main-content">Skip to content</a>
-      <div className="announcement">
-        <div className="container announcement-inner">
-          <p>One team for your detention &amp; demurrage.</p>
-          <a className="arrow-link" href="#process">See how it works <ArrowUpRight aria-hidden="true" size={15} /></a>
-        </div>
-      </div>
-      <SiteHeader />
-      <main id="main-content" tabIndex={-1}>
-        <RecoveryHero />
-
-        <ScrollSection className="intro-section section-paper" labelledBy="intro-title" variant="intro">
-          <div className="container intro-layout">
-            <ScrollHeading id="intro-title" lines={["One point of contact.", "Across the D&D process."]} treatment="line" />
-            <p>
-              Keep your team focused on moving cargo. SheperD coordinates
-              invoice review, carrier questions, and dispute work through one
-              point of contact. Payment and cargo-release support can be scoped
-              separately when your shipment needs it.
-            </p>
-          </div>
-        </ScrollSection>
-
-        <ScrollSection id="process" className="process-section section-teal" labelledBy="process-title" variant="process">
-          <div className="container">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">How it works</p>
-                <ScrollHeading id="process-title" lines={["Your invoices.", "Our next move."]} treatment="word" />
-              </div>
-              <p>Three steps, one point of contact. You bring the context; SheperD takes care of the review and carrier follow-up.</p>
-            </div>
-            <ol className="process-list">
-              {processSteps.map((step, index) => {
-                const StepIcon = processIcons[index];
-                return (
-                  <ScrollReveal as="li" className="process-item" delay={index * 0.08} key={step.number} variant="slide">
-                    <div className="process-visual" aria-hidden="true">
-                      <span className="step-number">{index + 1}</span>
-                      {StepIcon ? <StepIcon size={46} weight="light" /> : null}
-                      {index < processSteps.length - 1 ? <span className="process-connector"><ArrowRight size={18} /></span> : null}
-                    </div>
-                    <div className="process-description">
-                      <h3>{step.title}</h3>
-                      <p>{step.description}</p>
-                    </div>
-                  </ScrollReveal>
-                );
-              })}
-            </ol>
-            <ScrollReveal as="p" className="process-boundary" delay={0.28} variant="fade"><Check aria-hidden="true" size={17} /> Human review before any carrier credit or refund outcome.</ScrollReveal>
-          </div>
-        </ScrollSection>
-
-        <ScrollSection id="evidence" className="evidence-section section-ice" labelledBy="evidence-title" variant="evidence">
-          <div className="container evidence-layout">
-            <div className="evidence-intro">
-              <p className="eyebrow">What we review</p>
-              <ScrollHeading id="evidence-title" lines={["One charge.", "Three records."]} treatment="plain" />
-              <p>No single document tells the whole story. The useful work is in connecting what was billed to what happened, and what governs it.</p>
-              <a className="text-link arrow-link arrow-link-down" href="#pilot-scope">Explore the pilot scope <ArrowDown aria-hidden="true" size={17} /></a>
-            </div>
-            <div className="evidence-list">
-              {evidenceLayers.map((layer, index) => (
-                <ScrollReveal as="article" className="evidence-row" delay={index * 0.08} key={layer.icon} variant="slide">
-                  <p className="record-label">{layer.label}</p>
-                  <h3>{layer.title}</h3>
-                  <p>{layer.description}</p>
-                </ScrollReveal>
-              ))}
-              <p className="evidence-note">Missing a record? Mark the gap. Keep the question open.</p>
-            </div>
-          </div>
-        </ScrollSection>
-
-        <ScrollSection className="story-band" labelledBy="story-title" variant="story">
-          <div className="story-band-image">
-            <Image src="/media/container-terminal-operations.jpg" alt="An illustrative container terminal at blue hour." fill sizes="100vw" quality={78} />
-          </div>
-          <div className="container story-band-copy">
-            <p className="eyebrow">Beyond the line item</p>
-            <ScrollHeading id="story-title" lines={["The details move", "through the terminal", "before the ledger."]} treatment="line" />
-            <p>Availability, appointments, holds, and empty returns can change what a billed day means.</p>
-          </div>
-        </ScrollSection>
-
-        <ScrollSection id="pilot-scope" className="pilot-scope-section section-paper" labelledBy="pilot-scope-title" variant="pilot">
-          <div className="container pilot-scope-layout">
-            <div className="pilot-scope-copy">
-              <p className="eyebrow">Pilot scope</p>
-              <ScrollHeading id="pilot-scope-title" lines={["Start with", "a focused review."]} treatment="block" />
-              <p>Begin with the invoices and the support your team needs. Invoice monitoring, carrier coordination, and dispute work are agreed around your scope.</p>
-              <PilotLink className="button">Request a pilot</PilotLink>
-              <p className="availability-note">Pilot intake on this website is currently unavailable. Contact details are in the footer.</p>
-            </div>
-            <dl className="pilot-scope-list">
-              {pilotScope.map((scope, index) => (
-                <ScrollReveal as="div" className="pilot-scope-item" delay={index * 0.07} key={scope.number} variant="fade">
-                  <dt>{scope.title}</dt>
-                  <dd>{scope.description}</dd>
-                </ScrollReveal>
-              ))}
-              <ScrollReveal as="div" className="pilot-scope-item" delay={0.21} variant="fade">
-                <dt>A clear boundary</dt>
-                <dd>No public invoice uploads. No guaranteed recovery. Any engagement and data handling are agreed separately.</dd>
-              </ScrollReveal>
-            </dl>
-          </div>
-        </ScrollSection>
-
-        <ScrollSection id="trust" className="trust-section section-paper" labelledBy="trust-title" variant="trust">
-          <div className="container">
-            <div className="trust-layout">
-              <div>
-                <p className="eyebrow">Trust and transparency</p>
-                <ScrollHeading id="trust-title" lines={["Evidence first.", "Claims second."]} treatment="plain" />
-                <p className="trust-summary">D&amp;D review is fact-specific. Start with the source, keep the gaps visible, and leave interpretation to a qualified reviewer.</p>
-              </div>
-              <div className="source-list">
-                <p className="record-label">Read the original sources</p>
-                {sourceLinks.map((source) => (
-                  <a className="arrow-link" href={source.href} key={source.title} target="_blank" rel="noopener noreferrer">
-                    <span><strong>{source.title}</strong><small>{source.issuer}</small></span>
-                    <ArrowUpRight aria-hidden="true" size={20} />
-                  </a>
-                ))}
-                <p className="source-note">Official sources frame the review. They do not guarantee eligibility, liability, or a refund.</p>
-              </div>
-            </div>
-            <section className="faq-block" aria-labelledby="faq-title">
-              <div className="faq-heading">
-                <div>
-                  <p className="eyebrow">A few useful answers</p>
-                  <h3 id="faq-title">Before we get started.</h3>
-                </div>
-                <p>What working together looks like, from your first question to the carrier response.</p>
-              </div>
-              <div className="faq-groups">
-                {faqGroups.map((group) => (
-                  <div className="faq-group" key={group}>
-                    <h4>{group}</h4>
-                    <div className="faq-list">
-                      {faqItems.filter((item) => item.group === group).map((item) => (
-                        <details name="pilot-faq" key={item.question}>
-                          <summary>{item.question}<span className="faq-toggle"><Plus aria-hidden="true" size={18} /></span></summary>
-                          <p>{item.answer}</p>
-                        </details>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
-        </ScrollSection>
-
-        <ScrollSection className="closing-cta" labelledBy="closing-title" variant="closing">
-          <div className="container closing-copy">
-            <p className="eyebrow">The next step</p>
-            <ScrollHeading id="closing-title" lines={["Bring your D&D questions", "to one team."]} treatment="block" />
-            <p>Start with the invoice, the shipment context, and the support your team needs.</p>
-            <PilotLink className="button button-light">Request a pilot</PilotLink>
-          </div>
-        </ScrollSection>
-      </main>
-      <SiteFooter />
-    </>
+    <RecoveryLayout
+      title="SheperD | Detention & Demurrage Recovery"
+      description="You send the invoices. SheperD handles detention and demurrage recovery for importers. No upfront cost. Paid when you recover value."
+    >
+      <RecoveryHero />
+      <CfoSection />
+      <ProcessSection />
+      <MissedValueSection />
+      <EconomicsSection />
+      <ImporterSection />
+      <ClosingSection />
+    </RecoveryLayout>
   );
 }

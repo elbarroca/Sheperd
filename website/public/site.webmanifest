@@ -1,11 +1,11 @@
 {
   "name": "SheperD",
   "short_name": "SheperD",
-  "description": "SheperD shipping container recovery",
+  "description": "SheperD recovery corridor Preview",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#061220",
-  "theme_color": "#061220",
+  "background_color": "#041426",
+  "theme_color": "#041426",
   "icons": [
     {
       "src": "/brand/sheperd-icon-512.png",

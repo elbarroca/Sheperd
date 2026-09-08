@@ -1,9 +1,14 @@
-# SheperD website
+# SheperD Website
 
-The React/Next.js marketing site for SheperD detention and demurrage invoice
-review. The design uses a centered Georgia hero, optimized container artwork,
-an atmospheric video loop, scroll reveals, and a shared visual system across the homepage, pilot,
-privacy, and use-notice pages.
+The 2026-09-08 website centers on: "You send the invoices. We handle the recovery."
+It includes `/how-it-works`, `/for-importers`, `/about`, and the existing `/pilot`
+enquiry route. No upfront cost and recovery-aligned payment are approved copy.
+See `docs/RECOVERY-IMPLEMENTATION.md` for the copy deck and reference mapping.
+Disabled intake shows an availability notice before any fields are rendered.
+
+The Recovery Corridor is the public-facing SheperD website. It explains the
+shipping-container demurrage and detention recovery workflow while keeping
+form delivery disabled until its separate intake approvals are complete.
 
 ## Local setup
 
@@ -14,36 +19,26 @@ corepack pnpm install --frozen-lockfile
 corepack pnpm dev
 ```
 
-Open http://127.0.0.1:3000.
+Open `http://127.0.0.1:3000`.
 
 ## Verification
 
 ```sh
-corepack pnpm check
+corepack pnpm lint
+corepack pnpm typecheck
+corepack pnpm test
 corepack pnpm build
-corepack pnpm test:e2e --workers=3
+corepack pnpm test:e2e
 ```
 
-The browser suite covers three engines, responsive layouts, keyboard behavior,
-reduced motion, no-JavaScript navigation, accessibility, image containment,
-metadata, and the disabled pilot flow. Visual baselines belong to Chromium.
+The audit form validates locally but does not transmit or store submissions by
+default. Keep the flags in `.env.example` false unless the approvals and
+server-only delivery values in `DEPLOYMENT.md` are complete.
 
-## Deployment
+## Deployment boundary
 
-Production: https://sheperd-website.vercel.app
-
-Keep the existing `sheperd-website` Vercel project with Root Directory `website`.
-Only production homepage indexing is enabled. Pilot intake remains unavailable:
-its fields and submission are disabled, and the interface sends or stores
-nothing. Keep delivery flags false in `.env.example` and hosting settings.
-
-See [DEPLOYMENT.md](DEPLOYMENT.md) for the build policy, release checks, and
-future intake boundary. Historical claims and research records remain in
-`docs/FACTS-AND-CONSTRAINTS.md`.
-
-## Website review
-
-The [6 September website review](docs/WEBSITE-LEARNINGS-AND-NEXT-ITERATION.md)
-records development lessons, a fresh live UX audit, a proposed section story,
-and a container-video production brief with inspected footage references.
-Its proposed copy and media are not deployed changes.
+Deploy this directory as its own public Vercel project with Root Directory
+`website`. Publication was explicitly authorized on 2026-07-15. The unresolved
+legal, claims, privacy, contact, and ownership risks remain recorded in
+`docs/FACTS-AND-CONSTRAINTS.md`. See `DEPLOYMENT.md` and `../obsidian/VERCEL.md` for the
+exact settings.

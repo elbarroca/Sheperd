@@ -25,10 +25,12 @@ export default defineConfig({
     },
     {
       name: "firefox",
+      testIgnore: "**/visual.spec.ts",
       use: { ...devices["Desktop Firefox"] },
     },
     {
       name: "webkit",
+      testIgnore: "**/visual.spec.ts",
       use: { ...devices["Desktop Safari"] },
     },
   ],

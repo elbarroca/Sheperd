@@ -1,5 +1,10 @@
 # SheperD Recovery Corridor Design System
 
+Historical reference. The approved 2026-09-08 invoice-only design and copy in
+`docs/RECOVERY-IMPLEMENTATION.md` supersede the visual and copy instructions below.
+Current implementation uses rendered port artwork, white/charcoal sections and
+muted recovery green. Delivery and publication remain separate actions.
+
 Status: controlling implementation schema
 Selected reference: `docs/references/recovery-corridor-selected.png`
 Reference dimensions: `864 × 1821`

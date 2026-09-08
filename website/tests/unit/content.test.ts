@@ -1,68 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { recoveryFaqs, recoverySteps } from "../../lib/recovery-content";
 
-import {
-  evidenceLayers,
-  faqItems,
-  navigationItems,
-  pilotScope,
-  processSteps,
-  volumeOptions,
-} from "../../lib/content";
-
-describe("recovery-led landing page content", () => {
-  it("leads with the pilot conversion path", () => {
-    expect(navigationItems).toEqual([
-      { label: "How it works", href: "#process" },
-      { label: "What we review", href: "#evidence" },
-      { label: "Pilot scope", href: "#pilot-scope" },
-      { label: "Trust", href: "#trust" },
-    ]);
+describe("recovery responsibility and commercial boundaries", () => {
+  it("gives the customer only the invoice handoff", () => {
+    expect(recoverySteps.filter((step) => step.owner === "Your part").map((step) => step.kind)).toEqual(["invoice"]);
+    expect(recoverySteps.filter((step) => step.owner === "SheperD").map((step) => step.kind)).toEqual(["review", "recovery"]);
   });
-
-  it("keeps the process explicit without promising recovery", () => {
-    expect(processSteps.map(({ title }) => title)).toEqual([
-      "Share the invoices",
-      "We review and coordinate",
-      "Follow the resolution",
-    ]);
-    expect(processSteps.at(-1)?.description).toContain("credit or refund");
-  });
-
-  it("names the three evidence layers", () => {
-    expect(evidenceLayers.map(({ title }) => title)).toEqual([
-      "Billing record",
-      "Operational timeline",
-      "Governing terms",
-    ]);
-  });
-
-  it("defines a bounded pilot scope", () => {
-    expect(pilotScope.map(({ title }) => title)).toEqual([
-      "A focused record review",
-      "A clear evidence map",
-      "A next-step conversation",
-    ]);
-  });
-
-  it("answers the trust questions without fabricating proof", () => {
-    const requiredQuestions = [
-      "What happens after I request a pilot?",
-      "Do I need to upload invoices now?",
-      "Does SheperD guarantee a refund?",
-      "What if the review does not support a recovery path?",
-      "What does the pilot cost?",
-      "How long does a review take?",
-      "Is the outcome cash or a carrier credit?",
-      "What does detention and demurrage mean?",
-      "Is SheperD software?",
-      "Can SheperD help with carrier payments?",
-    ];
-    expect(faqItems.map(({ question }) => question)).toEqual(
-      expect.arrayContaining(requiredQuestions),
-    );
-  });
-
-  it("keeps the approved volume ranges and official contact", () => {
-    expect(volumeOptions).toHaveLength(4);
+  it("distinguishes possible outcomes and does not invent a fee or guarantee", () => {
+    const copy = JSON.stringify({ recoverySteps, recoveryFaqs });
+    expect(copy).toContain("cash refund or a carrier credit");
+    expect(copy).toContain("does not guarantee");
+    expect(copy).not.toMatch(/\d+%|guaranteed refund|three.year/i);
   });
 });

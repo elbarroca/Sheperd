@@ -1,5 +1,11 @@
 # SheperD Facts and Constraints
 
+Historical 2026-07-15 checkpoint. For the 2026-09-08 implementation, the user
+confirmed invoice-only customer participation, SheperD-managed recovery, $0
+upfront and payment on recovered value. Those approved copy decisions supersede
+conflicting copy restrictions below. No outcome guarantee or fee percentage was
+approved. Intake activation and deployment are not part of this implementation.
+
 Status: controlling clean-room input
 Checked: 2026-07-15
 Publication state: Preview only; Production blocked

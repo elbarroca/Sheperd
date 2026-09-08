@@ -1,5 +1,9 @@
 # Copy Deck
 
+Historical exploration. Current approved copy and PDF mapping are in
+`RECOVERY-IMPLEMENTATION.md`; runtime copy is in `lib/recovery-content.ts` and the
+recovery section components. Customer responsibility is sending invoices only.
+
 Status: Preview copy for scored design exploration
 
 ## Hero A

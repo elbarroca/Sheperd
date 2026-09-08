@@ -1,24 +1,15 @@
 "use client";
 
 import { CheckCircle, WarningCircle } from "@phosphor-icons/react";
-import {
-  type FormEvent,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { AnimatePresence, m } from "motion/react";
+import { type FormEvent, useState } from "react";
 
-import { liveSource, roleOptions, volumeOptions } from "@/lib/content";
+import { roleOptions, volumeOptions } from "@/lib/content";
 
-type SubmitState = "idle" | "submitting" | "sent" | "error";
-
-export interface PilotFormProps {
-  idPrefix?: string;
-}
+type SubmitState = "idle" | "submitting" | "sent" | "disabled" | "error";
 
 const deliveryEnabled =
   process.env.NEXT_PUBLIC_PILOT_DELIVERY_ENABLED === "true";
-const GENERIC_ERROR_MESSAGE =
-  "We couldn’t send this request. Please try again later.";
 
 function readApiMessage(value: unknown): string | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -29,40 +20,23 @@ function readApiMessage(value: unknown): string | null {
   return typeof message === "string" && message.length > 0 ? message : null;
 }
 
-function subscribeToHydration(): () => void {
-  return () => undefined;
-}
-
-function getClientHydrationSnapshot(): boolean {
-  return true;
-}
-
-function getServerHydrationSnapshot(): boolean {
-  return false;
-}
-
-export function PilotForm({ idPrefix = "pilot" }: PilotFormProps) {
-  const isHydrated = useSyncExternalStore(
-    subscribeToHydration,
-    getClientHydrationSnapshot,
-    getServerHydrationSnapshot,
-  );
+export function PilotForm() {
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
-  const [errorMessage, setErrorMessage] = useState(GENERIC_ERROR_MESSAGE);
-  const prefix = idPrefix.trim() || "pilot";
-  const formId = `${prefix}-form`;
-  const availabilityId = `${prefix}-availability`;
-  const isAvailable = isHydrated && deliveryEnabled;
-  const isSubmitting = submitState === "submitting";
+  const [errorMessage, setErrorMessage] = useState(
+    "We couldn’t send this request. Please try again later.",
+  );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (!isAvailable) return;
-
     const form = event.currentTarget;
+
+    if (!deliveryEnabled) {
+      setSubmitState("disabled");
+      return;
+    }
+
     setSubmitState("submitting");
-    setErrorMessage(GENERIC_ERROR_MESSAGE);
+    setErrorMessage("We couldn’t send this request. Please try again later.");
 
     const formData = new FormData(form);
     const payload = Object.fromEntries(formData.entries());
@@ -82,7 +56,7 @@ export function PilotForm({ idPrefix = "pilot" }: PilotFormProps) {
       const body: unknown = await response.json().catch(() => null);
 
       if (!response.ok) {
-        setErrorMessage(readApiMessage(body) ?? GENERIC_ERROR_MESSAGE);
+        setErrorMessage(readApiMessage(body) ?? errorMessage);
         setSubmitState("error");
         return;
       }
@@ -94,194 +68,187 @@ export function PilotForm({ idPrefix = "pilot" }: PilotFormProps) {
     }
   }
 
-  const fieldId = (name: string) => `${prefix}-${name}`;
+  const isSubmitting = submitState === "submitting";
+
+  if (!deliveryEnabled) {
+    return <div className="intake-unavailable" role="status">
+      <WarningCircle size={28} aria-hidden="true" />
+      <h2>Online enquiries are not open yet.</h2>
+      <p>No details are collected, stored, or sent. Invoice handoff will be arranged separately when enquiries open.</p>
+      <a className="quiet-link" href="/how-it-works">See how recovery works</a>
+    </div>;
+  }
 
   return (
     <form
-      id={formId}
+      id="pilot-form"
       className="pilot-form"
-      method="post"
-      action="/api/pilot"
-      aria-describedby={!isAvailable ? availabilityId : undefined}
-      aria-busy={isSubmitting}
-      tabIndex={-1}
+      action="/pilot#pilot-form"
       onSubmit={handleSubmit}
+      aria-busy={isSubmitting}
     >
-      {!isAvailable ? (
-        <p
-          id={availabilityId}
-          className="form-notice pilot-form-availability"
-          role="status"
-        >
-          <WarningCircle aria-hidden="true" size={20} weight="fill" />
-          <span>
-            <strong>Online intake is currently unavailable.</strong>
-            No details are collected, stored, or sent. Contact{" "}
-            <a className="text-link" href={`mailto:${liveSource.contactEmail}`}>{liveSource.contactEmail}</a>{" "}
-            to discuss a pilot.
-          </span>
-        </p>
-      ) : null}
+      <div className="pilot-form-grid">
+        <label>
+          <span>Full name</span>
+          <input
+            id="pilot-full-name"
+            name="fullName"
+            type="text"
+            autoComplete="name"
+            placeholder="Jane Smith"
+            maxLength={100}
+            required
+          />
+        </label>
 
-      <fieldset
-        className="pilot-form-fields"
-        disabled={!isAvailable || isSubmitting}
-      >
-        <legend className="visually-hidden">Pilot request details</legend>
+        <label>
+          <span>Work email</span>
+          <input
+            id="pilot-work-email"
+            name="workEmail"
+            type="email"
+            autoComplete="email"
+            placeholder="jane@company.com"
+            maxLength={254}
+            required
+          />
+        </label>
 
-        <div className="pilot-form-grid">
-          <label htmlFor={fieldId("full-name")}>
-            <span>Full name</span>
-            <input
-              id={fieldId("full-name")}
-              name="fullName"
-              type="text"
-              autoComplete="name"
-              placeholder="Jane Smith"
-              maxLength={100}
-              required
-            />
-          </label>
+        <label>
+          <span>Company</span>
+          <input
+            id="pilot-company"
+            name="company"
+            type="text"
+            autoComplete="organization"
+            placeholder="Company Inc."
+            maxLength={120}
+            required
+          />
+        </label>
 
-          <label htmlFor={fieldId("work-email")}>
-            <span>Work email</span>
-            <input
-              id={fieldId("work-email")}
-              name="workEmail"
-              type="email"
-              autoComplete="email"
-              placeholder="jane@company.com"
-              maxLength={254}
-              required
-            />
-          </label>
-
-          <label htmlFor={fieldId("company")}>
-            <span>Company</span>
-            <input
-              id={fieldId("company")}
-              name="company"
-              type="text"
-              autoComplete="organization"
-              placeholder="Company Inc."
-              maxLength={120}
-              required
-            />
-          </label>
-
-          <label htmlFor={fieldId("role")}>
-            <span>Your role</span>
-            <select id={fieldId("role")} name="role" defaultValue="" required>
-              <option value="" disabled>
-                Select a role
+        <label>
+          <span>Your role</span>
+          <select id="pilot-role" name="role" defaultValue="" required>
+            <option value="" disabled>
+              Select a role
+            </option>
+            {roleOptions.map((role) => (
+              <option value={role} key={role}>
+                {role}
               </option>
-              {roleOptions.map((role) => (
-                <option value={role} key={role}>
-                  {role}
-                </option>
-              ))}
-            </select>
-          </label>
+            ))}
+          </select>
+        </label>
 
-          <label htmlFor={fieldId("annual-volume")}>
-            <span>Annual import volume</span>
-            <select
-              id={fieldId("annual-volume")}
-              name="annualVolume"
-              defaultValue=""
-              required
-            >
-              <option value="" disabled>
-                Select a range
-              </option>
-              {volumeOptions.map((option) => (
-                <option value={option} key={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="pilot-form-wide" htmlFor={fieldId("review-context")}>
-            <span>What prompted the review?</span>
-            <textarea
-              id={fieldId("review-context")}
-              name="reviewContext"
-              rows={4}
-              maxLength={1000}
-              placeholder="Tell us what your team is trying to understand."
-              required
-            />
-          </label>
-
-          <label className="pilot-consent" htmlFor={fieldId("consent")}>
-            <input
-              id={fieldId("consent")}
-              name="consent"
-              type="checkbox"
-              value="yes"
-              required
-            />
-            <span>
-              I agree to be contacted about a SheperD pilot conversation.
-            </span>
-          </label>
-
-          <label
-            className="form-honeypot"
-            aria-hidden="true"
-            htmlFor={fieldId("website")}
+        <label>
+          <span>Annual import volume</span>
+          <select
+            id="pilot-annual-volume"
+            name="annualVolume"
+            defaultValue=""
+            required
           >
-            <span>Website</span>
-            <input
-              id={fieldId("website")}
-              name="website"
-              type="text"
-              autoComplete="off"
-              tabIndex={-1}
-            />
-          </label>
-        </div>
-      </fieldset>
+            <option value="" disabled>
+              Select a range
+            </option>
+            {volumeOptions.map((option) => (
+              <option value={option} key={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
 
-      <button
-        className="form-submit"
-        type="submit"
-        disabled={!isAvailable || isSubmitting}
-      >
+        <label className="pilot-form-wide">
+          <span>What prompted the review?</span>
+          <textarea
+            id="pilot-review-context"
+            name="reviewContext"
+            rows={4}
+            maxLength={1000}
+            placeholder="Tell us what your team is trying to understand."
+            required
+          />
+        </label>
+
+        <label className="pilot-consent">
+          <input name="consent" type="checkbox" value="yes" required />
+          <span>
+            I agree to be contacted about a SheperD recovery enquiry.
+          </span>
+        </label>
+
+        <label className="form-honeypot" aria-hidden="true">
+          <span>Website</span>
+          <input
+            name="website"
+            type="text"
+            autoComplete="off"
+            tabIndex={-1}
+          />
+        </label>
+      </div>
+
+      <button className="form-submit" type="submit" disabled={isSubmitting}>
         {isSubmitting
           ? "Sending…"
           : submitState === "sent"
             ? "Request sent"
-            : "Request a pilot"}
+            : submitState === "disabled"
+              ? "Preview intake disabled"
+          : "Find Recoverable Value"}
       </button>
 
       <p className="form-privacy">
-        {isAvailable
+        {deliveryEnabled
           ? "Your details go only to the approved SheperD pilot owner."
-          : "Agree a secure handoff with the team before sharing invoice files."}
+          : "Preview only. Nothing is transmitted or stored."}
       </p>
 
-      {submitState === "sent" ? (
-        <p
-          className="form-success"
-          role="status"
-        >
-          <CheckCircle aria-hidden="true" size={20} weight="fill" />
-          Pilot request sent. SheperD will follow up using the approved
-          response path.
-        </p>
-      ) : null}
+      <AnimatePresence initial={false} mode="wait">
+        {submitState === "sent" ? (
+          <m.p
+            className="form-success"
+            role="status"
+            key="sent"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+          >
+            <CheckCircle aria-hidden="true" size={20} weight="fill" />
+            Enquiry sent. SheperD will follow up about your recovery enquiry.
+          </m.p>
+        ) : null}
 
-      {submitState === "error" ? (
-        <p
-          className="form-error"
-          role="alert"
-        >
-          <WarningCircle aria-hidden="true" size={20} weight="fill" />
-          {errorMessage}
-        </p>
-      ) : null}
+        {submitState === "disabled" ? (
+          <m.p
+            className="form-notice"
+            role="status"
+            key="disabled"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+          >
+            <WarningCircle aria-hidden="true" size={20} weight="fill" />
+            Pilot intake is disabled in this Preview. No details were sent.
+          </m.p>
+        ) : null}
+
+        {submitState === "error" ? (
+          <m.p
+            className="form-error"
+            role="alert"
+            key="error"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+          >
+            <WarningCircle aria-hidden="true" size={20} weight="fill" />
+            {errorMessage}
+          </m.p>
+        ) : null}
+      </AnimatePresence>
     </form>
   );
 }
