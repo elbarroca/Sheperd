@@ -52,6 +52,7 @@ Do not publish or imply any of the following without a new exact claim row, prim
 - The site is a noindex, nofollow, noarchive Preview. `noindex` is not access control.
 - No form, upload, mail link, contact destination, analytics, tracking, cookie, CRM, or third-party runtime.
 - No company capability section, product UI, fake dashboard, roadmap promise, customer scene, or outcome imagery.
+- The approved AI positioning exception is limited to the exact AI-APPROVED-001 through AI-APPROVED-004 rows in `CLAIM-LEDGER.md`; all other AI capability, agent, engine, autonomous, guarantee, and outcome language remains suppressed.
 - Source-gated regulatory explanations may render only after the exact text is independently approved for `preview-web`. Current candidate claim rows have no approver and therefore must remain suppressed.
 - Neutral UI copy may identify the audience, explain that invoice review starts with records, describe generic evidence categories, state Preview behavior, and point to current official sources. It must not make a company, legal, commercial, or outcome claim.
 - Privacy and Terms routes are Preview notices only, not approved production policies.

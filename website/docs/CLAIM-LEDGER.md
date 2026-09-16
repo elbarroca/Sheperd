@@ -52,6 +52,44 @@ The prior candidate rows are not approved for `preview-web`; they have no named 
 | Company | legal entity, founder role, team, address, contact | not independently verified or approved; suppress |
 | Security/privacy | encryption, retention, access, compliance, subprocessors | proposed only; suppress |
 
+## Deferred AI and market-opportunity copy
+
+These candidates came from stakeholder feedback and are intentionally not rendered until the claim ledger records named evidence, an approver and an approval date.
+
+| ID | Candidate direction | State |
+|---|---|---|
+| AI-POSITION-001 | `AI-powered D&D recovery` | gated; capability and workflow evidence required |
+| AI-POSITION-002 | `AI-assisted recovery with human review` | superseded by the approved exact wording below; do not render the shorthand outside that row |
+| AI-POSITION-003 | `AI helping recover overlooked freight value` | gated; outcome evidence required |
+
+`AI agent`, `AI engine`, autonomous recovery, guaranteed recovery and `recover lost capital directly to your bottom line` remain suppressed. The eventual copy should name the specific assistive step and preserve human review; it must not imply that AI guarantees recovery, replaces review or recovers an entire market.
+
+## Approved AI positioning — 2026-09-16
+
+The CTO feedback and explicit user approval in the current task authorize only
+the following exact positioning sentences for `preview-web`. This approval is
+for bounded positioning copy with human review; it does not authorize an
+autonomous agent, a recovery guarantee, an outcome claim, or adjacent AI copy.
+
+| ID | Exact text | Evidence | Approval | Channel / expiry | Render |
+|---|---|---|---|---|---|
+| AI-APPROVED-001 | `AI-assisted D&D recovery with human review.` | CTO feedback and explicit user approval in the current task; exact draft in `COPY-DECK.md` | User, explicit approval in the current task, 2026-09-16 | `preview-web`; expires if wording or capability changes | yes |
+| AI-APPROVED-002 | `AI helps organize the complex recovery record; human reviewers decide what the evidence supports.` | CTO feedback and explicit user approval in the current task; exact draft in `COPY-DECK.md` | User, explicit approval in the current task, 2026-09-16 | `preview-web`; expires if wording or capability changes | yes |
+| AI-APPROVED-003 | `AI-assisted review. Human-led recovery follow-up.` | CTO feedback and explicit user approval in the current task; exact draft in `COPY-DECK.md` | User, explicit approval in the current task, 2026-09-16 | `preview-web`; expires if wording or capability changes | yes |
+| AI-APPROVED-004 | `AI supports the process; it does not guarantee recovery or replace human judgment.` | CTO feedback and explicit user approval in the current task; exact draft in `COPY-DECK.md` | User, explicit approval in the current task, 2026-09-16 | `preview-web`; expires if wording or capability changes | yes |
+
+## Approved source-scoped market figure
+
+The homepage market figure is represented by the typed `MarketOpportunity` state.
+The user requested the `$13B` highlight on 2026-09-15. Only the exact
+source-scoped cost-burden wording below is approved for rendering; `$13B
+recoverable by SheperD`, `$13B opportunity` as a recovery claim, and any claim
+that the whole figure is recoverable remain suppressed.
+
+| ID | Exact text or field | Evidence | Approval | Render |
+|---|---|---|---|---|
+| MKT-NAM-001 | `$13B annual cost of port delays to manufacturers` | [The Economic Value of America's Ports](https://nam.org/wp-content/uploads/securepdfs/2026/02/BTW-2026-Web.vF_.pdf), p. 13; checked 2026-09-15 | User-requested source-scoped implementation, 2026-09-15 | yes, exact cost-burden wording only |
+
 ## Build rule
 
 Rendered factual sentences must resolve to a typed ledger entry. A missing, expired, unapproved, or unsafe entry removes its dependent block. Production mode fails while any production blocker is unresolved.

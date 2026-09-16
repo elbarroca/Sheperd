@@ -8,9 +8,24 @@ test("explains invoice-only recovery and follows the enquiry path without collec
   page.on("request", (request) => { if (request.method() === "POST") posts.push(request.url()); });
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("SheperD.");
-  await expect(page.locator("#cfo-title")).toHaveText("You send the invoices.We handle the recovery.");
+  await expect(page.locator("#cfo-title")).toHaveText(/Your time\s*stays yours\./);
+  await expect(page.locator(".cfo-promise")).toHaveText("You send the invoices. We handle the recovery.");
+  await expect(page.locator(".cfo-dock-illustration img")).toHaveCount(1);
+  await expect(page.locator(".responsibility-flow ol li")).toHaveCount(3);
   await expect(page.locator(".recovery-process li")).toHaveCount(4);
+  await expect(page.locator("#process-title")).toHaveText("A clear path.An entirely managed process.");
+  await expect(page.locator("#evidence")).toHaveAttribute("data-market-state", "approved");
+  await expect(page.locator(".market-opportunity-node")).toContainText("$13B");
+  await expect(page.locator(".market-opportunity-node")).toContainText("annual port-delay cost");
+  await expect(page.locator(".market-source")).toHaveAttribute(
+    "href",
+    "https://nam.org/wp-content/uploads/securepdfs/2026/02/BTW-2026-Web.vF_.pdf",
+  );
+  const marketMap = page.locator('img[src$="opportunity-trade-map-transparent.png"]');
+  await expect(marketMap).toHaveCount(1);
+  expect(await marketMap.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
   await expect(page.locator(".industry")).toHaveCount(8);
+  await expect(page.locator('img[src$="-glass-transparent.png"]')).toHaveCount(12);
   await page.locator("summary").filter({ hasText: "What does my team need to do?" }).click();
   await expect(page.locator("details[open]")).toContainText("Your team does not need to build or manage a recovery function");
   await page.locator(".hero-actions").getByRole("link", { name: "Find Recoverable Value" }).click();
@@ -19,6 +34,35 @@ test("explains invoice-only recovery and follows the enquiry path without collec
   await expect(page.locator("input,textarea,select")).toHaveCount(0);
   expect(posts).toEqual([]);
   expect(errors).toEqual([]);
+});
+
+test("keeps the clear-path message and readable type hierarchy", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+  await expect(page).toHaveTitle("SheperD | A clear path through D&D recovery");
+  await expect(page.locator('meta[name="description"]')).toHaveAttribute(
+    "content",
+    /A clear path from invoice to recovery\./,
+  );
+  await expect(page.locator(".hero-headline")).toHaveText("A clear path from invoice to recovery.");
+  await expect(page.locator(".hero-description")).toHaveText("You send the invoices. We handle the recovery.");
+  await expect(page.locator(".hero-ai")).toHaveText("AI-assisted D&D recovery with human review.");
+  await expect(page.locator("#cfo-title")).toHaveText(/Your time\s*stays yours\./);
+  await expect(page.locator(".cfo-promise")).toHaveText("You send the invoices. We handle the recovery.");
+  await expect(page.locator(".ai-review-copy")).toHaveText(
+    "AI helps organize the complex recovery record; human reviewers decide what the evidence supports.",
+  );
+  await expect(page.locator("#process-title")).toHaveText("A clear path.An entirely managed process.");
+  await expect(page.locator(".process-ai")).toHaveText("AI-assisted review. Human-led recovery follow-up.");
+  await expect(page.locator(".hero-headline")).toHaveCSS("font-size", "34px");
+  await expect(page.locator(".hero-description")).toHaveCSS("font-size", "17px");
+  await expect(page.locator(".process-heading .section-description")).toHaveCSS("font-size", "18px");
+
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.reload();
+  await expect(page.locator(".hero-headline")).toHaveCSS("font-size", "28px");
+  await expect(page.locator(".hero-description")).toHaveCSS("font-size", "15px");
+  await expect(page.locator(".process-heading .section-description")).toHaveCSS("font-size", "16px");
 });
 
 test("mobile navigation follows supporting routes and closes", async ({ page }) => {

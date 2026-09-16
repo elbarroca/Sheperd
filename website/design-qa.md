@@ -1,8 +1,26 @@
-# Recovery Corridor Design QA
+# SheperD Design QA
 
 final result: passed
 
+## Latest pass — selected section-01 direction
+
+- Source visual truth: `/var/folders/41/_dw_pjd939j0k29gkmp2rlbw0000gn/T/codex-clipboard-27199d5b-27f8-4647-b515-64b01c593cb7.png`
+- Browser-rendered implementation: `http://127.0.0.1:3000/`
+- Focused evidence: `qa/cfo-editorial-1440.png` and `qa/cfo-editorial-375.png`
+- Full-page evidence: `tests/e2e/visual.spec.ts-snapshots/home-1440x1000-chromium-darwin.png` and `tests/e2e/visual.spec.ts-snapshots/home-375x900-chromium-darwin.png`
+- Viewports: 1440 × 900 and 375 × 900 focused captures; visual baselines at 320, 375, 768, 1024, 1440, and 1920 CSS pixels; reduced-motion state.
+- State: homepage, no authentication, no user data, static hero, selected section editorial layout.
+- Normalization note: the source is a fixed mockup raster; comparison preserves the source composition while the implementation keeps live semantic text, responsive flow, and a generated local illustration.
+- Findings: the selected direction’s serif headline, ship-and-crane artwork, invoice handoff, and SheperD responsibility rail are present without overflow. The homepage uses the new visual; `/for-importers` retains its existing shared-section layout.
+- Result: no actionable P0, P1, or P2 mismatch remains.
+
 ## Comparison Target
+
+- Source visual truth: `/var/folders/41/_dw_pjd939j0k29gkmp2rlbw0000gn/T/codex-clipboard-278eedd6-fd67-4479-96a6-fb92ec72301b.png`
+- Browser-rendered implementation: `http://127.0.0.1:3100/` (production build)
+- Hero evidence: static terminal composition at desktop and mobile widths.
+- Viewports checked: 1440 × 900, 768 × 1024, and 375 × 900, plus visual baselines at 320, 375, 768, 1024, 1440 and 1920px.
+- Focus: static hero, responsive opportunity rail, transparent PNG artwork, no horizontal overflow, and source-scoped `$13B` claim.
 
 - Source visual truth: `docs/references/recovery-corridor-selected.png` (864 × 1821) and the user-supplied 1128 × 501 corridor-junction crop
 - Browser-rendered implementation: `http://127.0.0.1:3000/`

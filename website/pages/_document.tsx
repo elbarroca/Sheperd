@@ -22,7 +22,7 @@ export default function Document() {
       </Head>
       <body>
         <noscript>
-          <style>{`.motion-reveal { opacity: 1 !important; transform: none !important; } .replay-button, .mobile-nav-toggle { display: none !important; } .freight-track span, .value-track span { animation: none !important; }`}</style>
+          <style>{`.motion-reveal { opacity: 1 !important; transform: none !important; } .mobile-nav-toggle { display: none !important; }`}</style>
         </noscript>
         <Main />
         <NextScript />

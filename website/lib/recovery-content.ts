@@ -1,5 +1,9 @@
 export const recoveryCta = "Find Recoverable Value";
 export const recoveryPromise = "You send the invoices. We handle the recovery.";
+export const aiRecoveryPositioning = "AI-assisted D&D recovery with human review.";
+export const aiReviewSupport =
+  "AI helps organize the complex recovery record; human reviewers decide what the evidence supports.";
+export const aiProcessCue = "AI-assisted review. Human-led recovery follow-up.";
 export const recoverySteps = [
   { title: "Send invoices", owner: "Your part", description: "Send your historical detention and demurrage invoices. That's your part of the recovery work.", kind: "invoice" },
   { title: "We review", owner: "SheperD", description: "We review the charges and handle the supporting-record work to identify potential recovery opportunities.", kind: "review" },

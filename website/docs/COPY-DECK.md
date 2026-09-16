@@ -156,3 +156,18 @@ Variant A: `Before you assess the charge, reconstruct the record.` / `See what t
 Variant B: `A D&D invoice is one record. The review needs the rest.` / `Review the checklist`.
 
 Variant B is selected. It names the anchor record and the information gap more concretely, while `Review` accurately describes an in-page, no-collection action. The comparison is an expert heuristic against the controlling rubric, not real-user evidence.
+
+## Approved AI positioning direction — renderable
+
+The CTO feedback and explicit user approval in the current task authorize this
+bounded AI-led positioning direction for `preview-web`:
+
+- Hero: `AI-assisted D&D recovery with human review.`
+- Support: `AI helps organize the complex recovery record; human reviewers decide what the evidence supports.`
+- Process cue: `AI-assisted review. Human-led recovery follow-up.`
+- Boundary: `AI supports the process; it does not guarantee recovery or replace human judgment.`
+
+These exact sentences are recorded as AI-APPROVED-001 through AI-APPROVED-004
+in `CLAIM-LEDGER.md` with the 2026-09-16 approval. Keep `AI agent`, `AI engine`,
+autonomous recovery, guaranteed recovery, and bottom-line outcome language
+suppressed.
