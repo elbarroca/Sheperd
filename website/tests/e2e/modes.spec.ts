@@ -25,7 +25,7 @@ test("section text enters, resets offscreen and respects preference changes", as
   await expect(heading).toHaveCSS("opacity", "1");
 });
 
-test("keyboard skip link and replay control work", async ({ page, browserName }) => {
+test("keyboard skip link keeps the static hero available", async ({ page, browserName }) => {
   await page.goto("/");
   if (browserName === "webkit") {
     // macOS WebKit's default Tab preference skips links; test activation explicitly.
@@ -36,16 +36,35 @@ test("keyboard skip link and replay control work", async ({ page, browserName })
   await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.locator("#main-content")).toBeFocused();
-  const before = await page.locator(".port-story").elementHandle();
-  await page.getByRole("button", { name: "Replay shipping and recovery animation" }).click();
-  expect(await before?.evaluate((element) => element.isConnected)).toBe(false);
+  await expect(page.locator(".hero-copy")).toBeVisible();
+  await expect(page.locator(".port-story")).toHaveCount(0);
+  await expect(page.locator(".hero-caption")).toHaveCount(0);
+});
+
+test("FAQ rows enter and exit with the importer section", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/");
+  const row = page.locator(".recovery-faq details").first();
+  await row.scrollIntoViewIfNeeded();
+  await expect(row).toHaveClass(/recovery-enter/);
+  await expect(row).toHaveCSS("animation-name", "recovery-faq-enter");
+  await row.evaluate((element) => {
+    const section = element.closest("section");
+    if (!section) throw new Error("FAQ section not found");
+    window.scrollTo({
+      top: window.scrollY + section.getBoundingClientRect().top + section.getBoundingClientRect().height * 0.92,
+      behavior: "instant",
+    });
+  });
+  await expect(row).toHaveClass(/recovery-exit/);
 });
 
 test("reduced motion is static", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
-  await expect(page.locator(".value-track span")).toHaveCSS("animation-name", "none");
   await expect(page.locator(".hero-copy")).toBeVisible();
+  await expect(page.locator(".port-story")).toHaveCount(0);
+  await expect(page.locator(".hero-caption")).toHaveCount(0);
 });
 
 test("content and enquiry remain available without JavaScript", async ({ browser }) => {
@@ -83,6 +102,9 @@ for (const width of [320, 375, 768, 1024, 1440, 1920]) {
     const image = page.locator(".recovery-hero img");
     await expect(image).toBeVisible();
     expect(await image.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    const marketMap = page.locator(".market-map");
+    await expect(marketMap).toBeVisible();
+    expect(await marketMap.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
   });
 }
 
