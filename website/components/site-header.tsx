@@ -63,12 +63,12 @@ export function SiteHeader() {
           ))}
         </div>
 
-        <a className="button button-small header-audit" href="/contact">
+        <a className="button button-small header-audit" href="/#contact">
           {recoveryCta}
         </a>
 
         <div className="mobile-header-actions">
-          <a className="mobile-audit-link" href="/contact" aria-label={recoveryCta}>
+          <a className="mobile-audit-link" href="/#contact" aria-label={recoveryCta}>
             <span className="mobile-audit-full">{recoveryCta}</span>
             <span className="mobile-audit-compact" aria-hidden="true">Find value</span>
           </a>
@@ -117,10 +117,10 @@ export function SiteHeader() {
               ))}
               <a
                 className="button"
-                href="/contact"
+                href="/#contact"
                 onClick={(event) => {
                   event.preventDefault();
-                  followMobileLink("/contact");
+                  followMobileLink("/#contact");
                 }}
               >
                 {recoveryCta}

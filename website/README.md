@@ -1,10 +1,10 @@
 # SheperD Website
 
 The 2026-09-08 website centers on: "You send the invoices. We handle the recovery."
-It includes `/how-it-works`, `/for-importers`, `/about`, and the existing `/pilot`
-enquiry route. No upfront cost and recovery-aligned payment are approved copy.
-See `docs/RECOVERY-IMPLEMENTATION.md` for the copy deck and reference mapping.
-Disabled intake shows an availability notice before any fields are rendered.
+It includes `/how-it-works`, `/for-importers`, and `/about`. `/contact` and
+`/pilot` redirect to the homepage Calendly section below the importer FAQ. No
+upfront cost and recovery-aligned payment are approved copy. See
+`docs/RECOVERY-IMPLEMENTATION.md` for the copy deck and reference mapping.
 
 The Recovery Corridor is the public-facing SheperD website. It explains the
 shipping-container demurrage and detention recovery workflow while keeping

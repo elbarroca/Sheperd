@@ -7,7 +7,7 @@ const sections = [
     heading: "Calendly scheduling",
     body: (
       <>
-        When a Calendly link is configured, the contact page embeds a Calendly booking
+        When a Calendly link is configured, the homepage contact section embeds a Calendly booking
         page. Calendly processes details submitted there to schedule the meeting. Read
         the{" "}
         <a href="https://calendly.com/legal/privacy-notice" target="_blank" rel="noopener noreferrer">
@@ -18,8 +18,8 @@ const sections = [
     ),
   },
   {
-    heading: "SheperD enquiry form",
-    body: "The enquiry form remains disabled in this Preview. It does not send details to SheperD. The Calendly booking page is separate and follows Calendly’s own cookie settings.",
+    heading: "SheperD enquiries",
+    body: "The site does not collect or send enquiry details to SheperD in this Preview. Calendly booking is handled separately and follows Calendly’s own cookie settings.",
   },
   {
     heading: "Publication boundary",
@@ -37,7 +37,7 @@ export default function PrivacyPage() {
       <NoticePage
         eyebrow="Preview privacy notice"
         title="Calendly booking disclosure."
-        summary="When configured, the contact page embeds Calendly for meeting bookings. Details entered in that booking page are processed by Calendly. The SheperD enquiry form remains disabled in this Preview."
+        summary="When configured, the homepage contact section embeds Calendly for meeting bookings. Details entered there are processed by Calendly. The site does not collect enquiry details in this Preview."
         sections={sections}
       />
     </>

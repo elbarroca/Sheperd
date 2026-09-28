@@ -92,7 +92,7 @@ test("image failure does not hide the offer or CTA", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   await page.locator(".hero-actions").getByRole("link", { name: "Find Recoverable Value" }).click();
-  await expect(page).toHaveURL(/\/contact$/);
+  await expect(page).toHaveURL(/\/#contact$/);
 });
 
 test("primary recovery CTA animates in, on hover, and back on release", async ({ page }) => {
