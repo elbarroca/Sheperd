@@ -148,3 +148,34 @@ Fix made:
 ## Follow-up Polish
 
 - No P3 refinement is required for local stakeholder review.
+
+### Pass 8 — below-hero white split passed
+
+- User-requested scope: preserve the hero; make only the “Your time stays yours” section below it a white split layout, with a soft blue transition and a new port image.
+- Generated a blue-hour container-terminal image for the right panel and optimized it to a 1536 × 1024 JPEG (583 KB). Handoff cards remain legible over the photo.
+- Desktop review at 1440 pixels and Chromium visual baselines at 1024, 1440, and 1920 pixels show the new white section follows the unchanged hero cleanly. Mobile baseline captures at 320, 375, and 768 pixels show stacked copy and image without horizontal overflow.
+- Verification: `pnpm lint`, `pnpm typecheck`, and `pnpm test` passed (12 unit tests). `pnpm exec playwright test` passed all 90 Chromium, Firefox, and WebKit tests, including route-level WCAG 2.1 AA checks, keyboard navigation, reduced-motion behavior, CTA navigation, mobile overflow, and refreshed visual baselines.
+- Result: no actionable P0/P1/P2 finding remains for this section.
+
+### Pass 9 — importer section implementation
+
+final result: blocked
+
+### Pass 10 — hero-to-value transition passed
+
+- Reference: `/var/folders/41/_dw_pjd939j0k29gkmp2rlbw0000gn/T/codex-clipboard-25082c50-4447-45f4-b745-a8aa27ae5692.png` (the supplied desktop landing-page view).
+- User-requested scope: keep the hero intact; remove the immediate port-photo-to-port-photo transition and make the next section lead with potential bottom-line value from past U.S. invoices.
+- Change: the white, pale-blue three-year invoice-history section now follows the hero. The photo-led “Your time stays yours” block is no longer on the homepage; the process section follows the value section. The existing `/pilot` CTA and `pilot-scope`/`evidence` anchors remain available.
+- Visual evidence: `qa/transition-1440.png` (1440 × 1000 viewport) and `qa/transition-390.png` (390 × 844 viewport) capture the hero-to-value seam; `qa/landing-desktop.png` and `qa/landing-mobile.png` are full-page captures at those same viewports. Both seam captures show a white financial-value section after the hero, with no second port image.
+- Responsive and interaction checks: all 90 Playwright E2E tests passed across Chromium, Firefox, and WebKit. This includes six viewport widths from 320 to 1920px, overflow checks, CTA navigation, keyboard access, reduced motion, and route-level WCAG 2.1 AA checks. Six full-page visual baselines were refreshed for the intentional section reorder.
+- `pnpm lint`, `pnpm typecheck`, and `pnpm test` passed; Vitest reported 12 tests across four files. The installed Node version is 26.9.0 while `package.json` specifies 24.x; pnpm emitted an engine warning, but the checks passed.
+- Result: no actionable P0/P1/P2 visual or interaction finding remains for this change.
+
+final result: passed
+
+- Source visual truth: `/Users/barroca888/Downloads/Dev/Partners/Mikey/SheperD/website/design-experiments/importers-faq-redesign/directions/03-split-header-faq-panel.png` (1312 × 1199).
+- Browser view: `http://127.0.0.1:3000/for-importers`, no authentication; native FAQ disclosures collapsed after keyboard interaction.
+- Responsive measurements: 1440 × 896, 765 × 1305, 375 × 846, and 320 × 846 CSS pixels. The importer grid has four columns at desktop and two at narrower widths; FAQ stacks below 820px. Document width matched viewport width at all measured sizes.
+- Interaction and runtime: Enter opened and closed a native FAQ disclosure; browser error log was empty. `pnpm check` passed lint, typecheck, and all 12 unit tests.
+- Initial P2 finding: two-column tablet cards retained desktop height. Reduced them to 124px at the tablet breakpoint; narrow mobile cards remain 104px.
+- Visual review found no remaining visible P0/P1/P2 issue. A persistent implementation screenshot and matched source/prototype comparison could not be saved through the in-app browser API, so the required image archive remains blocked.

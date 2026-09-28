@@ -61,10 +61,17 @@ test("FAQ rows enter and exit with the importer section", async ({ page }) => {
 
 test("reduced motion is static", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await expect(page.locator(".hero-copy")).toBeVisible();
   await expect(page.locator(".port-story")).toHaveCount(0);
   await expect(page.locator(".hero-caption")).toHaveCount(0);
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  const navigation = page.locator("#mobile-navigation");
+  await expect(navigation).toBeVisible();
+  await expect.poll(() => navigation.evaluate((element) =>
+    element.getAnimations().filter((animation) => animation.playState === "running").length,
+  )).toBe(0);
 });
 
 test("content and enquiry remain available without JavaScript", async ({ browser }) => {
@@ -88,6 +95,32 @@ test("image failure does not hide the offer or CTA", async ({ page }) => {
   await expect(page).toHaveURL(/\/pilot$/);
 });
 
+test("primary recovery CTA animates in, on hover, and back on release", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/");
+  const cta = page.locator(".hero-actions .recovery-action");
+  await expect(cta).toHaveClass(/recovery-enter/);
+  await cta.evaluate((element) => {
+    element.addEventListener("click", (event) => event.preventDefault(), { once: true });
+  });
+  await cta.evaluate(async (element) => {
+    await Promise.all(element.getAnimations().map((animation) => animation.finished));
+  });
+  await cta.hover();
+  await cta.evaluate(async (element) => {
+    await Promise.all(element.getAnimations().map((animation) => animation.finished));
+  });
+  const hoverTransform = await cta.evaluate((element) => getComputedStyle(element).transform);
+  expect(hoverTransform).not.toBe("none");
+  await page.mouse.down();
+  await expect.poll(() => cta.evaluate((element) => element.matches(":active"))).toBe(true);
+  await expect.poll(() => cta.evaluate((element) => getComputedStyle(element).transform)).not.toBe(hoverTransform);
+  await page.mouse.up();
+  await expect.poll(() => cta.evaluate((element) => element.matches(":active"))).toBe(false);
+  await expect.poll(() => cta.evaluate((element) => getComputedStyle(element).transform)).toBe(hoverTransform);
+  await expect(cta).toBeVisible();
+});
+
 test("forced colors preserves the CTA", async ({ page }) => {
   await page.emulateMedia({ forcedColors: "active" });
   await page.goto("/");
@@ -102,9 +135,8 @@ for (const width of [320, 375, 768, 1024, 1440, 1920]) {
     const image = page.locator(".recovery-hero img");
     await expect(image).toBeVisible();
     expect(await image.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
-    const marketMap = page.locator(".market-map");
-    await expect(marketMap).toBeVisible();
-    expect(await marketMap.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    await expect(page.locator(".invoice-history-visual")).toBeVisible();
+    await expect(page.locator(".invoice-history-timeline li")).toHaveCount(3);
   });
 }
 

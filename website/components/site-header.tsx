@@ -1,7 +1,7 @@
 "use client";
 
 import { List, X } from "@phosphor-icons/react";
-import { AnimatePresence, m } from "motion/react";
+import { AnimatePresence, m, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 
@@ -15,6 +15,7 @@ const MOBILE_MENU_EXIT_MS = 260;
 export function SiteHeader() {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
+  const shouldReduceMotion = useReducedMotion();
 
   const anchorHref = (href: string) =>
     href.startsWith("#") && pathname !== "/" ? `/${href}` : href;
@@ -67,8 +68,9 @@ export function SiteHeader() {
         </a>
 
         <div className="mobile-header-actions">
-          <a className="mobile-audit-link" href="/pilot">
-            {recoveryCta}
+          <a className="mobile-audit-link" href="/pilot" aria-label={recoveryCta}>
+            <span className="mobile-audit-full">{recoveryCta}</span>
+            <span className="mobile-audit-compact" aria-hidden="true">Find value</span>
           </a>
           <button
             className="mobile-nav-toggle"
@@ -95,7 +97,10 @@ export function SiteHeader() {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+            transition={{
+              duration: shouldReduceMotion ? 0 : 0.24,
+              ease: [0.22, 1, 0.36, 1],
+            }}
           >
             <div className="container mobile-navigation-inner">
               {navigationItems.map((item) => (

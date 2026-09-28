@@ -1,40 +1,45 @@
 import {
+  ArrowLeft,
+  Armchair,
   ArrowDown,
   ArrowRight,
   ArrowUpRight,
   Check,
-  FileMagnifyingGlass,
+  Coins,
+  Cube,
+  Desktop,
+  Factory,
+  ForkKnife,
+  GearSix,
+  HorseIcon,
   Receipt,
+  ShoppingBag,
+  Stack,
+  Plus,
   CurrencyDollar,
   Package,
 } from "@phosphor-icons/react";
 import Image from "next/image";
 import { type ReactElement } from "react";
 import {
-  aiProcessCue,
   aiRecoveryPositioning,
-  aiReviewSupport,
   industries,
   recoveryCta,
   recoveryFaqs,
   recoveryPromise,
 } from "@/lib/recovery-content";
-import {
-  getMarketOpportunityDisplay,
-  marketOpportunity,
-} from "@/lib/market-opportunity";
 import { ProcessStepList } from "./process-step-list";
 
-const industryAssets = [
-  "furniture",
-  "consumer-goods",
-  "food-beverage",
-  "electronics",
-  "manufacturing",
-  "retail",
-  "wholesale",
-  "industrial",
-] as const;
+const industryIcons = {
+  Furniture: Armchair,
+  "Consumer goods": Cube,
+  "Food & beverage": ForkKnife,
+  Electronics: Desktop,
+  Manufacturing: GearSix,
+  Retail: ShoppingBag,
+  Wholesale: Stack,
+  Industrial: Factory,
+} as const;
 
 export function RecoveryAction(): ReactElement {
   return (
@@ -105,60 +110,49 @@ export function CfoSection({ editorial = false }: { editorial?: boolean }): Reac
     >
       <div className="recovery-container">
         {editorial ? (
-          <>
-            <div className="cfo-editorial-top">
-              <div className="cfo-copy">
-                <h2 id="cfo-title">
-                  Your time
-                  <br />
-                  stays yours.
-                </h2>
-                <p className="cfo-promise">
-                  You send the invoices. <span>We handle the recovery.</span>
-                </p>
-                <p className="section-description">
-                  SheperD manages review, recovery follow-up, and outcome tracking.
-                  Your team has one job: send the invoices.
-                </p>
-                <p className="ai-review-copy">{aiReviewSupport}</p>
-              </div>
-              <figure className="cfo-dock-illustration">
-                <Image
-                  src="/media/motion-v2/cfo-dock-transfer.png"
-                  alt="Cargo vessel at a quay while a gantry crane transfers a container."
-                  width={1774}
-                  height={887}
-                  unoptimized
-                  loading="lazy"
-                />
-              </figure>
+          <div className="cfo-editorial-shell">
+            <div className="cfo-editorial-copy">
+              <h2 id="cfo-title">
+                Your time
+                <br />
+                stays yours.
+              </h2>
+              <p className="cfo-promise">
+                You send the invoices. <span>We handle the recovery.</span>
+              </p>
             </div>
-            <div className="responsibility-flow" aria-label="Recovery handoff">
-              <div className="your-part">
-                <span className="handoff-kicker">Your part</span>
-                <div className="handoff-step">
-                  <span className="handoff-icon">
-                    <Receipt size={24} aria-hidden="true" />
+            <figure
+              className="cfo-editorial-scene"
+              aria-label="Your team sends invoices to SheperD, which manages the recovery."
+            >
+              <Image
+                src="/media/cfo-port-blue-hour.jpg"
+                alt=""
+                fill
+                sizes="(max-width: 820px) 100vw, 60vw"
+              />
+              <figcaption className="cfo-handoff-graphic">
+                <div className="cfo-handoff-card cfo-handoff-card--team">
+                  <Receipt size={32} aria-hidden="true" />
+                  <span>
+                    <strong>Your team</strong>
+                    <small>Send invoices</small>
                   </span>
-                  <strong>Send invoices</strong>
                 </div>
-              </div>
-              <ArrowRight className="handoff-arrow" size={28} aria-hidden="true" />
-              <div className="our-part">
-                <span className="handoff-kicker">Handled by SheperD</span>
-                <ol>
-                  {["Review the charges", "Pursue recovery", "Track the outcome"].map((item) => (
-                    <li key={item}>
-                      <span className="handoff-check">
-                        <Check size={17} aria-hidden="true" />
-                      </span>
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            </div>
-          </>
+                <span className="cfo-handoff-directions" aria-hidden="true">
+                  <ArrowRight size={28} />
+                  <ArrowLeft size={28} />
+                </span>
+                <div className="cfo-handoff-card cfo-handoff-card--sheperd">
+                  <HorseIcon size={40} aria-hidden="true" />
+                  <span>
+                    <strong>SheperD</strong>
+                    <small>Manage recovery</small>
+                  </span>
+                </div>
+              </figcaption>
+            </figure>
+          </div>
         ) : (
           <>
             <p className="section-label">Your time stays yours</p>
@@ -224,7 +218,6 @@ export function ProcessSection({
             From historical charges to potential recovered value. SheperD owns
             the work after your invoice handoff.
           </p>
-          <p className="process-ai">{aiProcessCue}</p>
         </div>
         <ProcessStepList detailed={detailed} />
         <div className="process-bottom">
@@ -241,126 +234,67 @@ export function ProcessSection({
 }
 
 export function MarketOpportunitySection(): ReactElement {
-  const { figure, source } = getMarketOpportunityDisplay(marketOpportunity);
+  const invoiceYears = [
+    { label: "Year 1", src: "/media/invoice-history/year-1.png" },
+    { label: "Year 2", src: "/media/invoice-history/year-2.png" },
+    { label: "Year 3", src: "/media/invoice-history/year-3.png" },
+  ] as const;
 
   return (
     <section
       className="market-section section-pad"
-      id="evidence"
-      data-market-state={marketOpportunity.status}
+      id="pilot-scope"
       aria-labelledby="market-title"
     >
-      <div className="recovery-container market-layout">
+      <div className="recovery-container market-layout" id="evidence">
         <div className="market-copy">
-          <p className="section-label">The opportunity in the record</p>
-          <h2 id="market-title">Global records create new opportunities.</h2>
+          <h2 id="market-title">Past invoices may hold money for your bottom line.</h2>
           <p className="section-description">
-            SheperD brings paid invoices and shipping history together, then
-            reviews the record for potential recovery across global trade
-            routes.
+            Three years of past U.S. detention and demurrage invoices may hold
+            potential cash refunds or carrier credits.
           </p>
-          <a className="quiet-link" href="/about">
-            Why SheperD exists <ArrowUpRight size={17} aria-hidden="true" />
-          </a>
-          <ul className="market-proof" aria-label="What connected records make visible">
+          <RecoveryAction />
+        </div>
+        <figure
+          className="invoice-history-visual"
+          aria-labelledby="market-title"
+          aria-describedby="invoice-history-note"
+        >
+          <ol
+            className="invoice-history-timeline"
+            aria-label="Past three years of invoice history"
+          >
+            {invoiceYears.map((year) => (
+              <li key={year.label}>
+                <span className="invoice-stack-art">
+                  <Image
+                    src={year.src}
+                    alt=""
+                    fill
+                    sizes="(max-width: 820px) 30vw, (max-width: 1100px) 18vw, 20vw"
+                  />
+                </span>
+                <span>{year.label}</span>
+              </li>
+            ))}
+          </ol>
+          <div className="invoice-history-bracket" aria-hidden="true">
+            <span>Past 3 years</span>
+          </div>
+          <ul className="invoice-history-outcomes" aria-label="Potential recovery outcomes">
             <li>
-              <strong>More complete</strong>
-              <span>records</span>
+              <Coins size={38} weight="regular" aria-hidden="true" />
+              <span>Potential cash refund</span>
             </li>
             <li>
-              <strong>Clearer</strong>
-              <span>relationships</span>
-            </li>
-            <li>
-              <strong>A larger</strong>
-              <span>opportunity set</span>
+              <Package size={38} weight="regular" aria-hidden="true" />
+              <span>Potential carrier credit</span>
             </li>
           </ul>
-        </div>
-        <figure className="market-visual" aria-labelledby="market-visual-caption">
-          <div className="market-visual-shell">
-            <ul className="market-records" aria-label="Records connected for review">
-              <li className="market-input market-input--invoice">
-                <Receipt size={25} aria-hidden="true" />
-                <span>
-                  <strong>Paid invoices</strong>
-                  <small>Financial records, payments and counterparties.</small>
-                </span>
-              </li>
-              <li className="market-input market-input--shipping">
-                <Package size={25} aria-hidden="true" />
-                <span>
-                  <strong>Shipping history</strong>
-                  <small>Vessel movements, ports and cargo events.</small>
-                </span>
-              </li>
-            </ul>
-            <div className="market-map-stage">
-              <Image
-                className="market-map"
-                src="/media/motion-v2/opportunity-trade-map-transparent.png"
-                alt=""
-                width={1672}
-                height={941}
-                sizes="(max-width: 767px) 136vw, (max-width: 1100px) 60vw, 54vw"
-                unoptimized
-                loading="eager"
-              />
-              <div className="market-review-node">
-                <div className="market-review-badge">
-                  <FileMagnifyingGlass size={27} aria-hidden="true" />
-                </div>
-                <div className="market-review-copy">
-                  <strong>SheperD review</strong>
-                  <span>Reconciles records, matches events, and surfaces opportunities.</span>
-                </div>
-              </div>
-            </div>
-            <div className="market-output">
-              <div className="market-trade-note">
-                <strong>Global trade records</strong>
-                <span>Invoices and voyages connected across ports and counterparties.</span>
-              </div>
-              <div
-                className={`market-opportunity-node${figure ? "" : " market-opportunity-node--pending"}`}
-                aria-label={
-                  figure
-                    ? `${figure} annual cost of port delays to manufacturers`
-                    : "Opportunity figure withheld pending approval"
-                }
-              >
-                {figure && (
-                  <>
-                    <strong>{figure}</strong>
-                    <b>annual port-delay cost</b>
-                  </>
-                )}
-                <small>
-                  {figure
-                    ? "NAM estimate for U.S. manufacturers. Recovery depends on the facts of each charge."
-                    : "Opportunity figure withheld pending approval."}
-                </small>
-              </div>
-            </div>
-          </div>
-          <figcaption id="market-visual-caption" className="visually-hidden">
-            Paid invoices and shipping history connect through SheperD review to
-            global trade records and a potential opportunity for recovery. The
-            {figure
-              ? ` sourced ${figure} figure describes annual port-delay costs to U.S. manufacturers; it is not a guarantee of value recoverable by SheperD.`
-              : " market figure is suppressed until its meaning, source and approval are recorded."}
+          <figcaption className="invoice-history-note" id="invoice-history-note">
+            Three years is past invoice history, not a recovery estimate. Outcomes depend on each
+            charge&apos;s facts and applicable deadlines.
           </figcaption>
-          {source && (
-            <a
-              className="market-source"
-              href={source.href}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <span>{source.title}</span>
-              <span className="market-source-meta">Checked {source.checkedAt}</span>
-            </a>
-          )}
         </figure>
       </div>
     </section>
@@ -484,7 +418,7 @@ export function ImporterSection({ faq = true }: { faq?: boolean }): ReactElement
       aria-labelledby="importer-title"
     >
       <div className="recovery-container">
-        <p className="section-label">For importers</p>
+        <p className="section-label importer-eyebrow">For importers</p>
         <div className="importer-heading">
           <h2 id="importer-title">
             Built around your imports.
@@ -497,34 +431,37 @@ export function ImporterSection({ faq = true }: { faq?: boolean }): ReactElement
           </p>
         </div>
         <div className="industry-grid">
-          {industries.map((industry, index) => {
-            return (
-              <div className="industry" key={industry}>
-                <Image
-                  src={`/media/motion-v2/industry-${industryAssets[index]}-glass-transparent.png`}
-                  alt=""
-                  width={72}
-                  height={72}
-                  loading="eager"
-                  unoptimized
-                />
-                <span>{industry}</span>
-              </div>
+          {industries.map((industry) => {
+              const IndustryIcon = industryIcons[industry];
+              return (
+                <div className="industry" key={industry}>
+                  <span className="industry-icon-frame" aria-hidden="true">
+                    <IndustryIcon
+                      className="industry-icon"
+                      size={36}
+                      weight="regular"
+                      aria-hidden="true"
+                    />
+                  </span>
+                  <span>{industry}</span>
+                </div>
             );
           })}
         </div>
         {faq && (
           <div className="recovery-faq">
-            <div>
+            <div className="recovery-faq-intro">
               <p className="section-label">A few practical answers</p>
               <h3>Before you begin.</h3>
             </div>
-            <div>
+            <div className="recovery-faq-list">
               {recoveryFaqs.map((item) => (
                 <details key={item.question}>
                   <summary>
                     {item.question}
-                    <span aria-hidden="true">+</span>
+                    <span className="faq-toggle" aria-hidden="true">
+                      <Plus size={18} weight="regular" />
+                    </span>
                   </summary>
                   <p>{item.answer}</p>
                 </details>

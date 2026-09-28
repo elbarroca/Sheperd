@@ -1,7 +1,6 @@
 import type { ReactElement } from "react";
 import { RecoveryLayout } from "./recovery-layout";
 import {
-  CfoSection,
   ClosingSection,
   EconomicsSection,
   ImporterSection,
@@ -13,13 +12,12 @@ import {
 export function RecoveryCorridor(): ReactElement {
   return (
     <RecoveryLayout
-      title="SheperD | A clear path through D&D recovery"
-      description="A clear path from invoice to recovery. You send the invoices. SheperD handles detention and demurrage recovery for importers. No upfront cost. Paid when you recover value."
+      title="SheperD | D&D recovery potential for U.S. importers"
+      description="Could three years of U.S. detention and demurrage charges put real money back on your bottom line? Explore potential refunds and carrier credits."
     >
       <RecoveryHero />
-      <CfoSection editorial />
-      <ProcessSection />
       <MarketOpportunitySection />
+      <ProcessSection />
       <EconomicsSection />
       <ImporterSection />
       <ClosingSection />
