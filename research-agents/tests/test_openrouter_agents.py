@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from langchain.agents.middleware import ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool
 
@@ -16,6 +17,7 @@ import sheperd_research.providers.openrouter as openrouter_module
 from sheperd_research.contracts import ArticleDistillation, ClaimDraft, SourceCandidate
 from sheperd_research.providers.capabilities import CapabilityReport, ModelCapability
 from sheperd_research.providers.errors import ProviderError
+from sheperd_research.providers.openai import DEFAULT_OPENAI_MODEL, OpenAIProvider
 from sheperd_research.providers.openrouter import OpenRouterProvider
 from sheperd_research.providers.tavily import TavilyProvider
 from sheperd_research.settings import STRICT_OPENROUTER_MODEL
@@ -463,10 +465,12 @@ def test_discovery_requires_model_issued_tavily_tool_calls(
     class TavilyStub:
         searches = 0
         extractions = 0
+        search_max_results = 0
         last_call_metadata = {"key_slot": 2, "key_count": 2}
 
-        async def search(self, query: str, **_: object) -> list[SourceCandidate]:
+        async def search(self, query: str, **kwargs: object) -> list[SourceCandidate]:
             self.searches += 1
+            self.search_max_results = int(kwargs["max_results"])
             return [
                 SourceCandidate(
                     url="https://www.fmc.gov/example-agent-source",
@@ -564,12 +568,284 @@ def test_discovery_requires_model_issued_tavily_tool_calls(
     assert len(result.sources) == 1
     assert len(result.content) == 1
     assert tavily.searches == 1
+    assert tavily.search_max_results == 8
     assert tavily.extractions == 1
     assert result.metadata["agent_call"]["tool_calls"] == 2
     receipts = result.metadata["attempts"][0]["tool_call_receipts"]
     assert all("query" not in receipt for receipt in receipts)
     assert all("urls" not in receipt for receipt in receipts)
     assert [receipt["provider_key_slot"] for receipt in receipts] == [2, 2]
+
+
+def test_discovery_recovers_configured_queries_skipped_by_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries = ["first configured", "second configured"]
+
+    class TavilyStub:
+        last_call_metadata = {"key_slot": 1, "key_count": 1}
+
+        def __init__(self) -> None:
+            self.searches: list[str] = []
+            self.extractions: list[list[str]] = []
+
+        async def search(self, query: str, **_: object) -> list[SourceCandidate]:
+            self.searches.append(query)
+            return [
+                SourceCandidate(
+                    url=f"https://www.fmc.gov/{query.replace(' ', '-')}",
+                    title=query,
+                    publisher="fmc.gov",
+                    published_at=datetime(2026, 8, 19, tzinfo=UTC),
+                    snippet=query,
+                    geographies=["Regulatory"],
+                )
+            ]
+
+        async def extract(self, sources: list[SourceCandidate]) -> dict[str, str]:
+            urls = [source.url for source in sources]
+            self.extractions.append(urls)
+            return {url: "Public evidence fixture." for url in urls}
+
+    class PrematureAgent:
+        def __init__(self, tools: list[BaseTool]) -> None:
+            self.tools = {tool.name: tool for tool in tools}
+
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            search_call = {
+                "id": "search-1",
+                "name": "tavily_search",
+                "args": {"query": queries[0]},
+            }
+            search_result = await self.tools["tavily_search"].ainvoke(
+                search_call["args"]
+            )
+            source_url = json.loads(search_result)["sources"][0]["url"]
+            extract_call = {
+                "id": "extract-1",
+                "name": "tavily_extract",
+                "args": {"urls": [source_url]},
+            }
+            extract_result = await self.tools["tavily_extract"].ainvoke(
+                extract_call["args"]
+            )
+            return {
+                "structured_response": {
+                    "source_urls": [source_url],
+                    "selected_queries": [queries[0]],
+                    "evidence_notes": ["Public fixture source."],
+                },
+                "messages": [
+                    AIMessage(content="", tool_calls=[search_call, extract_call]),
+                    ToolMessage(
+                        content=search_result,
+                        tool_call_id="search-1",
+                        status="success",
+                    ),
+                    ToolMessage(
+                        content=extract_result,
+                        tool_call_id="extract-1",
+                        status="success",
+                    ),
+                    SimpleNamespace(
+                        response_metadata={
+                            "model_name": STRICT_OPENROUTER_MODEL,
+                            "id": "request-3",
+                        },
+                        usage_metadata={},
+                        tool_calls=[],
+                    ),
+                ],
+            }
+
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+    monkeypatch.setattr(
+        openrouter_module,
+        "create_agent",
+        lambda *, tools, **_: PrematureAgent(tools),
+    )
+    tavily = TavilyStub()
+
+    result = asyncio.run(
+        provider.discover_lane(
+            "regulatory",
+            queries,
+            ("Regulatory",),
+            since=datetime(2026, 8, 1, tzinfo=UTC),
+            until=datetime(2026, 8, 20, tzinfo=UTC),
+            include_domains=["fmc.gov"],
+            exclude_domains=[],
+            max_results=2,
+            tavily=tavily,
+        )
+    )
+
+    assert tavily.searches == queries
+    assert len(tavily.extractions) == 2
+    assert [source.url for source in result.sources] == [
+        f"https://www.fmc.gov/{query.replace(' ', '-')}" for query in queries
+    ]
+    assert result.packet.selected_queries == queries
+    assert result.metadata["selection_basis"] == "captured_tool_evidence_fallback"
+    assert result.metadata["agent_call"]["tool_calls"] == 4
+
+
+def test_discovery_orders_search_then_extract_before_native_structured_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    query = "latest FMC enforcement"
+    source_url = "https://www.fmc.gov/example-agent-source"
+    unextracted_url = "https://www.fmc.gov/unextracted-agent-source"
+    stage_order: list[str] = []
+
+    class TavilyStub:
+        last_call_metadata = {"key_slot": 3, "key_count": 1}
+        extractions = 0
+        extracted_urls: list[str] = []
+
+        async def search(self, value: str, **_: object) -> list[SourceCandidate]:
+            return [
+                SourceCandidate(
+                    url=source_url,
+                    title="FMC fixture",
+                    publisher="fmc.gov",
+                    published_at=datetime(2026, 8, 19, tzinfo=UTC),
+                    snippet=value,
+                    geographies=["Regulatory"],
+                ),
+                SourceCandidate(
+                    url=unextracted_url,
+                    title="Unextracted FMC fixture",
+                    publisher="fmc.gov",
+                    published_at=datetime(2026, 8, 19, tzinfo=UTC),
+                    snippet=value,
+                    geographies=["Regulatory"],
+                ),
+            ]
+
+        async def extract(self, sources: list[SourceCandidate]) -> dict[str, str]:
+            self.extractions += 1
+            self.extracted_urls.extend(source.url for source in sources)
+            return {source.url: "Public evidence fixture." for source in sources}
+
+    class PrematureStructuredAgent:
+        def __init__(
+            self,
+            model: object,
+            tools: list[BaseTool],
+            middleware: list[object],
+            response_format: object,
+        ) -> None:
+            self.model = model
+            self.tools = tools
+            self.middleware = middleware
+            self.response_format = response_format
+
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            messages: list[object] = []
+            tools_by_name = {tool.name: tool for tool in self.tools}
+            for _ in range(3):
+                request = ModelRequest(
+                    model=self.model,
+                    messages=messages,
+                    tools=self.tools,
+                    response_format=self.response_format,
+                    state={"messages": messages},
+                )
+
+                async def handler(staged: ModelRequest) -> ModelResponse:
+                    visible_tools = {
+                        tool.name for tool in staged.tools if isinstance(tool, BaseTool)
+                    }
+                    if staged.response_format is not None:
+                        stage_order.append("structured_response")
+                        return ModelResponse(
+                            result=[
+                                AIMessage(
+                                    content="{}",
+                                    response_metadata={
+                                        "model_name": DEFAULT_OPENAI_MODEL,
+                                        "id": "response-final",
+                                    },
+                                )
+                            ],
+                            structured_response={
+                                "source_urls": [unextracted_url],
+                                "selected_queries": [query],
+                                "evidence_notes": ["Public fixture source."],
+                            },
+                        )
+                    if visible_tools == {"tavily_search"}:
+                        stage_order.append("tavily_search")
+                        tool_call = {
+                            "id": f"search-{len(stage_order)}",
+                            "name": "tavily_search",
+                            "args": {"query": query},
+                        }
+                    else:
+                        raise AssertionError(f"unexpected staged tools: {visible_tools}")
+                    return ModelResponse(
+                        result=[AIMessage(content="", tool_calls=[tool_call])]
+                    )
+
+                response = await self.middleware[0].awrap_model_call(request, handler)
+                messages.extend(response.result)
+                if response.structured_response is not None:
+                    return {
+                        "structured_response": response.structured_response,
+                        "messages": messages,
+                    }
+                for tool_call in response.result[0].tool_calls:
+                    tool_result = await tools_by_name[tool_call["name"]].ainvoke(
+                        tool_call["args"]
+                    )
+                    messages.append(
+                        ToolMessage(
+                            content=tool_result,
+                            tool_call_id=tool_call["id"],
+                            status="success",
+                        )
+                    )
+            raise AssertionError("structured response was not reached")
+
+    def create_staged_agent(
+        *,
+        model: object,
+        tools: list[BaseTool],
+        middleware: list[object],
+        response_format: object,
+        **_: object,
+    ) -> PrematureStructuredAgent:
+        return PrematureStructuredAgent(model, tools, middleware, response_format)
+
+    monkeypatch.setattr(openrouter_module, "create_agent", create_staged_agent)
+    provider = OpenAIProvider("test-key")
+    tavily = TavilyStub()
+    result = asyncio.run(
+        provider.discover_lane(
+            "regulatory",
+            [query],
+            ("Regulatory",),
+            since=datetime(2026, 8, 1, tzinfo=UTC),
+            until=datetime(2026, 8, 20, tzinfo=UTC),
+            include_domains=["fmc.gov"],
+            exclude_domains=["linkedin.com"],
+            max_results=1,
+            tavily=tavily,
+        )
+    )
+
+    assert stage_order == ["tavily_search", "structured_response"]
+    assert tavily.extractions == 1
+    assert tavily.extracted_urls == [source_url]
+    assert [source.url for source in result.sources] == [source_url]
+    assert result.content == {source_url: "Public evidence fixture."}
+    receipts = result.metadata["attempts"][0]["tool_call_receipts"]
+    assert [receipt["tool_name"] for receipt in receipts] == [
+        "tavily_search",
+        "tavily_extract",
+    ]
 
 
 def test_discovery_persists_failed_tavily_tool_receipt(
@@ -792,6 +1068,104 @@ def test_discovery_rejects_a_model_invented_url(monkeypatch: pytest.MonkeyPatch)
     )
     assert result.packet.source_urls == ["https://known.example/article"]
     assert result.metadata["invalid_selected_url_count"] == 1
+
+
+def test_discovery_recovers_malformed_selection_from_captured_tool_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    query = "configured"
+    accessible_url = "https://known.example/accessible"
+    inaccessible_url = "https://known.example/inaccessible"
+
+    class TavilyStub:
+        async def search(self, _: str, **__: object) -> list[SourceCandidate]:
+            return [
+                SourceCandidate(
+                    url=accessible_url,
+                    publisher="known.example",
+                    published_at=datetime(2026, 8, 10, tzinfo=UTC),
+                    geographies=["Regulatory"],
+                ),
+                SourceCandidate(
+                    url=inaccessible_url,
+                    publisher="known.example",
+                    published_at=datetime(2026, 8, 10, tzinfo=UTC),
+                    geographies=["Regulatory"],
+                ),
+            ]
+
+        async def extract(self, sources: list[SourceCandidate]) -> dict[str, str]:
+            source = sources[0]
+            if source.url == inaccessible_url:
+                raise ProviderError("source unavailable", error_code="source_access")
+            return {source.url: "Captured public evidence."}
+
+    class MalformedSelectionAgent:
+        def __init__(self, tools: list[BaseTool]) -> None:
+            self.tools = {tool.name: tool for tool in tools}
+
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            search = await self.tools["tavily_search"].ainvoke({"query": query})
+            urls = [item["url"] for item in json.loads(search)["sources"]]
+            extract = await self.tools["tavily_extract"].ainvoke({"urls": urls})
+            return {
+                "structured_response": {"unexpected": "field"},
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": "search-1",
+                                "name": "tavily_search",
+                                "args": {"query": query},
+                            },
+                            {
+                                "id": "extract-1",
+                                "name": "tavily_extract",
+                                "args": {"urls": urls},
+                            },
+                        ],
+                    ),
+                    ToolMessage(content=search, tool_call_id="search-1"),
+                    ToolMessage(content=extract, tool_call_id="extract-1"),
+                ],
+            }
+
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+    monkeypatch.setattr(
+        openrouter_module,
+        "create_agent",
+        lambda *, tools, **_: MalformedSelectionAgent(tools),
+    )
+
+    result = asyncio.run(
+        provider.discover_lane(
+            "regulatory",
+            [query],
+            ("Regulatory",),
+            since=datetime(2026, 8, 1, tzinfo=UTC),
+            until=datetime(2026, 8, 20, tzinfo=UTC),
+            include_domains=["known.example"],
+            exclude_domains=[],
+            max_results=2,
+            tavily=TavilyStub(),
+        )
+    )
+
+    assert [source.url for source in result.sources] == [accessible_url]
+    assert result.content == {accessible_url: "Captured public evidence."}
+    assert result.metadata["selection_basis"] == "captured_tool_evidence_fallback"
+    receipts = [
+        receipt
+        for attempt in result.metadata["attempts"]
+        for receipt in attempt["tool_call_receipts"]
+        if receipt["status"] == "failed"
+    ]
+    assert receipts
+    assert {receipt["error_code"] for receipt in receipts} == {
+        "source_access_skipped"
+    }
 
 
 def test_discovery_rejects_unverifiable_tavily_scope_metadata() -> None:
@@ -1518,6 +1892,86 @@ def test_tool_receipts_parse_langchain_ai_messages() -> None:
     assert receipts[1]["url_count"] == 1
 
 
+def test_synthesis_retries_an_unknown_citation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_url = "https://www.fmc.gov/example-agent-source"
+    calls = 0
+
+    def bullet(url: str) -> dict[str, object]:
+        return {
+            "text": "A cited report point.",
+            "source_urls": [url],
+            "why_it_matters": "It informs the operating picture.",
+            "next_step": "Monitor the cited source.",
+        }
+
+    valid_response = {
+        "title": "Weekly",
+        "summary": "Cited draft.",
+        "executive_bullets": [bullet(source_url)],
+        "developments": [bullet(source_url)],
+        "risks": [bullet(source_url)],
+        "opportunities": [bullet(source_url)],
+        "uncertainties": [bullet(source_url)],
+    }
+    invalid_response = {
+        **valid_response,
+        "opportunities": [bullet("https://invented.example/opportunity")],
+    }
+
+    class Agent:
+        async def ainvoke(self, *_: object, **__: object) -> dict[str, object]:
+            nonlocal calls
+            calls += 1
+            response = invalid_response if calls == 1 else valid_response
+            return {
+                "structured_response": response,
+                "messages": [
+                    SimpleNamespace(
+                        response_metadata={
+                            "model_name": STRICT_OPENROUTER_MODEL,
+                            "token_usage": {
+                                "prompt_tokens": 10,
+                                "completion_tokens": 10,
+                                "total_tokens": 20,
+                            },
+                        },
+                        usage_metadata={},
+                        tool_calls=[],
+                    )
+                ],
+            }
+
+    provider = _stub_provider()
+    provider._model_for = lambda model: model
+    monkeypatch.setattr(
+        openrouter_module,
+        "create_agent",
+        lambda **_: Agent(),
+    )
+
+    result = asyncio.run(
+        provider.synthesize(
+            "run-1",
+            [
+                ArticleDistillation(
+                    source_url=source_url,
+                    summary="Source-bound summary.",
+                    claims=[ClaimDraft(claim="Reported point.", source_urls=[source_url])],
+                )
+            ],
+            covered_from=datetime(2026, 8, 13, tzinfo=UTC),
+            covered_until=datetime(2026, 8, 20, tzinfo=UTC),
+        )
+    )
+
+    assert calls == 2
+    assert result.opportunities[0].source_urls == [source_url]
+    assert provider.call_history[0]["error_code"] == "malformed_output"
+    assert provider.call_history[1]["error_code"] is None
+
+
 def test_create_agent_names_all_six_workers(monkeypatch: pytest.MonkeyPatch) -> None:
     class TavilyStub:
         async def search(self, query: str, **_: object) -> list[SourceCandidate]:
@@ -1592,8 +2046,16 @@ def test_create_agent_names_all_six_workers(monkeypatch: pytest.MonkeyPatch) -> 
             structured_response: dict[str, object]
             if self.name == "source_distillation_agent":
                 structured_response = {
+                    "headline": "A public maritime development",
+                    "event_type": "other",
+                    "event_at": None,
+                    "event_at_locator": None,
                     "summary": "Source-bound summary.",
-                    "key_points": ["Reported point.", "Second reported point."],
+                        "key_points": [
+                            "Reported point.",
+                            "Second reported point.",
+                            "Third reported point.",
+                        ],
                     "what_happened": "The source reports a public development.",
                     "why_it_matters": "The development changes the operating picture.",
                     "risk_assessment": {
@@ -1687,3 +2149,5 @@ def test_create_agent_names_all_six_workers(monkeypatch: pytest.MonkeyPatch) -> 
     assert "evidence-backed absence" in synthesis_prompt
     assert "why_it_matters" in synthesis_prompt
     assert "next_step" in synthesis_prompt
+    assert "KNOWN SOURCE URLS" in synthesis_prompt
+    assert "copy source URLs exactly" in synthesis_prompt

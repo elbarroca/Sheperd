@@ -111,6 +111,7 @@ function SourceCard({ item }: { item: SourceExplorerItem }) {
       </div>
       <p className="card-meta">Published {dateLabel(source.published_at)} / Retrieved {dateLabel(source.retrieved_at)}</p>
       <div className="status-row">
+        <Status label="Period" value={source.period_status} />
         <Status label="Freshness" value={source.freshness_status} />
         <Status label="Extraction" value={source.extraction_status} />
         <Status label="Translation" value={distillation?.translation_status} />

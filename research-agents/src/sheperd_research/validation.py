@@ -7,6 +7,7 @@ from .contracts import (
     ArticleDistillation,
     ClaimDraft,
     ExtractionStatus,
+    SignalEvent,
     SourceCandidate,
     ValidationCheck,
     ValidationReport,
@@ -18,9 +19,11 @@ from .validators import (
     claim_verification_allowed,
     content_hash,
     normalize_url,
+    reader_source_contract_issues,
     validate_article_distillation_quality,
     validate_evidence_quality,
     validate_report_sections,
+    validate_signal_event_quality,
 )
 
 MIN_SOURCE_COUNT = 10
@@ -39,17 +42,21 @@ _CHECK_REASON_MAP = {
     "citation_coverage": "missing_citation",
     "content_hashes": "duplicate_source_hash",
     "evidence_quality": "missing_evidence_locator",
+    "extract_receipts": "missing_extract_receipts",
     "extraction_status": "extraction_failed",
     "model_policy": "model_policy_failed",
     "geography_coverage": "incomplete_geography_coverage",
     "lane_coverage": "incomplete_lane_coverage",
     "minimum_claims": "insufficient_claims",
     "minimum_sources": "insufficient_sources",
+    "eligible_weekly_sources": "insufficient_in_period_sources",
     "publication_dates": "invalid_publication_dates",
+    "reader_source_contract": "incomplete_reader_source_contract",
     "regional_coverage": "incomplete_regional_coverage",
     "report_sections": "empty_report_section",
     "required_tool_calls": "missing_required_tool_calls",
     "seed_verified_claims": "seed_only_verified_claim",
+    "signal_event_completeness": "incomplete_signal_events",
     "source_distillation_completeness": "incomplete_source_distillation",
     "verified_claims": "unsupported_verified_claim",
 }
@@ -65,6 +72,7 @@ _PROVIDER_ERROR_REASON_MAP = {
     "provider": "provider_failed",
     "provider_unavailable": "provider_unavailable",
     "rate_limit": "provider_rate_limit",
+    "source_access": "source_access_failed",
     "timeout": "provider_timeout",
     "tool_failure": "provider_tool_failure",
 }
@@ -88,6 +96,10 @@ def provider_error_codes_from_run(
         code = step.get("error_code")
         metadata = step.get("metadata")
         if isinstance(metadata, dict):
+            captured_tool_fallback = (
+                metadata.get("selection_basis")
+                == "captured_tool_evidence_fallback"
+            )
             attempts = metadata.get("attempts")
             attempt_records = [
                 attempt for attempt in attempts if isinstance(attempt, dict)
@@ -164,6 +176,10 @@ def provider_error_codes_from_run(
                     )
                     or recovered_attempt
                     or step.get("status") == "succeeded"
+                    or (
+                        captured_tool_fallback
+                        and code == "malformed_output"
+                    )
                 )
             ):
                 codes.add(code)
@@ -173,6 +189,10 @@ def provider_error_codes_from_run(
                     isinstance(call_code, str)
                     and call_code in _PROVIDER_ERROR_CODES
                     and not recovered_by_retry(call)
+                    and not (
+                        captured_tool_fallback
+                        and call_code == "malformed_output"
+                    )
                 ):
                     codes.add(call_code)
             for attempt in attempt_records:
@@ -181,6 +201,10 @@ def provider_error_codes_from_run(
                     isinstance(attempt_code, str)
                     and attempt_code in _PROVIDER_ERROR_CODES
                     and not recovered_by_retry(attempt)
+                    and not (
+                        captured_tool_fallback
+                        and attempt_code == "malformed_output"
+                    )
                 ):
                     codes.add(attempt_code)
         elif isinstance(code, str) and code in _PROVIDER_ERROR_CODES:
@@ -208,12 +232,6 @@ def validation_blocking_reasons(report: ValidationReport) -> list[str]:
             and check.name != "citation_coverage"
         ):
             reasons.add("missing_citation")
-        if (
-            check.name != "provider_error_codes"
-            and "evidence" in check.message.lower()
-            and check.name != "evidence_quality"
-        ):
-            reasons.add("missing_evidence_locator")
         if "provider" in check.message.lower() or "tool" in check.message.lower():
             reasons.add("provider_observability_failed")
         check_text = " ".join(
@@ -262,14 +280,19 @@ def build_validation_report(
     prompt_version: str = "validation-v1",
     minimum_sources: int = MIN_SOURCE_COUNT,
     minimum_claims: int = MIN_CLAIM_COUNT,
+    required_source_hash_count: int | None = None,
     tool_call_count: int | None = None,
     required_tool_lanes: dict[str, bool] | None = None,
     distillations: list[ArticleDistillation] | None = None,
+    signal_events: list[SignalEvent] | None = None,
     required_geographies: set[str] | None = None,
     required_regions: set[str] | None = None,
     required_lanes: set[str] | None = None,
     brief: WeeklyBrief | None = None,
     provider_error_codes: list[str] | None = None,
+    eligible_weekly_source_count: int | None = None,
+    minimum_eligible_sources: int | None = None,
+    require_reader_contract: bool = False,
 ) -> ValidationReport:
     quality_sources = source_quality_sources(sources)
     enriched_sources = [
@@ -289,12 +312,25 @@ def build_validation_report(
         and all(normalize_url(url) in known_urls for url in claim.source_urls)
     ]
     coverage = len(cited_claims) / len(claims) if claims else 0.0
-    lane_coverage = sorted(
+    completed_lanes = {
         lane for lane, status in lane_statuses.items() if status in {"succeeded", "pass"}
+    }
+    strict_period_mode = (
+        eligible_weekly_source_count is not None
+        and minimum_eligible_sources is not None
+    )
+    coverage_sources = (
+        [source for source in quality_sources if source.eligible_for_weekly]
+        if strict_period_mode
+        else quality_sources
+    )
+    source_lanes = {source.lane for source in coverage_sources}
+    lane_coverage = sorted(
+        completed_lanes & source_lanes if strict_period_mode else completed_lanes
     )
     geography_coverage = {
         geography
-        for source in quality_sources
+        for source in coverage_sources
         for geography in source.geographies
     }
     expected_geographies = (
@@ -303,7 +339,7 @@ def build_validation_report(
         else set(required_geographies)
     )
     missing_geographies = sorted(expected_geographies - geography_coverage)
-    region_coverage = {source.region for source in quality_sources}
+    region_coverage = {source.region for source in coverage_sources}
     expected_regions = set() if required_regions is None else set(required_regions)
     missing_regions = sorted(expected_regions - region_coverage)
     expected_lanes = set(REQUIRED_LANES) if required_lanes is None else set(required_lanes)
@@ -331,6 +367,19 @@ def build_validation_report(
     ]
     hashes = source_hashes or []
     duplicate_hashes = len(hashes) != len(set(hashes))
+    event_url_counts: dict[str, int] = {}
+    event_quality_issues: dict[str, list[str]] = {}
+    for event in signal_events or []:
+        issues = validate_signal_event_quality(event)
+        if issues:
+            event_quality_issues[event.event_id] = issues
+        if len(event.source_urls) != 1:
+            event_quality_issues.setdefault(event.event_id, []).append(
+                "event_requires_one_source"
+            )
+            continue
+        url = normalize_url(event.source_urls[0])
+        event_url_counts[url] = event_url_counts.get(url, 0) + 1
     quality_mode = bool(distillations) or any(
         source.extraction_status is not ExtractionStatus.NOT_ATTEMPTED
         or source.region != "global"
@@ -360,6 +409,17 @@ def build_validation_report(
     unexpected_distillations = sorted(distillation_urls - known_urls)
     distillations_by_url = {
         normalize_url(item.source_url): item for item in (distillations or [])
+    }
+    reader_contract_issues = {
+        normalize_url(source.url): issues
+        for source in enriched_sources
+        if (
+            issues := reader_source_contract_issues(
+                source,
+                distillations_by_url.get(normalize_url(source.url)),
+                as_of=as_of,
+            )
+        )
     }
     article_insight_issues: dict[str, list[str]] = {}
     if distillations is not None:
@@ -421,7 +481,7 @@ def build_validation_report(
             not missing_geographies,
             ",".join(sorted(geography_coverage)),
             ",".join(sorted(expected_geographies)) or "none",
-            "strict acceptance requires regulatory, U.S. ports, Mexico, and Europe coverage",
+            "strict acceptance requires the configured geography scope",
         ),
         _check(
             "publication_dates",
@@ -462,6 +522,52 @@ def build_validation_report(
             ),
         ),
     ]
+    if eligible_weekly_source_count is not None and minimum_eligible_sources is not None:
+        checks.append(
+            _check(
+                "eligible_weekly_sources",
+                eligible_weekly_source_count >= minimum_eligible_sources,
+                eligible_weekly_source_count,
+                minimum_eligible_sources,
+                "weekly source threshold uses publication-dated in-period sources",
+            )
+        )
+    if required_source_hash_count is not None:
+        checks.append(
+            _check(
+                "extract_receipts",
+                len(hashes) == required_source_hash_count and not duplicate_hashes,
+                len(hashes),
+                required_source_hash_count,
+                "every repaired source requires one unique Extract snapshot receipt",
+            )
+        )
+    if require_reader_contract:
+        checks.append(
+            _check(
+                "reader_source_contract",
+                not reader_contract_issues,
+                len(enriched_sources) - len(reader_contract_issues),
+                len(enriched_sources),
+                "every extracted source must be a direct article with honest date "
+                "provenance and a scored decision packet",
+            )
+        )
+    if signal_events is not None:
+        signal_complete = (
+            not event_quality_issues
+            and set(event_url_counts) == known_urls
+            and all(count == 1 for count in event_url_counts.values())
+        )
+        checks.append(
+            _check(
+                "signal_event_completeness",
+                signal_complete,
+                len(event_url_counts),
+                len(known_urls),
+                "every source must produce exactly one complete signal event",
+            )
+        )
     if quality_mode:
         checks.extend(
             [

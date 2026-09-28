@@ -12,6 +12,8 @@ from sheperd_research.contracts import (
     ArticleDistillation,
     ClaimDraft,
     EvidenceStatus,
+    PageType,
+    PublicationDateBasis,
     ResearchRunRequest,
     ReviewState,
     SignalEvent,
@@ -58,6 +60,10 @@ def test_parser_accepts_strict_daily_weekly_and_monthly_rollup_commands() -> Non
             "daily",
             "--strict",
             "--json",
+            "--run-id",
+            "daily-run",
+            "--as-of",
+            "2026-08-20T00:00:00Z",
         ]
     )
     weekly = _parser().parse_args(
@@ -69,6 +75,10 @@ def test_parser_accepts_strict_daily_weekly_and_monthly_rollup_commands() -> Non
             "weekly",
             "--strict",
             "--json",
+            "--run-id",
+            "weekly-run",
+            "--as-of",
+            "2026-08-20T00:00:00Z",
         ]
     )
     rollup = _parser().parse_args(["rollup", "--month", "2026-08", "--json"])
@@ -99,7 +109,7 @@ def test_daily_run_persists_a_draft_brief_without_approval() -> None:
     brief = repository.get_brief(result.run_id)
     assert result.status.value == "succeeded"
     assert brief is not None
-    assert brief.prompt_version == "daily-brief-v6-decision"
+    assert brief.prompt_version == "daily-brief-v7-reader"
     assert brief.review_state is ReviewState.DRAFT
     assert brief.summary.startswith("DRAFT - HUMAN REVIEW REQUIRED")
     assert repository.review_decisions == []
@@ -126,6 +136,11 @@ def test_weekly_run_combines_retained_seven_day_evidence_with_fresh_discovery() 
         geographies=["West Coast"],
         lane="us-ports",
         evidence_status=EvidenceStatus.VERIFIED,
+        direct_content=True,
+        page_type=PageType.OFFICIAL_DOCUMENT,
+        search_published_at=as_of - timedelta(days=2),
+        publication_date_basis=PublicationDateBasis.SEARCH,
+        publication_date_locator="tavily.search.published_date",
     )
     retained_claim = ClaimDraft(
         claim="A retained port signal remains material.",
@@ -169,10 +184,52 @@ def test_weekly_run_combines_retained_seven_day_evidence_with_fresh_discovery() 
     assert any(
         retained_source.url in claim.source_urls for claim in llm.critic_claims
     )
-    assert repository.validations[result.run_id].unique_source_count == 4
+    assert repository.validations[result.run_id].unique_source_count == 3
+    assert len(repository.get_run_snapshot_hashes(result.run_id)) == 3
     persisted_claims = repository.list_claims(run_id=result.run_id)
     assert persisted_claims
     assert all(claim.evidence_status is not EvidenceStatus.VERIFIED for claim in persisted_claims)
+
+
+def test_weekly_retention_skips_sources_without_reader_provenance() -> None:
+    as_of = datetime(2026, 8, 20, tzinfo=UTC)
+    repository = InMemoryRepository()
+    prior_request = ResearchRunRequest(
+        topic_set="dnd-port",
+        cadence="daily",
+        as_of=as_of - timedelta(days=2),
+        validation_profile="canary",
+    )
+    repository.create_run("legacy-run", prior_request)
+    source = SourceCandidate(
+        url="https://www.fmc.gov/legacy-retained-evidence",
+        published_at=as_of - timedelta(days=2),
+        retrieved_at=as_of - timedelta(days=2),
+        lane="us-ports",
+    )
+    repository.record_source(source)
+    repository.record_snapshot("legacy-run", source, "legacy retained evidence")
+    repository.record_distillation(
+        "legacy-run",
+        _complete_distillation(source.url).model_copy(
+            update={"published_at": source.published_at}
+        ),
+    )
+
+    workflow = ResearchWorkflow(repository, FakeTavily(), RecordingLlm())
+    retained_sources, retained_distillations = workflow._retained_evidence(
+        ResearchRunRequest(
+            topic_set="dnd-port",
+            cadence="weekly",
+            as_of=as_of,
+            max_sources=3,
+            include_topic_seeds=False,
+            validation_profile="canary",
+        )
+    )
+
+    assert retained_sources == []
+    assert retained_distillations == []
 
 
 def test_synthesis_is_blocked_when_only_seed_or_no_evidence_exists() -> None:

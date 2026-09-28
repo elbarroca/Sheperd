@@ -1,22 +1,40 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import time
 from collections import Counter
 from datetime import datetime
 from decimal import Decimal
 from html import escape
+from typing import cast
 
 from fastapi import FastAPI, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from .contracts import ReviewState, ValidationReport, ValidationStatus, WeeklyBrief
+from .blob import download_private_pdf
+from .contracts import (
+    ArticleDistillation,
+    ClaimDraft,
+    ReaderReport,
+    ReviewState,
+    SignalEvent,
+    SourceCandidate,
+    ValidationReport,
+    ValidationStatus,
+    WeeklyBrief,
+)
+from .costs import estimate_run_cost
 from .db import (
     MIGRATION_VERSION,
     ArchiveScope,
     RepositoryProtocol,
     validation_profile_from_run,
 )
-from .exporters.obsidian import render_weekly_markdown
+from .exporters.obsidian import canonical_report_hash, render_weekly_markdown
+from .reader import build_reader_report
+from .settings import Settings
 from .source_catalog import load_source_catalog
 from .validation import validation_blocking_reasons
 from .validators import quality_metrics
@@ -115,6 +133,9 @@ _PUBLIC_RUN_FIELDS = (
     "migration_version",
     "archived_at",
     "archive_reason",
+    "run_kind",
+    "parent_run_id",
+    "repair_round",
 )
 
 
@@ -159,6 +180,20 @@ def _public_run(run: dict[str, object] | None) -> dict[str, object] | None:
         topic_set = getattr(request, "topic_set", None)
     if isinstance(topic_set, str):
         public_run["topic_set"] = topic_set
+    request = run.get("request")
+    for field in (
+        "context_version",
+        "research_timezone",
+        "research_scope",
+        "new_findings_only",
+    ):
+        value = (
+            request.get(field)
+            if isinstance(request, dict)
+            else getattr(request, field, None)
+        )
+        if isinstance(value, (bool, str)):
+            public_run[field] = value
     if "error_code" not in public_run and run.get("status") in {"failed", "partial"}:
         public_run["error_code"] = (
             "run_failed" if run.get("status") == "failed" else "run_partial"
@@ -362,7 +397,53 @@ def _summary_readiness(summary: dict[str, object]) -> dict[str, object]:
     return result
 
 
-def create_app(repository: RepositoryProtocol) -> FastAPI:
+def _pdf_metadata(
+    repository: RepositoryProtocol,
+    run_id: str,
+    run: dict[str, object] | None,
+    brief: WeeklyBrief | None,
+    validation: ValidationReport | None,
+    settings: Settings | None,
+) -> dict[str, object]:
+    artifact = repository.get_pdf_artifact(run_id)
+    run_status = getattr(run.get("status") if run else None, "value", None)
+    if run_status is None and run is not None:
+        run_status = run.get("status")
+    validation_status = getattr(validation.status, "value", None) if validation else None
+    approved = brief is not None and brief.review_state is ReviewState.APPROVED
+    delivery_configured = (
+        settings is not None and settings.report_link_signing_secret is not None
+    )
+    evidence_approved = (
+        run_status == "succeeded" and validation_status == "pass" and approved
+    )
+    available = (
+        artifact is not None
+        and evidence_approved
+        and delivery_configured
+    )
+    unavailable_reason = (
+        None
+        if available
+        else "pdf_delivery_not_configured"
+        if not delivery_configured
+        else "pdf_not_approved"
+        if not evidence_approved
+        else "pdf_artifact_missing"
+    )
+    return {
+        "available": available,
+        "url": f"/api/reports/weekly/{run_id}/pdf" if available else None,
+        "uploaded_at": artifact.get("uploaded_at") if artifact else None,
+        "content_hash": artifact.get("content_hash") if artifact else None,
+        "unavailable_reason": unavailable_reason,
+    }
+
+
+def create_app(
+    repository: RepositoryProtocol,
+    settings: Settings | None = None,
+) -> FastAPI:
     app = FastAPI(title="SheperD Research", docs_url=None, redoc_url=None)
 
     def report_payload(
@@ -371,16 +452,25 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         brief: WeeklyBrief | None = None,
         archive_scope: ArchiveScope = "active",
     ) -> dict[str, object]:
-        selected_brief = brief if brief is not None else repository.get_brief(run_id)
-        run = repository.get_run(run_id)
-        if selected_brief is None or not _archive_visible(run, archive_scope):
-            raise KeyError(run_id)
-        validation = repository.get_validation(run_id)
-        steps = _public_steps(repository.get_run_steps(run_id))
-        sources = repository.get_run_sources(run_id)
-        distillations = repository.get_run_distillations(run_id)
-        claims = repository.get_run_claims(run_id)
-        signals = repository.get_run_signal_events(run_id)
+        with repository.read_snapshot():
+            selected_brief = brief if brief is not None else repository.get_brief(run_id)
+            run = repository.get_run(run_id)
+            if selected_brief is None or not _archive_visible(run, archive_scope):
+                raise KeyError(run_id)
+            validation = repository.get_validation(run_id)
+            steps = _public_steps(repository.get_run_steps(run_id))
+            tool_calls = _public_tool_calls(repository.get_run_tool_calls(run_id))
+            sources = repository.get_run_sources(run_id)
+            distillations = repository.get_run_distillations(run_id)
+            claims = repository.get_run_claims(run_id)
+            signals = repository.get_run_signal_events(run_id)
+            source_hashes = repository.get_run_snapshot_hashes(run_id)
+            source_hash_by_url = repository.get_run_source_hashes(run_id)
+            period_counts = repository.get_run_period_counts(run_id)
+            source_periods = repository.get_run_source_periods(run_id)
+            pdf = _pdf_metadata(
+                repository, run_id, run, selected_brief, validation, settings
+            )
         resolved_models = sorted(
             {
                 str(step["resolved_model"])
@@ -401,6 +491,25 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         public_run = _public_run(run)
         quality = quality_metrics(sources, distillations, selected_brief)
         readiness = _readiness(run, validation, quality, selected_brief)
+        report_hash = canonical_report_hash(
+            selected_brief,
+            validation=validation,
+            sources=sources,
+            distillations=distillations,
+            claims=claims,
+            signals=signals,
+            source_hashes=source_hash_by_url,
+            run=public_run,
+        )
+        reader_report = build_reader_report(
+            selected_brief,
+            validation=validation,
+            sources=sources,
+            distillations=distillations,
+            canonical_hash=report_hash,
+            readiness_status=str(readiness["readiness_status"]),
+        )
+        pdf["canonical_hash"] = report_hash
         return {
             "brief": selected_brief,
             "run": public_run,
@@ -412,15 +521,22 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
             "requested_models": requested_models,
             "resolved_models": resolved_models,
             "steps": steps,
-            "tool_calls": _public_tool_calls(repository.get_run_tool_calls(run_id)),
+            "tool_calls": tool_calls,
             "sources": sources,
-            "source_hashes": repository.get_run_snapshot_hashes(run_id),
+            "source_hashes": source_hashes,
+            "source_hash_by_url": source_hash_by_url,
             "distillations": distillations,
             "claims": claims,
             "signals": signals,
             "as_of": public_run.get("as_of") if public_run else selected_brief.covered_until,
             "covered_from": selected_brief.covered_from,
             "covered_until": selected_brief.covered_until,
+            "period_counts": period_counts,
+            "source_periods": source_periods,
+            "cost_estimate": estimate_run_cost(steps, tool_calls, model=brief_model),
+            "pdf": pdf,
+            "canonical_hash": report_hash,
+            "reader_report": reader_report,
         }
 
     def schema_guard() -> JSONResponse | None:
@@ -587,6 +703,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
             return blocked
         try:
             summary = repository.audit_summary()
+            snapshot = repository.system_snapshot()
         except Exception as error:
             return _unavailable_response(error)
         database = summary.get("database")
@@ -601,7 +718,31 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                     item for item in reasons if isinstance(item, str)
                 ]
             return JSONResponse(payload, status_code=503)
-        return JSONResponse(jsonable_encoder({"status": "pass", **summary}))
+        blockers: list[dict[str, object]] = []
+        history_quality = summary.get("history_quality")
+        if isinstance(history_quality, dict):
+            unresolved = history_quality.get("unresolved_parent_count", 0)
+            if isinstance(unresolved, int) and unresolved > 0:
+                noun = "run remains" if unresolved == 1 else "runs remain"
+                blockers.append(
+                    {
+                        "check": "history:unresolved_repair_parents",
+                        "status": "failed",
+                        "message": (
+                            f"{unresolved} historical parent {noun} unresolved after repair"
+                        ),
+                    }
+                )
+        return JSONResponse(
+            jsonable_encoder(
+                {
+                    "status": "blocked" if blockers else "pass",
+                    **summary,
+                    "system": snapshot,
+                    "blockers": blockers,
+                }
+            )
+        )
 
     @app.get("/api/reports/weekly/{run_id}/markdown")
     def api_weekly_markdown(
@@ -611,24 +752,30 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
         blocked = schema_guard()
         if blocked is not None:
             return blocked
-        brief = repository.get_brief(run_id)
-        if brief is None or not _archive_visible(repository.get_run(run_id), archive_scope):
+        try:
+            payload = report_payload(run_id, archive_scope=archive_scope)
+        except KeyError:
             return Response("weekly report not found", status_code=404)
+        brief = cast(WeeklyBrief, payload["brief"])
         safe_name = "".join(
             character if character.isalnum() or character in "-_" else "_"
             for character in run_id
         ) or "weekly-report"
         markdown = render_weekly_markdown(
             brief,
-            validation=repository.get_validation(run_id),
-            sources=repository.get_run_sources(run_id),
-            distillations=repository.get_run_distillations(run_id),
-            claims=repository.get_run_claims(run_id),
-            source_hashes=repository.get_run_source_hashes(run_id),
-            signals=repository.get_run_signal_events(run_id),
-            steps=_public_steps(repository.get_run_steps(run_id)),
-            tool_calls=_public_tool_calls(repository.get_run_tool_calls(run_id)),
-            run=_public_run(repository.get_run(run_id)),
+            validation=cast(ValidationReport | None, payload["validation"]),
+            sources=cast(list[SourceCandidate], payload["sources"]),
+            distillations=cast(
+                list[ArticleDistillation], payload["distillations"]
+            ),
+            claims=cast(list[ClaimDraft], payload["claims"]),
+            source_hashes=cast(dict[str, str], payload["source_hash_by_url"]),
+            signals=cast(list[SignalEvent], payload["signals"]),
+            steps=cast(list[dict[str, object]], payload["steps"]),
+            tool_calls=cast(list[dict[str, object]], payload["tool_calls"]),
+            run=cast(dict[str, object] | None, payload["run"]),
+            canonical_hash=cast(str, payload["canonical_hash"]),
+            reader_report=cast(ReaderReport, payload["reader_report"]),
         )
         return Response(
             content=markdown,
@@ -637,6 +784,99 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                 "Content-Disposition": f'inline; filename="{safe_name}.md"',
             },
         )
+
+    @app.get("/api/reports/weekly/{run_id}/pdf")
+    async def api_weekly_pdf(
+        run_id: str,
+        expires: int | None = Query(default=None, ge=0),  # noqa: B008
+        signature: str | None = Query(default=None, min_length=64, max_length=128),
+        archive_scope: ArchiveScope = Query(default="active", max_length=8),  # noqa: B008
+    ) -> Response:
+        if (
+            settings is None
+            or settings.report_link_signing_secret is None
+            or settings.blob_read_write_token is None
+        ):
+            return JSONResponse(
+                {"status": "unavailable", "error_code": "pdf_delivery_not_configured"},
+                status_code=503,
+            )
+        now = int(time.time())
+        ttl = max(1, settings.report_url_ttl_seconds)
+        if (
+            expires is None
+            or signature is None
+            or expires <= now
+            or expires > now + ttl
+        ):
+            return JSONResponse(
+                {"status": "forbidden", "error_code": "pdf_signature_invalid"},
+                status_code=403,
+            )
+        expected = hmac.new(
+            settings.report_link_signing_secret.get_secret_value().encode(),
+            f"{run_id}:{expires}".encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return JSONResponse(
+                {"status": "forbidden", "error_code": "pdf_signature_invalid"},
+                status_code=403,
+            )
+        try:
+            run = repository.get_run(run_id)
+            brief = repository.get_brief(run_id)
+            if brief is None or not _archive_visible(run, archive_scope):
+                return JSONResponse(
+                    {"status": "not_found", "error_code": "weekly_report_not_found"},
+                    status_code=404,
+                )
+            validation = repository.get_validation(run_id)
+            run_status = getattr(run.get("status") if run else None, "value", None)
+            if run_status is None and run is not None:
+                run_status = run.get("status")
+            validation_status = (
+                getattr(validation.status, "value", None) if validation else None
+            )
+            if (
+                run_status != "succeeded"
+                or validation_status != "pass"
+                or brief.review_state is not ReviewState.APPROVED
+            ):
+                return JSONResponse(
+                    {"status": "forbidden", "error_code": "pdf_not_approved"},
+                    status_code=403,
+                )
+            artifact = repository.get_pdf_artifact(run_id)
+            if artifact is None:
+                return JSONResponse(
+                    {"status": "unavailable", "error_code": "pdf_artifact_missing"},
+                    status_code=503,
+                )
+        except Exception as error:
+            return _unavailable_response(error)
+        blob_url = artifact.get("blob_url")
+        if not isinstance(blob_url, str):
+            return JSONResponse(
+                {"status": "unavailable", "error_code": "pdf_artifact_missing"},
+                status_code=503,
+            )
+        try:
+            content, etag = await download_private_pdf(
+                blob_url,
+                settings.blob_read_write_token.get_secret_value(),
+            )
+        except FileNotFoundError:
+            return JSONResponse(
+                {"status": "not_found", "error_code": "pdf_blob_not_found"},
+                status_code=404,
+            )
+        except Exception as error:
+            return _unavailable_response(error)
+        headers = {"Cache-Control": "private, no-cache"}
+        if isinstance(etag, str) and etag:
+            headers["ETag"] = etag
+        return Response(content=content, media_type="application/pdf", headers=headers)
 
     @app.get("/api/reports/weekly/{run_id}", response_class=JSONResponse)
     def api_weekly_report(
@@ -1107,6 +1347,16 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                     "source_hashes": repository.get_run_snapshot_hashes(run_id),
                     "brief": brief,
                     "validation": validation,
+                    "period_counts": repository.get_run_period_counts(run_id),
+                    "source_periods": repository.get_run_source_periods(run_id),
+                    "cost_estimate": estimate_run_cost(
+                        _public_steps(repository.get_run_steps(run_id)),
+                        _public_tool_calls(repository.get_run_tool_calls(run_id)),
+                        model=brief.model_id if brief else None,
+                    ),
+                    "pdf": _pdf_metadata(
+                        repository, run_id, run, brief, validation, settings
+                    ),
                     "quality": {**quality, **readiness},
                     **readiness,
                 }
@@ -1131,6 +1381,7 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
             source_hashes = repository.get_run_snapshot_hashes(run_id)
             validation_report = repository.get_validation(run_id)
             brief = repository.get_brief(run_id)
+            period_counts = repository.get_run_period_counts(run_id)
         except Exception as error:
             return _unavailable_response(error)
         sources_by_region = Counter(source.region for source in sources)
@@ -1228,7 +1479,22 @@ def create_app(repository: RepositoryProtocol) -> FastAPI:
                             ),
                             "regions": sorted({source.region for source in sources}),
                             "languages": sorted({source.language_code for source in sources}),
-                            "lanes": sorted({source.lane for source in sources}),
+                        "lanes": sorted({source.lane for source in sources}),
+                        "period_counts": period_counts,
+                        "eligible_weekly_source_count": sum(
+                            source.eligible_for_weekly for source in sources
+                        ),
+                        "cost_estimate": estimate_run_cost(
+                            steps, tool_calls, model=brief.model_id if brief else None
+                        ),
+                        "pdf": _pdf_metadata(
+                            repository,
+                            run_id,
+                            run,
+                            brief,
+                            validation_report,
+                            settings,
+                        ),
                         },
                 }
             )

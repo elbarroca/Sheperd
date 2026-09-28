@@ -21,6 +21,13 @@ def _runtime_database_config() -> tuple[str | None, str]:
     return settings.database_url, settings.neon_branch_id
 
 
+def _runtime_settings() -> Settings | None:
+    try:
+        return Settings()
+    except RuntimeError:
+        return None
+
+
 def _connect_repository() -> PostgresRepository:
     database_url, branch_id = _runtime_database_config()
     url_error = validate_database_url(database_url, pooled=True)
@@ -60,4 +67,7 @@ class _LazyRepository:
         return cast(Callable[..., object], getattr(self._load(), name))
 
 
-app: FastAPI = create_app(cast(RepositoryProtocol, _LazyRepository()))
+app: FastAPI = create_app(
+    cast(RepositoryProtocol, _LazyRepository()),
+    settings=_runtime_settings(),
+)

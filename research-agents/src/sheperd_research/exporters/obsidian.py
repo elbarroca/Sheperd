@@ -2,20 +2,23 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Sequence
+from datetime import date, datetime
 from pathlib import Path
 
 from ..contracts import (
     ArticleDistillation,
-    ArticleInsight,
     ClaimDraft,
-    ReportBullet,
+    ReaderArticle,
+    ReaderReport,
     ReviewState,
+    SignalEvent,
     SourceCandidate,
     ValidationReport,
     ValidationStatus,
     WeeklyBrief,
 )
-from ..validators import REQUIRED_DRAFT_PREFIX, content_hash, normalize_url
+from ..reader import build_reader_report
+from ..validators import REQUIRED_DRAFT_PREFIX, content_hash
 
 
 def _clean_summary(value: str) -> str:
@@ -30,163 +33,138 @@ def _lines(values: Iterable[str], *, empty: str = "- None recorded.") -> str:
     return "\n".join(rows) or empty
 
 
-def _bullet_lines(values: Iterable[ReportBullet]) -> str:
-    rows = []
-    for item in values:
-        citations = " ".join(f"[{url}]({url})" for url in item.source_urls)
-        details = [f"Evidence: {item.evidence_status.value}. {citations}"]
-        if item.why_it_matters:
-            details.append(f"Why it matters: {item.why_it_matters}")
-        if item.next_step:
-            details.append(f"Next step: {item.next_step}")
-        rows.append(f"- {item.text}  \n  " + "\n  ".join(details))
+def _date(value: object) -> str:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).date().isoformat()
+        except ValueError:
+            pass
+    return str(value or "unknown")
+
+
+def canonical_report_hash(
+    brief: WeeklyBrief,
+    *,
+    validation: ValidationReport | None,
+    sources: Sequence[SourceCandidate],
+    distillations: Sequence[ArticleDistillation],
+    claims: Sequence[ClaimDraft],
+    signals: Sequence[SignalEvent],
+    source_hashes: dict[str, str],
+    run: dict[str, object] | None,
+) -> str:
+    payload = {
+        "brief": brief.model_dump(mode="json"),
+        "validation": validation.model_dump(mode="json") if validation else None,
+        "sources": [item.model_dump(mode="json") for item in sources],
+        "distillations": [item.model_dump(mode="json") for item in distillations],
+        "claims": [item.model_dump(mode="json") for item in claims],
+        "signals": [item.model_dump(mode="json") for item in signals],
+        "source_hashes": source_hashes,
+        "run": run,
+    }
+    return content_hash(json.dumps(payload, default=str, sort_keys=True))
+
+
+def _table_value(value: object) -> str:
+    return str(value or "unknown").replace("|", "\\|").replace("\n", " ")
+
+
+def _reader_article_cards(articles: Sequence[ReaderArticle]) -> str:
+    cards: list[str] = []
+    for index, article in enumerate(articles, start=1):
+        score = (
+            f"{article.score.total}/100 ({article.score.priority})"
+            if article.score is not None
+            else "not scored"
+        )
+        lines = [
+            f"### {index}. {article.headline}",
+            f"- Priority: {score}",
+            f"- Publisher: {article.publisher}",
+            f"- Published: {_date(article.published_at)}",
+            f"- Region / lane: {article.region} / {article.lane}",
+            "",
+            "#### Three key points",
+            _lines(article.key_points),
+            "",
+            f"What changed: {article.what_changed}",
+            "",
+            f"Why SheperD cares: {article.why_sheperd_cares}",
+            "",
+            f"Recommended action: {article.recommended_action}",
+        ]
+        if article.risk:
+            lines.extend(["", f"Risk: {article.risk}"])
+        if article.opportunity:
+            lines.extend(["", f"Opportunity: {article.opportunity}"])
+        if article.limitations:
+            lines.extend(["", f"Limitations: {'; '.join(article.limitations)}"])
+        lines.extend(["", f"Source: [{article.publisher}]({article.source_url})"])
+        cards.append("\n".join(lines))
+        if index % 2 == 0 and index < len(articles):
+            cards.append("<!-- pdf-page-break -->")
+    return "\n\n".join(cards) or "- No validated current-week articles."
+
+
+def _reader_three_things(report: ReaderReport) -> str:
+    articles = [*report.ranked_articles, *report.watchlist]
+    rows: list[str] = []
+    for index, thing in enumerate(report.three_things):
+        if index < len(articles):
+            article = articles[index]
+            rows.append(
+                f"- {thing} Source: [{article.publisher}]({article.source_url})"
+            )
+        else:
+            rows.append(f"- {thing}")
     return "\n".join(rows) or "- None recorded."
 
 
-def _insight_lines(label: str, insight: ArticleInsight | None) -> list[str]:
-    if insight is None:
-        return [f"- {label}: Not recorded in this run."]
-    lines = [
-        f"- {label} status: {insight.status.value}",
-        f"- {label} statement: {insight.statement}",
-        f"- {label} why it matters: {insight.why_it_matters}",
-        f"- {label} next step: {insight.next_step}",
+def _reader_compact_table(articles: Sequence[ReaderArticle]) -> str:
+    rows = [
+        "| Article | Published | Priority | Region / lane |",
+        "| --- | --- | --- | --- |",
     ]
-    if insight.evidence_excerpt:
-        lines.append(f"- {label} evidence excerpt: {insight.evidence_excerpt}")
-    if insight.evidence_locator:
-        lines.append(f"- {label} evidence locator: {insight.evidence_locator}")
-    return lines
-
-
-def _date(value: object) -> str:
-    return value.isoformat() if hasattr(value, "isoformat") else str(value or "unknown")
-
-
-def _article_section(
-    sources: list[SourceCandidate],
-    distillations: list[ArticleDistillation],
-    claims: list[ClaimDraft],
-    source_hashes: dict[str, str],
-) -> str:
-    distillations_by_url = {
-        normalize_url(item.source_url): item for item in distillations
-    }
-    claims_by_url: dict[str, list[ClaimDraft]] = {}
-    for claim in claims:
-        for url in claim.source_urls:
-            claims_by_url.setdefault(normalize_url(url), []).append(claim)
-
-    articles: list[str] = []
-    for source in sources:
-        normalized_url = normalize_url(source.url)
-        distillation = distillations_by_url.get(normalized_url)
-        article_claims = claims_by_url.get(normalized_url, [])
-        article_lines = [
-            f"### {source.title}",
-            f"- URL: [{source.url}]({source.url})",
-            f"- Publisher: {source.publisher or 'unknown'}",
-            f"- Region / lane: {source.region} / {source.lane}",
-            f"- Language: {source.language_code}",
-            f"- Published: {_date(source.published_at)}",
-            f"- Retrieved: {_date(source.retrieved_at)}",
-            f"- Freshness: {source.freshness_status.value}",
-            f"- Extraction: {source.extraction_status.value}",
-            f"- Authority / type: {source.authority_tier} / {source.source_type}",
-            f"- Evidence state: {source.evidence_status.value}",
-            f"- Content hash: `{source_hashes.get(normalized_url, 'not-recorded')}`",
-        ]
-        if distillation is None:
-            article_lines.extend(["", "Article insight: Not recorded in this run."])
-        else:
-            article_lines.extend(
-                [
-                    "",
-                    "#### English summary",
-                    _clean_summary(distillation.summary),
-                    "",
-                    "#### Original-language summary",
-                    distillation.summary_original or "Not recorded.",
-                    "",
-                    "#### Key points",
-                    _lines(distillation.key_points),
-                    "",
-                    "#### Original-language key points",
-                    _lines(distillation.key_points_original),
-                    "",
-                    "#### Translation and evidence",
-                    f"- Translation: {distillation.translation_status.value}",
-                    f"- Evidence: {distillation.evidence_status.value}",
-                    "- Limitations:",
-                    _lines(distillation.limitations),
-                    "",
-                    "#### Article insight",
-                    f"- Quality status: {distillation.quality_status.value}",
-                    "- Quality issues: "
-                    + _lines(distillation.quality_issues, empty="- None recorded."),
-                    "- What happened: "
-                    + (distillation.what_happened or "Not recorded in this run."),
-                    "- Why it matters: "
-                    + (distillation.why_it_matters or "Not recorded in this run."),
-                    "- Risk assessment:",
-                    *_insight_lines("Risk", distillation.risk_assessment),
-                    "- Opportunity assessment:",
-                    *_insight_lines("Opportunity", distillation.opportunity_assessment),
-                    "- Uncertainties:",
-                    _lines(distillation.uncertainties, empty="- Not recorded in this run."),
-                    "- Next steps:",
-                    _lines(distillation.next_steps, empty="- Not recorded in this run."),
-                ]
-            )
-        article_lines.extend(["", "#### Claims and citations"])
-        if article_claims:
-            for claim in article_claims:
-                citations = " ".join(f"[{url}]({url})" for url in claim.source_urls)
-                article_lines.extend(
-                    [
-                        f"- {claim.claim}",
-                        "  - Evidence: "
-                        f"{claim.evidence_status.value}; citation: {claim.citation_status}",
-                        f"  - Independent sources: {claim.independent_source_count}",
-                        f"  - Excerpt: {claim.evidence_excerpt or 'not recorded'}",
-                        f"  - Locator: {claim.support_locator or 'not recorded'}",
-                        f"  - Sources: {citations}",
-                    ]
-                )
-        else:
-            article_lines.append("- No claims recorded.")
-        articles.append("\n".join(article_lines))
-    return "\n\n".join(articles) or "- No sources recorded."
-
-
-def _audit_section(
-    validation: ValidationReport | None,
-    run: dict[str, object] | None,
-    steps: list[dict[str, object]],
-    tool_calls: list[dict[str, object]],
-) -> str:
-    lines = [
-        f"- Run status: {run.get('status', 'unknown') if run else 'unknown'}",
-        f"- Validation: {validation.status.value if validation else 'blocked'}",
-        "- Sources / claims: "
-        f"{validation.source_count if validation else 0} / "
-        f"{validation.claim_count if validation else 0}",
-        f"- Citation coverage: {validation.citation_coverage if validation else 0.0:.1%}",
-        f"- Agent steps: {len(steps)}",
-        f"- Tool receipts: {len(tool_calls)}",
-    ]
-    for step in steps:
-        lines.append(
-            "- Step `{}#{}`: {} · model={} · latency={}ms · error={}".format(
-                step.get("agent_name", "unknown"),
-                step.get("attempt", 1),
-                step.get("status", "unknown"),
-                step.get("resolved_model") or step.get("requested_model") or "unknown",
-                step.get("duration_ms") or "unknown",
-                step.get("error_code") or "none",
-            )
+    for article in articles:
+        priority = article.score.total if article.score is not None else "unscored"
+        rows.append(
+            f"| [{_table_value(article.headline)}]({article.source_url}) | "
+            f"{_table_value(_date(article.published_at))} | {priority} | "
+            f"{_table_value(article.region)} / {_table_value(article.lane)} |"
         )
-    return "\n".join(lines)
+    return "\n".join(rows) if articles else "- None."
+
+
+def _reader_source_index(report: ReaderReport) -> str:
+    rows = [
+        "| Source | Publisher | Published | Date basis | Use | Validation |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for source in report.source_index:
+        rows.append(
+            f"| [{_table_value(source.title)}]({source.url}) | "
+            f"{_table_value(source.publisher)} | {_table_value(_date(source.published_at))} | "
+            f"{source.date_basis.value} | "
+            f"{'current' if source.eligible_for_weekly else 'background'} | "
+            f"{source.validation_status} |"
+        )
+    return "\n".join(rows) if report.source_index else "- No sources recorded."
+
+
+def _run_request_field(
+    run: dict[str, object] | None,
+    field: str,
+    default: object,
+) -> object:
+    request = (run or {}).get("request")
+    if isinstance(request, dict):
+        return request.get(field, default)
+    return getattr(request, field, default)
 
 
 def render_weekly_markdown(
@@ -197,23 +175,53 @@ def render_weekly_markdown(
     distillations: list[ArticleDistillation] | None = None,
     claims: list[ClaimDraft] | None = None,
     source_hashes: dict[str, str] | None = None,
-    signals: Sequence[object] | None = None,
+    signals: Sequence[SignalEvent] | None = None,
     steps: list[dict[str, object]] | None = None,
     tool_calls: list[dict[str, object]] | None = None,
     run: dict[str, object] | None = None,
     status: str | None = None,
+    canonical_hash: str | None = None,
+    reader_report: ReaderReport | None = None,
 ) -> str:
-    """Render structured Neon evidence without exporting article bodies or prompts."""
+    """Render the ranked reader report without raw bodies or audit internals."""
     resolved_sources = sources or []
     resolved_distillations = distillations or []
     resolved_claims = claims or []
     resolved_hashes = source_hashes or {}
-    resolved_steps = steps or []
-    resolved_tool_calls = tool_calls or []
+    resolved_signals = list(signals or [])
     report_status = status or (
         "approved" if brief.review_state is ReviewState.APPROVED else "draft"
     )
     summary = _clean_summary(brief.summary)
+    report_hash = canonical_hash or canonical_report_hash(
+        brief,
+        validation=validation,
+        sources=resolved_sources,
+        distillations=resolved_distillations,
+        claims=resolved_claims,
+        signals=resolved_signals,
+        source_hashes=resolved_hashes,
+        run=run,
+    )
+    projection = reader_report or build_reader_report(
+        brief,
+        validation=validation,
+        sources=resolved_sources,
+        distillations=resolved_distillations,
+        canonical_hash=report_hash,
+        readiness_status=(
+            "decision_ready"
+            if report_status == "approved"
+            and validation is not None
+            and validation.status is ValidationStatus.PASS
+            else "review_required"
+        ),
+    )
+    current_articles = [*projection.ranked_articles, *projection.watchlist]
+    research_scope = _run_request_field(run, "research_scope", "global")
+    new_findings_only = _run_request_field(run, "new_findings_only", False)
+    scope_label = "USA + Mexico" if research_scope == "us-mexico" else "Global"
+    findings_mode = "New findings only" if new_findings_only else "Current-period findings"
     frontmatter = "\n".join(
         [
             "---",
@@ -222,76 +230,72 @@ def render_weekly_markdown(
             f"status: {report_status}",
             "owner: research-agents",
             f"updated: {brief.covered_until.date().isoformat()}",
+            f"research_scope: {json.dumps(scope_label)}",
+            f"findings_mode: {json.dumps(findings_mode)}",
             f"evidence_status: {brief.evidence_status.value}",
             "confidentiality: internal",
             "tags:",
             "  - sheperd/research",
             "  - sheperd/agent-run",
             f"run_id: {json.dumps(brief.run_id)}",
-            f"content_hash: {json.dumps(content_hash(summary))}",
+            f"content_hash: {json.dumps(report_hash)}",
             "---",
         ]
     )
-    executive = _bullet_lines(brief.executive_bullets) if brief.executive_bullets else summary
-    signals_text = (
-        _lines(
-            [
-                getattr(signal, "summary", "")
-                for signal in (signals or [])
-                if getattr(signal, "summary", "")
-            ]
-        )
-        if signals
-        else "- None recorded."
-    )
     body = f"""# {brief.title}
 
-## Report metadata
+## Report status
 
-- Covered period: {_date(brief.covered_from)} to {_date(brief.covered_until)}
+| Gate | State |
+| --- | --- |
+| Run | {_table_value((run or {}).get('status'))} |
+| Validation | {projection.validation_status} |
+| Review | {projection.report_status} |
+| Readiness | {projection.readiness_status} |
+| Scope | {scope_label} |
+| Findings | {findings_mode} |
+| New findings | {len(current_articles)} |
+
+- Reporting period: {_date(brief.covered_from)} to {_date(brief.covered_until)}
 - As of: {_date((run or {}).get('as_of'))}
-- Review state: {brief.review_state.value}
-- Validation state: {validation.status.value if validation else 'blocked'}
+
+## Three things to know
+
+{_reader_three_things(projection)}
+
+## Top action
+
+{projection.top_action}
 
 ## Executive summary
 
-{executive}
+{summary}
 
-## Developments by lane and region
+## All new findings
 
-{_bullet_lines(brief.developments)}
+{_reader_article_cards(current_articles)}
 
-### Recorded signals
+<!-- pdf-page-break -->
 
-{signals_text}
+## Watchlist
 
-## Risks and threats
+{_reader_compact_table(projection.watchlist)}
 
-{_bullet_lines(brief.risks)}
+## Background context
 
-## Opportunities
+These articles remain useful context but do not count as current-week evidence.
 
-{_bullet_lines(brief.opportunities)}
-
-## Uncertainty and follow-up questions
-
-{_bullet_lines(brief.uncertainties)}
-
-### Follow-up questions
-
-{_lines(brief.follow_up_questions)}
-
-## Article findings
-
-{_article_section(resolved_sources, resolved_distillations, resolved_claims, resolved_hashes)}
-
-## Validation and agent audit
-
-{_audit_section(validation, run, resolved_steps, resolved_tool_calls)}
+{_reader_compact_table(projection.background_articles)}
 
 ## Limitations
 
 {_lines(brief.limitations)}
+
+<!-- pdf-page-break -->
+
+## Source index and validation
+
+{_reader_source_index(projection)}
 """
     return f"{frontmatter}\n\n{body.strip()}\n"
 
@@ -305,7 +309,7 @@ def export_reviewed_brief(
     distillations: list[ArticleDistillation] | None = None,
     claims: list[ClaimDraft] | None = None,
     source_hashes: dict[str, str] | None = None,
-    signals: Sequence[object] | None = None,
+    signals: Sequence[SignalEvent] | None = None,
     steps: list[dict[str, object]] | None = None,
     tool_calls: list[dict[str, object]] | None = None,
     run: dict[str, object] | None = None,

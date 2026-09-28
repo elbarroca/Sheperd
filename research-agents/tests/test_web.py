@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import time
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -13,10 +16,12 @@ from sheperd_research.contracts import (
     DistillationQualityStatus,
     ExtractionStatus,
     InsightStatus,
+    PeriodStatus,
     ReportBullet,
     ResearchCadence,
     ResearchRunRequest,
     ReviewState,
+    RunKind,
     RunStatus,
     SignalEvent,
     SourceCandidate,
@@ -25,6 +30,7 @@ from sheperd_research.contracts import (
     WeeklyBrief,
 )
 from sheperd_research.db import InMemoryRepository
+from sheperd_research.settings import Settings
 from sheperd_research.web import _summary_readiness, create_app
 
 
@@ -41,6 +47,7 @@ def _complete_article(source_url: str) -> ArticleDistillation:
     )
     return ArticleDistillation(
         source_url=source_url,
+        headline="A source-bound development",
         summary="A complete summary.",
         key_points=["Point one.", "Point two."],
         what_happened="The source reports a development.",
@@ -196,6 +203,17 @@ def test_dashboard_exposes_read_only_run_source_and_brief_views() -> None:
     report_detail = client.get("/api/reports/weekly/run-1").json()
     assert report_detail["quality"]["article_insight_completeness"] == 0.0
     assert report_detail["readiness_status"] == "review_required"
+    assert len(report_detail["canonical_hash"]) == 64
+    assert report_detail["reader_report"]["canonical_hash"] == report_detail["canonical_hash"]
+    assert report_detail["reader_report"]["readiness_status"] == "review_required"
+    assert report_detail["reader_report"]["source_index"][0]["url"] == source.url
+    assert report_detail["pdf"]["available"] is False
+    assert report_detail["pdf"]["unavailable_reason"] == "pdf_delivery_not_configured"
+    assert report_detail["pdf"]["canonical_hash"] == report_detail["canonical_hash"]
+    markdown = client.get("/api/reports/weekly/run-1/markdown")
+    assert markdown.status_code == 200
+    assert f'content_hash: "{report_detail["canonical_hash"]}"' in markdown.text
+    assert "Canonical report hash" not in markdown.text
     audit = client.get("/api/runs/run-1/audit")
     assert audit.status_code == 200
     assert "request" not in audit.json()["run"]
@@ -325,6 +343,104 @@ def test_api_audit_propagates_nested_database_block() -> None:
     assert response.status_code == 503
     assert response.json()["status"] == "blocked"
     assert response.json()["error_code"] == "database_schema_blocked"
+
+
+def test_api_audit_blocks_only_unresolved_repair_parents_for_legacy_quality() -> None:
+    repository = InMemoryRepository()
+    summary: dict[str, object] = {
+        "database": {"status": "pass", "blocking_reasons": []},
+        "quality": {
+            "distillations_incomplete": 57,
+            "briefs_total": 11,
+            "briefs_with_complete_sections": 0,
+        },
+        "history_quality": {
+            "raw_defect_parent_count": 11,
+            "resolved_parent_count": 11,
+            "unresolved_parent_count": 0,
+            "unresolved_parent_ids": [],
+        },
+    }
+    repository.audit_summary = lambda: summary  # type: ignore[method-assign]
+    repository.system_snapshot = lambda: {  # type: ignore[method-assign]
+        "table_counts": {"run_sources": 0},
+        "period_counts": {},
+    }
+    client = TestClient(create_app(repository))
+
+    resolved = client.get("/api/audit")
+
+    assert resolved.status_code == 200
+    assert resolved.json()["status"] == "pass"
+    assert resolved.json()["blockers"] == []
+
+    history = summary["history_quality"]
+    assert isinstance(history, dict)
+    history["unresolved_parent_count"] = 1
+    history["unresolved_parent_ids"] = ["parent-1"]
+
+    unresolved = client.get("/api/audit")
+
+    assert unresolved.json()["status"] == "blocked"
+    assert unresolved.json()["blockers"] == [
+        {
+            "check": "history:unresolved_repair_parents",
+            "status": "failed",
+            "message": "1 historical parent run remains unresolved after repair",
+        }
+    ]
+
+
+def test_run_audit_counts_only_eligible_weekly_sources() -> None:
+    repository = InMemoryRepository()
+    run_id = "eligible-audit"
+    repository.create_run(run_id, ResearchRunRequest(topic_set="dnd-port"))
+    for url, eligible in (
+        ("https://example.com/eligible", True),
+        ("https://example.com/in-period-but-ineligible", False),
+    ):
+        repository.record_source(
+            SourceCandidate(
+                url=url,
+                period_status=PeriodStatus.IN_PERIOD,
+                eligible_for_weekly=eligible,
+            ),
+            run_id=run_id,
+        )
+
+    metrics = TestClient(create_app(repository)).get(
+        f"/api/runs/{run_id}/audit"
+    ).json()["metrics"]
+
+    assert metrics["period_counts"] == {"in_period": 2}
+    assert metrics["eligible_weekly_source_count"] == 1
+
+
+def test_direct_run_detail_exposes_repair_lineage_and_frozen_context() -> None:
+    repository = InMemoryRepository()
+    repository.create_run("parent", ResearchRunRequest(topic_set="dnd-port"))
+    repository.create_run(
+        "repair-child",
+        ResearchRunRequest(
+            topic_set="dnd-port",
+            context_version="commit:manifest",
+            research_timezone="Europe/Lisbon",
+            validation_profile="repair",
+            run_kind=RunKind.REPAIR,
+            parent_run_id="parent",
+            repair_round=2,
+        ),
+    )
+
+    payload = TestClient(create_app(repository)).get("/api/runs/repair-child").json()
+
+    assert payload["run"] | {
+        "run_kind": "repair",
+        "parent_run_id": "parent",
+        "repair_round": 2,
+        "context_version": "commit:manifest",
+        "research_timezone": "Europe/Lisbon",
+    } == payload["run"]
 
 
 def test_stale_run_migration_blocks_decision_readiness_but_keeps_quality_visible() -> None:
@@ -518,6 +634,7 @@ def test_weekly_summaries_are_ready_first_and_paginated() -> None:
         "ready-run",
         ArticleDistillation(
             source_url=source.url,
+            headline="A source-bound development",
             summary="A complete summary.",
             key_points=["Point one.", "Point two."],
             what_happened="The source reports a development.",
@@ -824,10 +941,79 @@ def test_markdown_preview_contains_evidence_without_raw_body() -> None:
     )
 
     assert response.status_code == 200
-    assert "## Article findings" in response.text
-    assert "Article summary." in response.text
-    assert "Short evidence." in response.text
+    assert "## Source index and validation" in response.text
+    assert "Markdown source" in response.text
+    assert "Article summary." not in response.text
+    assert "Short evidence." not in response.text
     assert "SECRET RAW ARTICLE BODY" not in response.text
+
+
+def test_pdf_route_reports_unconfigured_private_delivery() -> None:
+    response = TestClient(create_app(InMemoryRepository())).get(
+        "/api/reports/weekly/example/pdf?expires=9999999999&signature="
+        + "0" * 64
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "unavailable",
+        "error_code": "pdf_delivery_not_configured",
+    }
+
+
+def test_pdf_route_serves_approved_private_artifact() -> None:
+    repository = InMemoryRepository()
+    run_id = "approved-pdf"
+    repository.create_run(run_id, ResearchRunRequest(topic_set="dnd-port"))
+    repository.update_run_status(run_id, RunStatus.SUCCEEDED)
+    repository.record_validation(
+        ValidationReport(run_id=run_id, status=ValidationStatus.PASS)
+    )
+    repository.record_brief(
+        WeeklyBrief(
+            run_id=run_id,
+            title="Approved PDF",
+            covered_from=datetime(2026, 8, 20, tzinfo=UTC),
+            covered_until=datetime(2026, 8, 28, tzinfo=UTC),
+            summary="Approved summary.",
+            review_state=ReviewState.APPROVED,
+        )
+    )
+    repository.record_pdf_artifact(
+        run_id,
+        blob_path=f"reports/{run_id}.pdf",
+        blob_url=(
+            "https://store.private.blob.vercel-storage.com/"
+            f"reports/{run_id}.pdf"
+        ),
+        content_hash="pdf-hash",
+    )
+    signing_secret = "signing-secret"
+    expires = int(time.time()) + 60
+    signature = hmac.new(
+        signing_secret.encode(),
+        f"{run_id}:{expires}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    settings = Settings(
+        _env_file=None,
+        blob_read_write_token="blob-token",
+        report_link_signing_secret=signing_secret,
+    )
+
+    with patch(
+        "sheperd_research.web.download_private_pdf",
+        AsyncMock(return_value=(b"%PDF-1.4\n", '"pdf-etag"')),
+    ):
+        response = TestClient(create_app(repository, settings=settings)).get(
+            f"/api/reports/weekly/{run_id}/pdf"
+            f"?expires={expires}&signature={signature}"
+        )
+
+    assert response.status_code == 200
+    assert response.content == b"%PDF-1.4\n"
+    assert response.headers["etag"] == '"pdf-etag"'
+    assert response.headers["cache-control"] == "private, no-cache"
 
 
 def test_list_detail_and_audit_readiness_scope_non_seed_persisted_sources() -> None:

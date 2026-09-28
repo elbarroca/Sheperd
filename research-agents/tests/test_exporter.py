@@ -89,7 +89,7 @@ def test_export_rejects_approved_brief_with_partial_validation(tmp_path: Path) -
         export_reviewed_brief(brief, tmp_path / "report.md", validation=validation)
 
 
-def test_weekly_markdown_renderer_contains_full_evidence_sections() -> None:
+def test_weekly_markdown_renderer_is_reader_first_and_hides_audit_details() -> None:
     source = SourceCandidate(
         url="https://example.com/article",
         title="Article title",
@@ -169,18 +169,26 @@ def test_weekly_markdown_renderer_contains_full_evidence_sections() -> None:
     )
 
     assert "## Executive summary" in markdown
-    assert "## Developments by lane and region" in markdown
-    assert "## Risks and threats" in markdown
-    assert "## Opportunities" in markdown
-    assert "## Uncertainty and follow-up questions" in markdown
-    assert "## Article findings" in markdown
-    assert "Resumen original." in markdown
-    assert "Bounded excerpt." in markdown
-    assert "Why it matters: It may change the operating picture." in markdown
-    assert "Next step: Monitor the source." in markdown
-    assert "hash-1" in markdown
+    assert "## Report status" in markdown
+    assert "## Three things to know" in markdown
+    assert "## Top action" in markdown
+    assert "## All new findings" in markdown
+    assert "## Background context" in markdown
+    assert "## Source index and validation" in markdown
+    assert source.url in markdown
+    assert "Resumen original." not in markdown
+    assert "Bounded excerpt." not in markdown
+    assert "hash-1" not in markdown
+    assert "Agent steps" not in markdown
+    assert "Tool receipts" not in markdown
+    assert "Locator:" not in markdown
     assert "prompt" not in markdown.lower()
     assert "SECRET RAW ARTICLE BODY" not in markdown
+    assert markdown.index("## Three things to know") < markdown.index("## Top action")
+    assert markdown.index("## Top action") < markdown.index("## Executive summary")
+    assert markdown.index("<!-- pdf-page-break -->") > markdown.index(
+        "## Executive summary"
+    )
 
 
 def test_regional_index_contains_structured_evidence_without_raw_body(tmp_path: Path) -> None:

@@ -1,16 +1,25 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from .contracts import (
     ArticleDistillation,
     ClaimDraft,
+    DecisionScore,
     DistillationQualityStatus,
+    ExtractionStatus,
     FreshnessStatus,
     InsightStatus,
+    PageType,
+    PeriodBasis,
+    PeriodStatus,
+    PublicationDateBasis,
+    SignalEvent,
     SourceCandidate,
     WeeklyBrief,
 )
@@ -34,6 +43,20 @@ REPORT_BULLET_SECTIONS = (
     "uncertainties",
 )
 ACTIONABLE_REPORT_SECTIONS = {"risks", "opportunities", "uncertainties"}
+ALLOWED_SIGNAL_EVENT_TYPES = frozenset(
+    {
+        "regulatory",
+        "court",
+        "port",
+        "carrier",
+        "terminal",
+        "congestion",
+        "closure",
+        "fee",
+        "volume",
+        "other",
+    }
+)
 _PLACEHOLDER_TEXT = frozenset(
     {
         "",
@@ -48,6 +71,36 @@ _PLACEHOLDER_TEXT = frozenset(
         "unknown",
         "unsupported",
     }
+)
+_MIN_EVIDENCE_DATE = datetime(2000, 1, 1, tzinfo=UTC)
+_ISO_DATE_PATTERN = re.compile(
+    r"\b\d{4}-\d{2}-\d{2}(?:[T ][0-2]\d:[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?\b"
+)
+_RFC_2822_PATTERN = re.compile(
+    r"\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+\d{1,2}\s+"
+    r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}"
+    r"(?:\s+\d{2}:\d{2}(?::\d{2})?\s+(?:GMT|UTC|[+-]\d{4}))?\b",
+    re.IGNORECASE,
+)
+_PUBLICATION_MARKERS = ("published", "publication date", "updated", "posted")
+_MIN_SINGLE_SLUG_ARTICLE_CHARS = 1_500
+_MIN_SINGLE_SLUG_ARTICLE_WORDS = 5
+_MIN_DATED_REPORT_MARKERS = 2
+_NAVIGATION_PAGE_TYPES = frozenset(
+    {PageType.ARCHIVE, PageType.INDEX, PageType.CATEGORY, PageType.LANDING}
+)
+_RELEVANCE_MARKERS = (
+    "port",
+    "terminal",
+    "carrier",
+    "cargo",
+    "shipping",
+    "maritime",
+    "congestion",
+    "dwell",
+    "demurrage",
+    "detention",
+    "regulation",
 )
 
 
@@ -76,6 +129,292 @@ def normalize_url(url: str) -> str:
 
 def content_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def classify_page_type(source: SourceCandidate, content: str) -> PageType:
+    path = urlsplit(normalize_url(source.url)).path.casefold()
+    segments = [segment for segment in path.split("/") if segment]
+    title = source.title.casefold()
+    if path.endswith(".pdf") or any(
+        marker in segments for marker in ("orders", "notices", "regulations", "rulings")
+    ):
+        return PageType.OFFICIAL_DOCUMENT
+    if "feed" in segments or path.endswith((".atom", ".rss", ".xml")):
+        return PageType.INDEX
+    if "category" in segments or "category" in title:
+        return PageType.CATEGORY
+    if "search" in segments or "search results" in title:
+        return PageType.INDEX
+    if "archive" in segments or "archive" in title:
+        return PageType.ARCHIVE
+    navigation_endings = {
+        "articles",
+        "blog",
+        "media",
+        "news",
+        "news-events",
+        "newsroom",
+        "press-releases",
+        "updates",
+    }
+    if not segments:
+        return PageType.LANDING
+    if segments[-1] in navigation_endings:
+        return PageType.ARCHIVE
+    single_slug_article = (
+        len(segments) == 1
+        and len(segments[0].split("-")) >= _MIN_SINGLE_SLUG_ARTICLE_WORDS
+        and len(content) >= _MIN_SINGLE_SLUG_ARTICLE_CHARS
+        and re.search(r"(?im)^(?:by|author)\s+(?:[:-]\s*)?\S+", content) is not None
+    )
+    dated_report = (
+        segments[-1] in {"report", "statistics", "stats"}
+        and len(content) >= _MIN_SINGLE_SLUG_ARTICLE_CHARS
+        and re.search(r"(?m)^#\s+\S", content) is not None
+        and len(re.findall(r"(?im)^\W*data through\b", content))
+        >= _MIN_DATED_REPORT_MARKERS
+    )
+    if (
+        len(segments) >= 2
+        or extract_publication_date(content)[0] is not None
+        or single_slug_article
+        or dated_report
+    ):
+        return PageType.ARTICLE
+    return PageType.UNKNOWN
+
+
+def _parse_evidence_datetime(value: str) -> datetime | None:
+    normalized = value.strip()
+    try:
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            parsed = parsedate_to_datetime(normalized)
+        except (TypeError, ValueError):
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def extract_publication_date(content: str) -> tuple[datetime | None, str | None]:
+    """Extract a declared page publication timestamp and its exact line locator."""
+    for raw_line in content.splitlines():
+        line = " ".join(raw_line.strip().split())
+        if not line or not any(marker in line.casefold() for marker in _PUBLICATION_MARKERS):
+            continue
+        match = _ISO_DATE_PATTERN.search(line) or _RFC_2822_PATTERN.search(line)
+        if match is None:
+            continue
+        parsed = _parse_evidence_datetime(match.group(0))
+        if parsed is not None:
+            return parsed, line[:300]
+    return None, None
+
+
+def reconcile_publication_dates(
+    source: SourceCandidate,
+    page_published_at: datetime | None,
+    locator: str | None,
+) -> SourceCandidate:
+    """Resolve independent search/page evidence without laundering conflicts."""
+    search_published_at = source.search_published_at or source.published_at
+    search_valid = (
+        search_published_at is not None and search_published_at >= _MIN_EVIDENCE_DATE
+    )
+    page_valid = page_published_at is not None and page_published_at >= _MIN_EVIDENCE_DATE
+    if (
+        page_published_at is not None
+        and not page_valid
+        or search_published_at is not None
+        and not search_valid
+    ):
+        basis = PublicationDateBasis.CONFLICT
+        published_at = None
+    elif search_valid and page_valid:
+        assert search_published_at is not None and page_published_at is not None
+        if search_published_at.astimezone(UTC).date() == page_published_at.astimezone(UTC).date():
+            basis = PublicationDateBasis.MATCHED
+            published_at = page_published_at
+        else:
+            basis = PublicationDateBasis.CONFLICT
+            published_at = None
+    elif page_valid:
+        basis = PublicationDateBasis.PAGE
+        published_at = page_published_at
+    elif search_valid:
+        basis = PublicationDateBasis.SEARCH
+        published_at = search_published_at
+    else:
+        basis = PublicationDateBasis.UNKNOWN
+        published_at = None
+    return source.model_copy(
+        update={
+            "published_at": published_at,
+            "search_published_at": search_published_at,
+            "page_published_at": page_published_at,
+            "publication_date_basis": basis,
+            "publication_date_locator": (
+                locator
+                if page_valid
+                else source.publication_date_locator
+                if search_valid
+                else None
+            ),
+        }
+    )
+
+
+def pack_article_content(content: str, *, max_chars: int = 8_000) -> str:
+    """Keep opening, date/relevance evidence, headings, and closing in one bounded packet."""
+    if max_chars < 1:
+        raise ValueError("max_chars must be positive")
+    cleaned = content.strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+    lines = [line.rstrip() for line in cleaned.splitlines()]
+    opening_budget = max_chars // 4
+    closing_budget = max_chars // 4
+    signal_budget = max_chars - opening_budget - closing_budget - 64
+    opening = "\n".join(lines)[:opening_budget]
+    closing = "\n".join(lines)[-closing_budget:]
+    signal_lines: list[str] = []
+    for index, line in enumerate(lines):
+        lowered = line.casefold()
+        if not (
+            line.lstrip().startswith("#")
+            or _ISO_DATE_PATTERN.search(line)
+            or _RFC_2822_PATTERN.search(line)
+            or any(marker in lowered for marker in _RELEVANCE_MARKERS)
+        ):
+            continue
+        for nearby in lines[max(0, index - 1) : min(len(lines), index + 2)]:
+            if nearby and nearby not in signal_lines:
+                signal_lines.append(nearby)
+    signals = "\n".join(signal_lines)[:signal_budget]
+    packed = (
+        f"[OPENING]\n{opening}\n\n[DATE AND RELEVANCE EVIDENCE]\n{signals}"
+        f"\n\n[CLOSING]\n{closing}"
+    )
+    return packed[:max_chars]
+
+
+def score_article(
+    source: SourceCandidate,
+    distillation: ArticleDistillation,
+    as_of: datetime,
+) -> DecisionScore:
+    relevance = 30 if source.lane != "unassigned" and source.region else 15
+    impact = 25 if distillation.event_type != "other" and distillation.why_it_matters else 10
+    actionability = 20 if distillation.next_steps else 0
+    if source.published_at is None or source.published_at > as_of:
+        recency = 0
+        recency_reason = "No valid publication date at the run snapshot."
+    else:
+        age_days = (as_of - source.published_at).days
+        recency = 15 if age_days <= 7 else 10 if age_days <= 14 else 5 if age_days <= 30 else 0
+        recency_reason = f"Published {age_days} day(s) before the run as-of."
+    authority = {"primary": 10, "reference": 8, "trade-press": 6}.get(
+        source.authority_tier,
+        4,
+    )
+    total = relevance + impact + actionability + recency + authority
+    return DecisionScore(
+        sheperd_relevance=relevance,
+        operational_impact=impact,
+        actionability=actionability,
+        recency=recency,
+        source_authority=authority,
+        total=total,
+        rationale={
+            "sheperd_relevance": f"Mapped to {source.lane} / {source.region}.",
+            "operational_impact": f"Classified as {distillation.event_type} with stated impact.",
+            "actionability": (
+                "Includes a source-bound next step." if actionability else "No next step."
+            ),
+            "recency": recency_reason,
+            "source_authority": f"Authority tier is {source.authority_tier}.",
+        },
+    )
+
+
+def source_weekly_evidence_ready(
+    source: SourceCandidate,
+    distillation: ArticleDistillation | None,
+) -> bool:
+    return (
+        source.direct_content
+        and classify_page_type(source, "") not in _NAVIGATION_PAGE_TYPES
+        and source.page_type in {PageType.ARTICLE, PageType.OFFICIAL_DOCUMENT}
+        and source.publication_date_basis
+        in {
+            PublicationDateBasis.MATCHED,
+            PublicationDateBasis.PAGE,
+            PublicationDateBasis.SEARCH,
+        }
+        and source.extraction_status is ExtractionStatus.SUCCEEDED
+        and source.lane in {"regulatory", "us-ports", "mexico"}
+        and bool(source.region)
+        and distillation is not None
+        and distillation.quality_status is DistillationQualityStatus.COMPLETE
+        and distillation.decision_score is not None
+    )
+
+
+def reader_source_contract_issues(
+    source: SourceCandidate,
+    distillation: ArticleDistillation | None,
+    *,
+    as_of: datetime | None = None,
+) -> list[str]:
+    """Return fail-closed reader-pipeline defects for one persisted source."""
+    issues: list[str] = []
+    if classify_page_type(source, "") in _NAVIGATION_PAGE_TYPES:
+        issues.append("navigation_url")
+    if not source.direct_content:
+        issues.append("not_direct_content")
+    if source.page_type not in {PageType.ARTICLE, PageType.OFFICIAL_DOCUMENT}:
+        issues.append("invalid_page_type")
+    if source.extraction_status is not ExtractionStatus.SUCCEEDED:
+        issues.append("extraction_incomplete")
+
+    date_values = (
+        source.published_at,
+        source.search_published_at,
+        source.page_published_at,
+    )
+    if any(value is not None and value < _MIN_EVIDENCE_DATE for value in date_values):
+        issues.append("implausible_publication_date")
+    if as_of is not None and any(
+        value is not None and value > as_of for value in date_values
+    ):
+        issues.append("future_publication_date")
+    if source.published_at is not None:
+        if source.publication_date_basis not in {
+            PublicationDateBasis.MATCHED,
+            PublicationDateBasis.PAGE,
+            PublicationDateBasis.SEARCH,
+        }:
+            issues.append("invalid_publication_date_basis")
+        if not source.publication_date_locator or _is_placeholder(
+            source.publication_date_locator
+        ):
+            issues.append("missing_publication_date_locator")
+    elif source.publication_date_basis is PublicationDateBasis.CONFLICT:
+        issues.append("conflicting_publication_date")
+
+    if distillation is None:
+        issues.append("missing_distillation")
+        return sorted(set(issues))
+    issues.extend(validate_article_distillation_quality(distillation))
+    if not distillation.prompt_version.startswith("distill-v7"):
+        issues.append("legacy_distillation_contract")
+    if len(distillation.key_points) != 3:
+        issues.append("key_points_must_equal_three")
+    if distillation.decision_score is None:
+        issues.append("missing_decision_score")
+    return sorted(set(issues))
 
 
 def matches_domain(host: str, domain: str) -> bool:
@@ -124,8 +463,15 @@ def can_extract_url(url: str) -> bool:
 
 def validate_source_dates(sources: list[SourceCandidate], as_of: datetime) -> None:
     for source in sources:
-        if source.published_at is not None and source.published_at > as_of:
-            raise ValueError(f"source publication date is after as_of: {source.url}")
+        for value in (
+            source.published_at,
+            source.search_published_at,
+            source.page_published_at,
+        ):
+            if value is not None and value < _MIN_EVIDENCE_DATE:
+                raise ValueError(f"source publication date is implausible: {source.url}")
+            if value is not None and value > as_of:
+                raise ValueError(f"source publication date is after as_of: {source.url}")
 
 
 def classify_freshness(
@@ -247,6 +593,16 @@ def validate_article_distillation_quality(
 ) -> list[str]:
     """Return deterministic completeness issues for one extracted article."""
     issues: list[str] = []
+    if distillation.event_type not in ALLOWED_SIGNAL_EVENT_TYPES:
+        issues.append("invalid_event_type")
+    _required_insight_text(distillation.headline, "headline", issues)
+    if distillation.event_at is not None and (
+        not distillation.event_at_locator
+        or _is_placeholder(distillation.event_at_locator)
+    ):
+        issues.append("event_at_missing_locator")
+    if distillation.event_at is not None and distillation.event_at < _MIN_EVIDENCE_DATE:
+        issues.append("implausible_event_at")
     if distillation.quality_status is not DistillationQualityStatus.COMPLETE:
         issues.append("quality_status_incomplete")
     _required_insight_text(distillation.summary, "summary", issues)
@@ -258,6 +614,10 @@ def validate_article_distillation_quality(
         ]
     ) < 2:
         issues.append("key_points_incomplete")
+    if distillation.prompt_version.startswith("distill-v7") and len(distillation.key_points) != 3:
+        issues.append("key_points_must_equal_three")
+    if distillation.prompt_version.startswith("distill-v7") and distillation.decision_score is None:
+        issues.append("missing_decision_score")
     if not distillation.claims:
         issues.append("claims_incomplete")
     else:
@@ -345,6 +705,52 @@ def validate_article_distillation_quality(
             )
         ):
             issues.append(f"{name}_missing_evidence")
+    return issues
+
+
+def validate_signal_event_quality(event: SignalEvent) -> list[str]:
+    """Reject incomplete new events while keeping legacy rows readable."""
+    issues: list[str] = []
+    if event.event_type not in ALLOWED_SIGNAL_EVENT_TYPES:
+        issues.append("invalid_event_type")
+    for field, value in (
+        ("headline", event.headline),
+        ("what_changed", event.what_changed),
+        ("region", event.region),
+        ("lane", event.lane),
+        ("impact", event.impact),
+        ("risk", event.risk),
+        ("opportunity", event.opportunity),
+        ("next_step", event.next_step),
+    ):
+        _required_insight_text(value, field, issues)
+    if event.retrieved_at is None:
+        issues.append("missing_retrieved_at")
+    if event.period_status is None:
+        issues.append("missing_period_status")
+    if event.period_basis is None:
+        issues.append("missing_period_basis")
+    if not event.evidence_locator or _is_placeholder(event.evidence_locator):
+        issues.append("missing_evidence_locator")
+    if not event.limitations or any(
+        _is_placeholder(item) for item in event.limitations
+    ):
+        issues.append("limitations_incomplete")
+    if event.eligible_for_weekly:
+        if event.period_status is not PeriodStatus.IN_PERIOD:
+            issues.append("eligible_event_outside_period")
+        if event.period_basis not in {
+            PeriodBasis.PUBLISHED_AT,
+            PeriodBasis.EVENT_AT,
+        }:
+            issues.append("eligible_event_invalid_period_basis")
+        if (
+            event.period_basis is PeriodBasis.PUBLISHED_AT
+            and event.published_at is None
+        ) or (
+            event.period_basis is PeriodBasis.EVENT_AT and event.event_at is None
+        ):
+            issues.append("eligible_event_missing_period_date")
     return issues
 
 
@@ -534,11 +940,23 @@ def quality_metrics(
             article_issues[url] = ["missing_distillation"]
         elif count > 1:
             article_issues[url] = ["duplicate_distillation"]
+    for url, source in readiness_sources.items():
+        distillation = readiness_distillations.get(url)
+        if (
+            distillation is None
+            or not distillation.prompt_version.startswith("distill-v7")
+        ):
+            continue
+        contract_issues = reader_source_contract_issues(source, distillation)
+        if contract_issues:
+            article_issues[url] = sorted(
+                set(article_issues.get(url, [])) | set(contract_issues)
+            )
 
     complete_count = sum(
         1
         for url, item in readiness_distillations.items()
-        if distillation_counts[url] == 1 and not validate_article_distillation_quality(item)
+        if distillation_counts[url] == 1 and url not in article_issues
     )
     source_by_url = {normalize_url(source.url): source for source in sources}
     fulfillment_urls = set(source_by_url) | set(all_distillation_counts)

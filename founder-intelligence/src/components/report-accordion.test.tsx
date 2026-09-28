@@ -31,6 +31,11 @@ const report: ReportPayload = {
     neon_branch_id: "main",
     migration_version: "0008_audit_surfaces",
     validation_profile: "full",
+    run_kind: "research",
+    parent_run_id: null,
+    repair_round: null,
+    context_version: "commit:manifest",
+    research_timezone: "Europe/Lisbon",
   },
   validation: {
     run_id: "blocked-run",
@@ -85,6 +90,25 @@ const report: ReportPayload = {
     lane: "regulatory",
     is_seed: false,
     evidence_status: "unverified",
+    period_status: "in_period",
+    period_basis: "published_at",
+    eligible_for_weekly: true,
+  }, {
+    url: "https://example.com/background",
+    title: "Background source",
+    publisher: "Archive",
+    published_at: "2026-07-01T00:00:00Z",
+    retrieved_at: "2026-08-19T00:00:00Z",
+    source_kind: "web-discovery",
+    snippet: "Background context.",
+    topics: ["dnd"],
+    geographies: ["Europe"],
+    lane: "europe",
+    is_seed: false,
+    evidence_status: "verified",
+    period_status: "background",
+    period_basis: "published_at",
+    eligible_for_weekly: false,
   }],
   distillations: [{
     source_url: "https://example.com/source",
@@ -119,11 +143,121 @@ const report: ReportPayload = {
     event_at: null,
     source_urls: ["https://example.com/source"],
     evidence_status: "unverified",
+    headline: "Port operations update",
+    what_changed: "The port changed its published operating window.",
+    published_at: "2026-08-18T12:00:00Z",
+    retrieved_at: "2026-08-19T00:00:00Z",
+    period_status: "in_period",
+    period_basis: "published_at",
+    eligible_for_weekly: true,
+    region: "us",
+    lane: "regulatory",
+    evidence_locator: "paragraph 4",
+    impact: "Operators may need to adjust schedules.",
+    risk: "Late changes can cause missed windows.",
+    opportunity: "Earlier notice can improve planning.",
+    next_step: "Confirm the new operating window.",
+    limitations: ["One public source."],
+  }, {
+    event_id: "signal-background",
+    run_id: "blocked-run",
+    event_type: "historical-context",
+    summary: "Earlier guidance provides context.",
+    headline: "Earlier port guidance",
+    what_changed: "Historical guidance was recorded.",
+    geographies: ["Europe"],
+    ports: [],
+    carriers: [],
+    event_at: null,
+    published_at: "2026-07-01T00:00:00Z",
+    retrieved_at: "2026-08-19T00:00:00Z",
+    period_status: "background",
+    period_basis: "published_at",
+    eligible_for_weekly: false,
+    region: "europe",
+    lane: "europe",
+    source_urls: ["https://example.com/background"],
+    evidence_locator: "section 2",
+    impact: "Provides historical context.",
+    risk: "Not current-week evidence.",
+    opportunity: "Supports comparison.",
+    next_step: "Keep separate from current findings.",
+    limitations: ["Out of period."],
+    evidence_status: "verified",
   }],
   source_hashes: ["source-hash"],
+  source_hash_by_url: {
+    "https://example.com/source": "source-hash",
+    "https://example.com/background": "background-hash",
+  },
   as_of: "2026-08-19T00:00:00Z",
   covered_from: "2026-08-12T00:00:00Z",
   covered_until: "2026-08-19T00:00:00Z",
+  canonical_hash: "b".repeat(64),
+  reader_report: {
+    run_id: "blocked-run",
+    title: "Blocked weekly brief",
+    covered_from: "2026-08-12T00:00:00Z",
+    covered_until: "2026-08-19T00:00:00Z",
+    report_status: "draft",
+    validation_status: "blocked",
+    readiness_status: "review_required",
+    canonical_hash: "b".repeat(64),
+    three_things: ["Port operations update: Operators may need to adjust schedules."],
+    top_action: "Confirm the new operating window.",
+    ranked_articles: [{
+      source_url: "https://example.com/source",
+      headline: "Port operations update",
+      publisher: "Example",
+      published_at: "2026-08-18T12:00:00Z",
+      event_at: null,
+      date_basis: "search",
+      date_locator: "tavily.search.published_date",
+      retrieved_at: "2026-08-19T00:00:00Z",
+      page_type: "article",
+      score: {
+        sheperd_relevance: 30,
+        operational_impact: 25,
+        actionability: 20,
+        recency: 15,
+        source_authority: 10,
+        total: 100,
+        priority: "high",
+        rationale: {},
+      },
+      key_points: ["Window changed.", "Schedules may move.", "Confirmation is required."],
+      what_changed: "The port changed its published operating window.",
+      why_sheperd_cares: "Operators may need to adjust schedules.",
+      recommended_action: "Confirm the new operating window.",
+      risk: "Late changes can cause missed windows.",
+      opportunity: null,
+      limitations: ["One public source."],
+      lane: "regulatory",
+      region: "us",
+      eligible_for_weekly: true,
+      validation_status: "validated",
+    }],
+    watchlist: [],
+    background_articles: [],
+    source_index: [{
+      url: "https://example.com/source",
+      title: "Example source",
+      publisher: "Example",
+      published_at: "2026-08-18T12:00:00Z",
+      date_basis: "search",
+      page_type: "article",
+      eligible_for_weekly: true,
+      validation_status: "validated",
+    }],
+  },
+  pdf: {
+    available: false,
+    url: null,
+    uploaded_at: null,
+    content_hash: null,
+    canonical_hash: "b".repeat(64),
+    unavailable_reason: "pdf_delivery_not_configured",
+  },
 };
 
 describe("ReportAccordion", () => {
@@ -141,6 +275,42 @@ describe("ReportAccordion", () => {
     expect(markup).toContain("Download Markdown");
     expect(markup).toContain("Run activity");
     expect(markup).toContain("Aug 19, 2026, 12:34:56 PM");
+    expect(markup).toContain("Current event timeline");
+    expect(markup).toContain("Background event timeline");
+    expect(markup).toContain("Port operations update");
+    expect(markup).toContain("Operators may need to adjust schedules.");
+    expect(markup).toContain("Three things to know");
+    expect(markup).toContain("Top action");
+    expect(markup).toContain("Priority 100/100");
+    expect(markup).toContain("SheperD relevance");
+    expect(markup).toContain("30/30");
+    expect(markup).toContain("paragraph 4");
+    expect(markup).toContain("Current-week evidence");
+    expect(markup).toContain("Background context");
+    expect(markup).toContain("background-hash");
+    expect(markup).toContain("PDF unavailable");
+    expect(markup).toContain("pdf delivery not configured");
+    expect(markup).toContain("b".repeat(64));
+  });
+
+  it("renders direct repair lineage without putting repair runs in report lists", () => {
+    const markup = renderToStaticMarkup(
+      <ReportAccordion
+        report={{
+          ...report,
+          run: report.run ? {
+            ...report.run,
+            run_kind: "repair",
+            parent_run_id: "legacy-parent",
+            repair_round: 2,
+          } : null,
+        }}
+      />,
+    );
+
+    expect(markup).toContain("Repair lineage");
+    expect(markup).toContain("legacy-parent");
+    expect(markup).toContain("Round 2");
   });
 
   it("renders the source-to-UI fulfillment audit when provided", () => {
@@ -292,8 +462,47 @@ describe("ReportAccordion", () => {
       />,
     );
 
-    expect(markup).toContain("succeeded / pass");
+    expect(markup).toContain("succeeded / review required");
     expect(markup).not.toContain("Decision-ready");
+  });
+
+  it("shows current quality failure instead of a stale stored pass", () => {
+    const markup = renderToStaticMarkup(
+      <ReportLink
+        runId="stale-pass-run"
+        summary={{
+          run_id: "stale-pass-run",
+          title: "Stale pass",
+          covered_from: "2026-08-12T00:00:00Z",
+          covered_until: "2026-08-19T00:00:00Z",
+          review_state: "draft",
+          run_status: "succeeded",
+          validation_status: "pass",
+          source_count: 3,
+          distillation_count: 3,
+          claim_count: 3,
+          signal_count: 3,
+          regions: ["global"],
+          languages: ["en"],
+          lane_coverage: ["regulatory"],
+          models: ["model"],
+          as_of: "2026-08-19T00:00:00Z",
+          readiness_status: "review_required",
+          decision_ready: false,
+          blocking_reasons: ["incomplete_article_insights"],
+          quality_ready: false,
+          quality_blocking_reasons: ["incomplete_article_insights"],
+          article_count: 3,
+          complete_article_count: 2,
+          article_insight_completeness: 2 / 3,
+        }}
+      />,
+    );
+
+    expect(markup).toContain("succeeded / quality blocked");
+    expect(markup).toContain("2/3 complete / draft");
+    expect(markup).not.toContain("succeeded / pass");
+    expect(markup).not.toContain("pass / draft");
   });
 
   it("does not label summaries decision-ready when the canonical report ratio is missing", () => {
@@ -329,7 +538,7 @@ describe("ReportAccordion", () => {
       />,
     );
 
-    expect(markup).toContain("succeeded / pass");
+    expect(markup).toContain("succeeded / review required");
     expect(markup).not.toContain("Decision-ready");
   });
 
@@ -366,7 +575,7 @@ describe("ReportAccordion", () => {
       />,
     );
 
-    expect(markup).toContain("succeeded / pass");
+    expect(markup).toContain("succeeded / review required");
     expect(markup).not.toContain("Decision-ready");
   });
 
@@ -497,7 +706,7 @@ describe("ReportAccordion", () => {
       />,
     );
 
-    expect(markup).toContain("succeeded / pass");
+    expect(markup).toContain("succeeded / review required");
     expect(markup).not.toContain("Decision-ready");
   });
 
@@ -512,6 +721,21 @@ describe("ReportAccordion", () => {
 
     expect(markup).toContain("Report is blocked, failed, or partial.");
     expect(markup).toContain("not decision-ready");
+  });
+
+  it("uses current reader validation in the primary status and audits the stored status", () => {
+    const staleStoredPass: ReportPayload = {
+      ...report,
+      run: report.run ? { ...report.run, status: "succeeded", error: null } : null,
+      validation: report.validation ? { ...report.validation, status: "pass" } : null,
+      reader_report: { ...report.reader_report, validation_status: "failed" },
+    };
+
+    const markup = renderToStaticMarkup(<ReportAccordion report={staleStoredPass} />);
+
+    expect(markup).toContain("Validation status: failed");
+    expect(markup).toContain("Stored validation</dt><dd>pass");
+    expect(markup).toContain("Current reader validation</dt><dd>failed");
   });
 
   it("marks missing validation as non-decision-ready", () => {
@@ -554,7 +778,7 @@ describe("ReportAccordion", () => {
 
     expect(markup).toContain("Why it matters:");
     expect(markup).toContain("Compare the signal with a primary port source.");
-    expect(markup).toContain("What this run tells us");
+    expect(markup).toContain("Three things to know");
     expect(markup).toContain("Check the next port update before changing routing.");
     expect(markup).toContain("Which primary source confirms the timing?");
     expect(markup).toContain("Legacy quality snapshot");

@@ -42,6 +42,7 @@ remains readable for audit, but it cannot authorize new runs.
 uv run sheperd-research doctor --json
 uv run sheperd-research model-map --json
 uv run sheperd-research audit --json
+uv run sheperd-research system-report --json
 uv run sheperd-research model-check --strict --json
 uv run sheperd-research mcp-check --json
 uv run sheperd-research source-map --check --strict --json
@@ -55,7 +56,9 @@ uv run sheperd-research validate --run-id <run-id>
 uv run sheperd-research index --region all --run-id <run-id> --json
 uv run sheperd-research dashboard
 uv run sheperd-research review --run-id <run-id> --decision approve --reviewer Mikey
-uv run sheperd-research export --run-id <run-id>
+uv run sheperd-research export --run-id <run-id> --format md
+uv run sheperd-research export --run-id <run-id> --format pdf
+uv run sheperd-research export --run-id <run-id> --format both
 ```
 
 Add `--verbose` to `run`, `e2e`, or `agent-check` for a timestamped operator
@@ -89,9 +92,17 @@ capabilities. It does not authorize a run; `model-check` performs a live
 structured-output health request.
 
 Set `TAVILY_API_KEY` as the primary search key and optionally set
-`TAVILY_API_KEY_2` as a secondary. Search and Extract try slot 1 first, then
-slot 2 only for rate-limit, quota, authentication, or provider-status failures.
+`TAVILY_API_KEY_2` and `TAVILY_API_KEY_3` as fallbacks. Search and Extract try
+later slots only for rate-limit, quota, authentication, or provider-status failures.
 Malformed responses remain failures; key values are never logged or persisted.
+
+`system-report` writes the generated operational report to
+`../obsidian/06_Research/SheperD Technical and Operations Report.md` by default.
+It returns a blocked status when historical quality or weekly date gates are not
+ready, but still writes the report so the blockers are inspectable. PDF export
+also requires `BLOB_READ_WRITE_TOKEN`, `REPORT_LINK_SIGNING_SECRET`, and a
+worker-side Chrome/Chromium binary. PDFs are uploaded privately and served only
+through the signed API route after approval; draft PDFs are never uploaded.
 
 ## Research state
 

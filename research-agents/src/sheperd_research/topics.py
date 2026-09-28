@@ -112,8 +112,8 @@ def default_topic_configs() -> dict[str, TopicConfig]:
             name="dnd-port",
             description="D&D, port, carrier, terminal, and regulatory intelligence.",
             queries=[
-                "latest U.S. demurrage detention FMC court carrier terminal update",
-                "latest West Coast U.S. port congestion dwell time container update",
+                "latest United States maritime port regulation enforcement shipping update",
+                "latest United States container port operations carrier terminal update",
                 "latest East Coast Gulf U.S. port congestion terminal carrier update",
                 "latest Mexico container port Manzanillo Veracruz trade shipping update",
                 "latest Europe Rotterdam Antwerp Hamburg Valencia "
