@@ -4,7 +4,7 @@ import os
 import re
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from pydantic import Field, PrivateAttr, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -127,6 +127,7 @@ class Settings(BaseSettings):
     )
 
     repo_root: Path = Field(default_factory=discover_repo_root, exclude=True)
+    run_mode: Literal["read-only", "autonomous-draft"] = "read-only"
     database_url: str | None = None
     direct_database_url: str | None = None
     neon_project_id: str | None = None
@@ -134,6 +135,7 @@ class Settings(BaseSettings):
     neon_branch_id: str = "main"
     tavily_api_key: SecretStr | None = None
     tavily_api_key_2: SecretStr | None = None
+    tavily_api_key_3: SecretStr | None = None
     tavily_project_id: str | None = None
     openai_api_key: SecretStr | None = None
     openai_model: str = DEFAULT_OPENAI_MODEL
@@ -152,6 +154,9 @@ class Settings(BaseSettings):
     llm_max_input_chars: int = 350_000
     llm_max_output_tokens: int = 6_000
     max_run_seconds: int = 2_400
+    blob_read_write_token: SecretStr | None = None
+    report_link_signing_secret: SecretStr | None = None
+    report_url_ttl_seconds: int = 604_800
     _legacy_provider_explicit: bool = PrivateAttr(default=False)
 
     def __init__(self, **values: Any) -> None:
@@ -215,7 +220,11 @@ class Settings(BaseSettings):
     def tavily_api_keys(self) -> tuple[str, ...]:
         return tuple(
             secret.get_secret_value()
-            for secret in (self.tavily_api_key, self.tavily_api_key_2)
+            for secret in (
+                self.tavily_api_key,
+                self.tavily_api_key_2,
+                self.tavily_api_key_3,
+            )
             if secret is not None and secret.get_secret_value().strip()
         )
 

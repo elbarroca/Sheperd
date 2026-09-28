@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
+import subprocess
 import sys
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
@@ -20,12 +22,13 @@ from langgraph.checkpoint.base import (
 )
 from pydantic import ValidationError
 
+from .blob import upload_private_pdf
 from .contracts import (
-    ArticleDistillation,
     LaneDiscoveryResult,
     ResearchCadence,
     ResearchRunRequest,
     ReviewState,
+    RunKind,
     RunResult,
     RunStatus,
     SourceCandidate,
@@ -34,11 +37,13 @@ from .contracts import (
     ValidationStatus,
     is_free_model,
 )
+from .costs import estimate_run_cost
 from .db import (
     MIGRATION_VERSION,
     PostgresRepository,
     _redact_audit_metadata,
     run_migrations,
+    validation_profile_from_run,
 )
 from .diagnostics import (
     mcp_check,
@@ -48,7 +53,7 @@ from .diagnostics import (
     validate_database_url,
     validate_dev_branch,
 )
-from .exporters.obsidian import export_reviewed_brief
+from .exporters.obsidian import export_reviewed_brief, render_weekly_markdown
 from .exporters.regional_indexes import generate_regional_indexes
 from .progress import ProgressReporter
 from .providers.capabilities import CapabilityReport, resolve_capabilities
@@ -65,15 +70,27 @@ from .settings import (
     strict_openrouter_policy_error,
 )
 from .source_catalog import REGIONS, load_source_catalog, validate_required_sources
+from .system_report import render_system_report
 from .topics import load_topic_configs
 from .validation import (
     build_validation_report,
     provider_error_codes_from_run,
+    source_quality_sources,
     validation_blocking_reasons,
 )
-from .validators import content_hash, validate_article_distillation_quality
+from .validators import (
+    content_hash,
+    normalize_url,
+    reader_source_contract_issues,
+    validate_report_sections,
+)
 from .web import create_app
-from .workflow import ResearchWorkflow, checkpoint_serializer
+from .workflow import (
+    STRICT_GLOBAL_GEOGRAPHIES,
+    US_MEXICO_GEOGRAPHIES,
+    ResearchWorkflow,
+    checkpoint_serializer,
+)
 
 _CHECKPOINT_ALLOWED_CHANNELS = frozenset(
     {
@@ -86,7 +103,7 @@ _CHECKPOINT_ALLOWED_CHANNELS = frozenset(
         "source_hashes",
         "distillations",
         "claims",
-        "signals",
+        "signal_events",
         "brief",
         "validation",
         "lane_statuses",
@@ -95,6 +112,164 @@ _CHECKPOINT_ALLOWED_CHANNELS = frozenset(
 )
 TAVILY_RUNTIME_MIN_REQUEST_INTERVAL_SECONDS = 1.5
 FULL_DISCOVERY_QUERY_LIMIT = 6
+_CONTEXT_FILES = (
+    "obsidian/context/Founder Brief.md",
+    "obsidian/context/Founder Intelligence Knowledge Contract.md",
+    "obsidian/06_Research/SheperD Deep Research - Control Note.md",
+    "obsidian/06_Research/Market Evidence and Source Map.md",
+    "research-agents/config/topics.yml",
+    "research-agents/config/source_catalog.yml",
+)
+
+
+def _context_version(settings: Settings) -> str:
+    manifest: list[str] = []
+    for relative_path in _CONTEXT_FILES:
+        path = settings.repo_root / relative_path
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        manifest.append(f"{digest}  {relative_path}\n")
+    manifest_hash = hashlib.sha256("".join(sorted(manifest)).encode()).hexdigest()
+    return f"{_repository_commit(settings)}:{manifest_hash}"
+
+
+def _repair_child_run_id(prefix: str, parent_run_id: str, round_number: int) -> str:
+    parent_hash = hashlib.sha256(parent_run_id.encode()).hexdigest()[:12]
+    return f"{prefix}-p{parent_hash}-r{round_number}"
+
+
+def _repair_parent_issues(
+    repository: PostgresRepository, run_id: str
+) -> tuple[list[SourceCandidate], list[str]]:
+    sources = repository.get_run_sources(run_id)
+    known_urls = {normalize_url(source.url) for source in sources}
+    source_hashes = repository.get_run_source_hashes(run_id)
+    distillations = {
+        normalize_url(item.source_url): item
+        for item in repository.get_run_distillations(run_id)
+    }
+    issues: list[str] = []
+    run = repository.get_run(run_id) or {}
+    run_as_of = run.get("as_of")
+    as_of = run_as_of if isinstance(run_as_of, datetime) else None
+    if not sources:
+        issues.append("missing_sources")
+    for source in sources:
+        url = normalize_url(source.url)
+        if url not in source_hashes:
+            issues.append(f"snapshot:{url}")
+        distillation = distillations.get(url)
+        for issue in reader_source_contract_issues(
+            source,
+            distillation,
+            as_of=as_of,
+        ):
+            issues.append(f"reader_contract:{url}:{issue}")
+    brief = repository.get_brief(run_id)
+    if brief is None:
+        issues.append("missing_brief")
+    elif validate_report_sections(brief, known_urls):
+        issues.append("incomplete_brief")
+    return sources, sorted(set(issues))
+
+
+def _repair_complete_source_count(
+    repository: PostgresRepository,
+    run_id: str,
+    sources: list[SourceCandidate],
+    *,
+    as_of: datetime,
+) -> int:
+    source_hashes = repository.get_run_source_hashes(run_id)
+    distillations = {
+        normalize_url(item.source_url): item
+        for item in repository.get_run_distillations(run_id)
+    }
+    return sum(
+        url in source_hashes
+        and not reader_source_contract_issues(
+            source,
+            distillations.get(url),
+            as_of=as_of,
+        )
+        for source in sources
+        for url in [normalize_url(source.url)]
+    )
+
+
+def _best_repair_evidence(
+    repository: PostgresRepository,
+    parent_run_id: str,
+    parent_sources: list[SourceCandidate],
+    *,
+    as_of: datetime,
+) -> tuple[str, list[SourceCandidate]]:
+    expected_urls = {normalize_url(source.url) for source in parent_sources}
+    best_run_id = parent_run_id
+    best_sources = parent_sources
+    best_count = _repair_complete_source_count(
+        repository,
+        parent_run_id,
+        parent_sources,
+        as_of=as_of,
+    )
+    for run in repository.list_runs(include_repairs=True, limit=1000):
+        if (
+            run.get("run_kind") != RunKind.REPAIR.value
+            or run.get("parent_run_id") != parent_run_id
+        ):
+            continue
+        candidate_run_id = str(run["run_id"])
+        candidate_sources = repository.get_run_sources(candidate_run_id)
+        if {
+            normalize_url(source.parent_navigation_url or source.url)
+            for source in candidate_sources
+        } != expected_urls:
+            continue
+        complete_count = _repair_complete_source_count(
+            repository,
+            candidate_run_id,
+            candidate_sources,
+            as_of=as_of,
+        )
+        if complete_count > best_count:
+            best_run_id = candidate_run_id
+            best_sources = candidate_sources
+            best_count = complete_count
+    return best_run_id, best_sources
+
+
+def _unresolved_repair_parents(
+    repository: PostgresRepository,
+    unresolved_parent_ids: set[str] | None = None,
+) -> list[tuple[str, str, list[SourceCandidate], list[str]]]:
+    if unresolved_parent_ids is None:
+        history = repository.audit_summary().get("history_quality", {})
+        unresolved_parent_ids = (
+            {str(value) for value in history.get("unresolved_parent_ids", [])}
+            if isinstance(history, dict)
+            else set()
+        )
+    all_runs = repository.list_runs(include_repairs=True, limit=1000)
+    parents: list[tuple[str, str, list[SourceCandidate], list[str]]] = []
+    for run in all_runs:
+        if run.get("run_kind", "research") != "research":
+            continue
+        run_id = str(run["run_id"])
+        if run_id not in unresolved_parent_ids:
+            continue
+        sources, issues = _repair_parent_issues(repository, run_id)
+        is_repair_candidate = bool(sources) and bool(issues)
+        if is_repair_candidate:
+            parents.append((run_id, str(run.get("topic_set") or "dnd-port"), sources, issues))
+    return sorted(parents, key=lambda item: item[0])
+
+
+def _history_repair_blocker(repository: PostgresRepository) -> str | None:
+    history = repository.audit_summary().get("history_quality", {})
+    count = history.get("unresolved_parent_count", 0) if isinstance(history, dict) else 0
+    if isinstance(count, int) and count > 0:
+        return f"{count} historical repair parent(s) remain unresolved"
+    return None
 
 
 def _redact_checkpoint(checkpoint: Checkpoint) -> Checkpoint:
@@ -238,6 +413,12 @@ def _blocked(args: argparse.Namespace, message: str) -> int:
     return 2
 
 
+def _require_autonomous_draft(args: argparse.Namespace, settings: Settings) -> int | None:
+    if settings.run_mode != "autonomous-draft":
+        return _blocked(args, "set RUN_MODE=autonomous-draft for draft writes")
+    return None
+
+
 def _run_error_code(error: str | None) -> str | None:
     if not error:
         return None
@@ -279,6 +460,9 @@ def _capability_report(
 
 
 def _run_command(args: argparse.Namespace, settings: Settings) -> int:
+    mode_block = _require_autonomous_draft(args, settings)
+    if mode_block is not None:
+        return mode_block
     progress = ProgressReporter(enabled=bool(getattr(args, "verbose", False)))
     allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
     if not getattr(args, "strict", True) and not allow_free_fallbacks:
@@ -319,12 +503,16 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
     try:
         request = ResearchRunRequest(
             topic_set=args.topic_set,
+            research_scope=args.scope,
+            new_findings_only=args.new_only,
             cadence=ResearchCadence(getattr(args, "cadence", "weekly")),
             as_of=_parse_datetime(args.as_of) or datetime.now(UTC),
             since=_parse_datetime(args.since),
             max_sources=args.max_sources,
             model=requested_model,
             seed_urls=args.seed_url,
+            context_version=_context_version(settings),
+            research_timezone=settings.research_timezone,
         )
     except ValueError as error:
         return _blocked(args, str(error))
@@ -347,6 +535,9 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
     except RuntimeError as error:
         return _blocked(args, str(error))
     try:
+        history_blocker = _history_repair_blocker(repository)
+        if history_blocker is not None:
+            return _blocked(args, history_blocker)
         openai_key = settings.openai_api_key
         if not settings.tavily_api_keys or openai_key is None:
             return _blocked(args, "provider credentials are incomplete")
@@ -387,6 +578,7 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
                         else FULL_DISCOVERY_QUERY_LIMIT
                     ),
                     progress=progress,
+                    research_timezone=settings.research_timezone,
                 )
                 return await workflow.run(request, run_id=args.run_id)
 
@@ -398,6 +590,9 @@ def _run_command(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def _repair_command(args: argparse.Namespace, settings: Settings) -> int:
+    mode_block = _require_autonomous_draft(args, settings)
+    if mode_block is not None:
+        return mode_block
     if not settings.has_database_credentials:
         return _blocked(args, "set pooled DATABASE_URL in the repository-root .env.local")
     if not settings.has_live_provider_credentials:
@@ -431,42 +626,28 @@ def _repair_command(args: argparse.Namespace, settings: Settings) -> int:
             allow_cached=False,
         )
         repository = _database(settings)
-        page = 1
-        candidates: list[SourceCandidate] = []
-        while True:
-            page_data = repository.list_source_explorer(page=page, page_size=100)
-            for item in cast(list[dict[str, object]], page_data.get("items", [])):
-                source = item.get("source")
-                distillation = item.get("distillation")
-                if not isinstance(source, SourceCandidate):
-                    continue
-                if (
-                    not isinstance(distillation, ArticleDistillation)
-                    or validate_article_distillation_quality(distillation)
-                ):
-                    candidates.append(source)
-            if not page_data.get("has_more"):
-                break
-            page += 1
-            if page > 10:
-                break
-        if not candidates:
-            return _blocked(args, "no incomplete sources were found")
-        request = ResearchRunRequest(
-            topic_set="dnd-port",
-            cadence=ResearchCadence.WEEKLY,
-            as_of=_parse_datetime(args.as_of) or datetime.now(UTC),
-            max_sources=args.max_sources,
-            model=settings.openai_model,
-            include_topic_seeds=False,
-            validation_profile="canary",
+        history_quality = repository.audit_summary().get("history_quality", {})
+        unresolved_parent_ids = (
+            {
+                str(value)
+                for value in history_quality.get("unresolved_parent_ids", [])
+            }
+            if isinstance(history_quality, dict)
+            else set()
         )
+        parents = _unresolved_repair_parents(repository, unresolved_parent_ids)
+        as_of = _parse_datetime(args.as_of)
+        if as_of is None:
+            raise ValueError("repair requires an explicit UTC --as-of")
+        context_version = _context_version(settings)
         openai_key = settings.openai_api_key
         if not settings.tavily_api_keys or openai_key is None:
             return _blocked(args, "provider credentials are incomplete")
         progress = ProgressReporter(enabled=bool(getattr(args, "verbose", False)))
 
-        async def execute() -> RunResult:
+        async def execute() -> tuple[list[dict[str, object]], str | None]:
+            outcomes: list[dict[str, object]] = []
+            stop_failure: str | None = None
             async with _checkpoint_saver(settings.database_url or "") as checkpointer:
                 workflow = ResearchWorkflow(
                     repository,
@@ -490,23 +671,160 @@ def _repair_command(args: argparse.Namespace, settings: Settings) -> int:
                     max_llm_input_chars=settings.llm_max_input_chars,
                     max_run_seconds=settings.max_run_seconds,
                     progress=progress,
+                    research_timezone=settings.research_timezone,
                 )
-                return await workflow.repair(request, candidates, args.run_id)
+                for parent_run_id, topic_set, sources, legacy_issues in parents:
+                    evidence_run_id, repair_sources = _best_repair_evidence(
+                        repository,
+                        parent_run_id,
+                        sources,
+                        as_of=as_of,
+                    )
+                    prior_fingerprint: str | None = None
+                    parent_attempts: list[dict[str, object]] = []
+                    resolved = False
+                    for round_number in range(1, 4):
+                        child_run_id = _repair_child_run_id(
+                            args.run_id, parent_run_id, round_number
+                        )
+                        if repository.get_run(child_run_id) is not None:
+                            blockers = ["repair_child_run_exists"]
+                            result = None
+                        else:
+                            request = ResearchRunRequest(
+                                topic_set=topic_set,
+                                cadence=ResearchCadence.WEEKLY,
+                                as_of=as_of,
+                                max_sources=args.max_sources,
+                                model=settings.openai_model,
+                                include_topic_seeds=False,
+                                validation_profile="repair",
+                                context_version=context_version,
+                                research_timezone=settings.research_timezone,
+                                run_kind=RunKind.REPAIR,
+                                parent_run_id=parent_run_id,
+                                repair_round=round_number,
+                            )
+                            result = await workflow.repair(
+                                request,
+                                repair_sources,
+                                child_run_id,
+                                evidence_run_id=evidence_run_id,
+                            )
+                            validation = repository.get_validation(child_run_id)
+                            blockers = (
+                                validation_blocking_reasons(validation)
+                                if validation is not None
+                                else [
+                                    result.error_code
+                                    or _run_error_code(result.error)
+                                    or "repair_failed"
+                                ]
+                            )
+                        fingerprint = hashlib.sha256(
+                            json.dumps(sorted(blockers)).encode()
+                        ).hexdigest()
+                        parent_attempts.append(
+                            {
+                                "run_id": child_run_id,
+                                "round": round_number,
+                                "status": (
+                                    result.status.value if result is not None else "blocked"
+                                ),
+                                "blocking_reasons": blockers,
+                                "blocker_fingerprint": fingerprint,
+                            }
+                        )
+                        if (
+                            result is not None
+                            and result.status is RunStatus.SUCCEEDED
+                            and result.validation_status is ValidationStatus.PASS
+                        ):
+                            resolved = True
+                            break
+                        stop_text = " ".join(blockers).casefold()
+                        if any(
+                            marker in stop_text
+                            for marker in (
+                                "authentication",
+                                "credential",
+                                "quota",
+                                "rate_limit",
+                                "provider",
+                                "timeout",
+                                "extraction",
+                                "source_access",
+                            )
+                        ):
+                            stop_failure = f"{parent_run_id}:{blockers[0]}"
+                            break
+                        if prior_fingerprint == fingerprint:
+                            break
+                        prior_fingerprint = fingerprint
+                        candidate_sources = repository.get_run_sources(child_run_id)
+                        if {
+                            normalize_url(source.parent_navigation_url or source.url)
+                            for source in candidate_sources
+                        } == {
+                            normalize_url(source.parent_navigation_url or source.url)
+                            for source in repair_sources
+                        } and _repair_complete_source_count(
+                            repository,
+                            child_run_id,
+                            candidate_sources,
+                            as_of=as_of,
+                        ) >= _repair_complete_source_count(
+                            repository,
+                            evidence_run_id,
+                            repair_sources,
+                            as_of=as_of,
+                        ):
+                            evidence_run_id = child_run_id
+                            repair_sources = candidate_sources
+                    outcomes.append(
+                        {
+                            "parent_run_id": parent_run_id,
+                            "legacy_issues": legacy_issues,
+                            "source_count": len(sources),
+                            "resolved": resolved,
+                            "attempts": parent_attempts,
+                        }
+                    )
+                    if stop_failure is not None:
+                        break
+            return outcomes, stop_failure
 
-        result = asyncio.run(execute())
+        outcomes, stop_failure = asyncio.run(execute())
+        unresolved = [
+            str(item["parent_run_id"])
+            for item in outcomes
+            if item.get("resolved") is not True
+        ]
+        if stop_failure is not None:
+            unattempted = {
+                parent_run_id for parent_run_id, _, _, _ in parents
+            } - {str(item["parent_run_id"]) for item in outcomes}
+            unresolved.extend(sorted(unattempted))
+        status = "pass" if not unresolved and stop_failure is None else "blocked"
         _print_json(
             {
-                "status": result.status.value,
-                "run_id": result.run_id,
-                "selected_source_count": min(len(candidates), args.max_sources),
-                "source_count": result.source_count,
-                "distillation_count": result.distillation_count,
-                "claim_count": result.claim_count,
-                "validation_status": result.validation_status.value,
-                "error": _run_error_code(result.error),
+                "status": status,
+                "batch_prefix": args.run_id,
+                "as_of": as_of.isoformat(),
+                "context_version": context_version,
+                "raw_legacy_parent_count": (
+                    history_quality.get("raw_defect_parent_count", 0)
+                    if isinstance(history_quality, dict)
+                    else 0
+                ),
+                "repair_parent_count": len(parents),
+                "unresolved_parent_count": len(set(unresolved)),
+                "unresolved_parent_ids": sorted(set(unresolved)),
+                "stop_failure": stop_failure,
+                "parents": outcomes,
             }
         )
-        return 0 if result.status is RunStatus.SUCCEEDED else 2
+        return 0 if status == "pass" else 2
     except (ProviderError, RuntimeError, ValueError) as error:
         return _blocked(args, str(error))
     finally:
@@ -549,8 +867,16 @@ def _audit_command(args: argparse.Namespace, settings: Settings) -> int:
     except RuntimeError as error:
         return _blocked(args, str(error))
     try:
-        summary = repository.audit_summary()
-        quality = _quality_audit(repository)
+        with repository.read_snapshot():
+            summary = repository.audit_summary()
+            quality = _quality_audit(repository)
+            snapshot = repository.system_snapshot()
+        snapshot_steps = snapshot.get("agent_steps", [])
+        snapshot_tools = snapshot.get("tool_calls", [])
+        cost = estimate_run_cost(
+            snapshot_steps if isinstance(snapshot_steps, list) else [],
+            snapshot_tools if isinstance(snapshot_tools, list) else [],
+        )
         diagnostics = asyncio.run(
             run_doctor(
                 settings,
@@ -587,12 +913,85 @@ def _audit_command(args: argparse.Namespace, settings: Settings) -> int:
                                     "message": provider_check.get("message"),
                                 }
                             )
-        status = "pass" if diagnostics.get("status") == "pass" else "blocked"
+        history_quality = summary.get("history_quality")
+        if isinstance(history_quality, dict):
+            unresolved_parent_count = history_quality.get(
+                "unresolved_parent_count", 0
+            )
+            if (
+                isinstance(unresolved_parent_count, int)
+                and unresolved_parent_count > 0
+            ):
+                blockers.append(
+                    {
+                        "check": "quality:unresolved_repair_parents",
+                        "status": "failed",
+                        "message": (
+                            f"{unresolved_parent_count} historical parent run(s) "
+                            "remain unresolved"
+                        ),
+                    }
+                )
+        latest_strict = quality.get("latest_strict_run")
+        if not isinstance(latest_strict, dict):
+            blockers.append(
+                {
+                    "check": "quality:latest_strict_run_missing",
+                    "status": "blocked",
+                    "message": "no active strict non-repair weekly run is available",
+                }
+            )
+        elif latest_strict.get("current_status") != "pass":
+            blockers.append(
+                {
+                    "check": "quality:latest_strict_run",
+                    "status": "failed",
+                    "message": (
+                        "latest strict non-repair weekly run is "
+                        f"{latest_strict.get('current_status', 'blocked')}"
+                    ),
+                }
+            )
+        table_counts = snapshot.get("table_counts")
+        period_counts = snapshot.get("period_counts")
+        run_source_count = (
+            table_counts.get("run_sources", 0)
+            if isinstance(table_counts, dict)
+            else 0
+        )
+        in_period_count = (
+            period_counts.get("in_period", 0)
+            if isinstance(period_counts, dict)
+            else 0
+        )
+        if (
+            isinstance(run_source_count, int)
+            and run_source_count > 0
+            and isinstance(in_period_count, int)
+            and in_period_count == 0
+        ):
+            blockers.append(
+                {
+                    "check": "period:eligible_weekly_sources",
+                    "status": "blocked",
+                    "message": (
+                        "no persisted source has a publication date inside its "
+                        "weekly window"
+                    ),
+                }
+            )
+        status = (
+            "pass"
+            if diagnostics.get("status") == "pass" and not blockers
+            else "blocked"
+        )
         _print_json(
             {
                 "status": status,
                 "database": summary,
                 "quality": quality,
+                "system": snapshot,
+                "cost_estimate": cost,
                 "diagnostics": diagnostics,
                 "blockers": blockers,
             }
@@ -604,7 +1003,124 @@ def _audit_command(args: argparse.Namespace, settings: Settings) -> int:
         repository.close()
 
 
+def _repository_commit(settings: Settings) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=settings.repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return "not recorded"
+    commit = result.stdout.strip()
+    return commit or "not recorded"
+
+
+def _repository_dirty(settings: Settings) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=settings.repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+    return bool(result.stdout.strip())
+
+
+def _system_report_command(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        repository = _database(settings)
+    except RuntimeError as error:
+        return _blocked(args, str(error))
+    try:
+        audit = repository.audit_summary()
+        snapshot = repository.system_snapshot()
+        try:
+            diagnostics = asyncio.run(
+                run_doctor(settings, allow_free_fallbacks=False)
+            )
+        except Exception as error:
+            diagnostics = {
+                "status": "blocked",
+                "checks": {
+                    "providers": {
+                        "status": "blocked",
+                        "error_code": error.__class__.__name__,
+                    }
+                },
+            }
+        health = repository.health()
+        output = (
+            Path(args.output).expanduser().resolve()
+            if args.output
+            else settings.vault_root / "06_Research" / "SheperD Technical and Operations Report.md"
+        )
+        vault_root = settings.vault_root.resolve()
+        if vault_root not in output.parents:
+            return _blocked(args, "system reports are limited to the obsidian vault")
+        report = render_system_report(
+            snapshot=snapshot,
+            audit=audit,
+            diagnostics=diagnostics,
+            branch_id=str(health.get("branch_id") or settings.neon_branch_id),
+            migration_version=str(health.get("migration_version") or MIGRATION_VERSION),
+            repository_commit=_repository_commit(settings),
+            repository_dirty=_repository_dirty(settings),
+        )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(report, encoding="utf-8")
+        table_counts = snapshot.get("table_counts")
+        period_counts = snapshot.get("period_counts")
+        temporal_blocked = (
+            isinstance(table_counts, dict)
+            and isinstance(period_counts, dict)
+            and isinstance(table_counts.get("run_sources"), int)
+            and table_counts["run_sources"] > 0
+            and period_counts.get("in_period", 0) == 0
+        )
+        quality = audit.get("quality")
+        quality_blocked = (
+            isinstance(quality, dict)
+            and (
+                quality.get("distillations_incomplete", 0) > 0
+                or quality.get("briefs_with_complete_sections", 0)
+                < quality.get("briefs_total", 0)
+            )
+        )
+        readiness_blocked = temporal_blocked or quality_blocked
+        payload = {
+            "status": (
+                "pass"
+                if diagnostics.get("status") == "pass"
+                and health.get("status") == "pass"
+                and not readiness_blocked
+                else "blocked"
+            ),
+            "output": str(output),
+            "migration_version": health.get("migration_version"),
+            "branch_id": health.get("branch_id") or settings.neon_branch_id,
+            "table_count": len(table_counts) if isinstance(table_counts, dict) else 0,
+            "readiness_status": "not_production_ready" if readiness_blocked else "ready",
+        }
+        _print_json(payload)
+        return 0 if payload["status"] == "pass" else 2
+    except (OSError, RuntimeError, ValueError) as error:
+        return _blocked(args, f"system report failed: {error.__class__.__name__}")
+    finally:
+        repository.close()
+
+
 def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
+    mode_block = _require_autonomous_draft(args, settings)
+    if mode_block is not None:
+        return mode_block
     progress = ProgressReporter(enabled=bool(getattr(args, "verbose", False)))
     stages: dict[str, dict[str, object]] = {}
     allow_free_fallbacks = bool(getattr(args, "allow_free_fallbacks", False))
@@ -671,11 +1187,15 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
     try:
         request = ResearchRunRequest(
             topic_set="dnd-port",
+            research_scope=args.scope,
+            new_findings_only=args.new_only,
             as_of=_parse_datetime(args.as_of) or datetime.now(UTC),
             max_sources=3 if args.profile == "canary" else 30,
             model=settings.openai_model,
             include_topic_seeds=False,
             validation_profile=args.profile,
+            context_version=_context_version(settings),
+            research_timezone=settings.research_timezone,
         )
         repository = _database(settings)
         health = repository.health()
@@ -692,6 +1212,13 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
             _print_json({"status": "blocked", "stages": stages})
             return 2
         stage("database", "pass", migration_version=migration_version)
+        history_blocker = _history_repair_blocker(repository)
+        if history_blocker is not None:
+            stage("history", "blocked", message=history_blocker)
+            repository.close()
+            _print_json({"status": "blocked", "stages": stages})
+            return 2
+        stage("history", "pass", unresolved_parent_count=0)
     except (RuntimeError, ValueError) as error:
         stage("database", "blocked", message=error.__class__.__name__)
         _print_json({"status": "blocked", "stages": stages})
@@ -735,8 +1262,11 @@ def _e2e_command(args: argparse.Namespace, settings: Settings) -> int:
                         settings.max_run_seconds,
                         420 if args.profile == "canary" else 900,
                     ),
-                    discovery_query_limit=1 if args.profile == "canary" else None,
+                    discovery_query_limit=(
+                        1 if args.profile == "canary" else FULL_DISCOVERY_QUERY_LIMIT
+                    ),
                     progress=progress,
+                    research_timezone=settings.research_timezone,
                 )
                 return await workflow.run(request, run_id=args.run_id)
 
@@ -1017,11 +1547,33 @@ def _build_persisted_validation(
     claims = repository.get_run_claims(run_id)
     get_distillations = getattr(repository, "get_run_distillations", None)
     distillations = get_distillations(run_id) if callable(get_distillations) else None
+    get_signal_events = getattr(repository, "get_run_signal_events", None)
+    signal_events = get_signal_events(run_id) if callable(get_signal_events) else None
     get_brief = getattr(repository, "get_brief", None)
     brief = get_brief(run_id) if callable(get_brief) else None
     strict_profile = request.validation_profile in {"full", "global-canary"}
-    repair_mode = bool(sources) and all(
-        source.source_kind == "repair" for source in sources if not source.is_seed
+    repair_mode = request.validation_profile == "repair"
+    quality_source_count = len(source_quality_sources(sources))
+    eligible_weekly_source_count = (
+        sum(source.eligible_for_weekly for source in sources)
+        if request.cadence is ResearchCadence.WEEKLY
+        else None
+    )
+    minimum_eligible_sources = (
+        10
+        if request.cadence is ResearchCadence.WEEKLY
+        and request.validation_profile in {"full", "global-canary"}
+        else None
+    )
+    scoped_geographies = (
+        US_MEXICO_GEOGRAPHIES
+        if request.research_scope == "us-mexico"
+        else STRICT_GLOBAL_GEOGRAPHIES
+    )
+    scoped_regions = (
+        {"us", "mexico"}
+        if request.research_scope == "us-mexico"
+        else set(REGIONS) - {"global"}
     )
     return build_validation_report(
         run_id,
@@ -1031,12 +1583,29 @@ def _build_persisted_validation(
         validation_model,
         repository.get_run_lane_statuses(run_id),
         repository.get_run_snapshot_hashes(run_id),
-        minimum_sources=1 if request.validation_profile in {"canary", "global-canary"} else 10,
-        minimum_claims=1 if request.validation_profile in {"canary", "global-canary"} else 5,
-        tool_call_count=sum(
-            1
-            for call in repository.get_run_tool_calls(run_id)
-            if call.get("status") == "succeeded"
+        minimum_sources=(
+            quality_source_count
+            if repair_mode
+            else 1
+            if request.validation_profile in {"canary", "global-canary"}
+            else 10
+        ),
+        minimum_claims=(
+            quality_source_count
+            if repair_mode
+            else 1
+            if request.validation_profile in {"canary", "global-canary"}
+            else 5
+        ),
+        required_source_hash_count=quality_source_count if repair_mode else None,
+        tool_call_count=(
+            None
+            if repair_mode
+            else sum(
+                1
+                for call in repository.get_run_tool_calls(run_id)
+                if call.get("status") == "succeeded"
+            )
         ),
         required_tool_lanes={
             lane: {"tavily_search", "tavily_extract"}.issubset(
@@ -1051,29 +1620,22 @@ def _build_persisted_validation(
         if not repair_mode
         else None,
         distillations=distillations,
-        required_geographies=(
-            {
-                "Regulatory",
-                "United States",
-                "West Coast",
-                "East Coast",
-                "Gulf",
-                "Canada",
-                "Mexico",
-                "Europe",
-                "South America",
-                "Middle East",
-            }
-            if strict_profile
-            else set()
-        ),
-        required_regions=(set(REGIONS) - {"global"} if strict_profile else set()),
+        signal_events=signal_events if repair_mode else None,
+        required_geographies=set(scoped_geographies) if strict_profile else set(),
+        required_regions=scoped_regions if strict_profile else set(),
         required_lanes=set() if repair_mode else None,
         brief=brief,
         provider_error_codes=provider_error_codes_from_run(
             sources=sources,
             steps=repository.get_run_steps(run_id),
             tool_calls=repository.get_run_tool_calls(run_id),
+        ),
+        eligible_weekly_source_count=eligible_weekly_source_count,
+        minimum_eligible_sources=minimum_eligible_sources,
+        require_reader_contract=(
+            repair_mode
+            or run.get("migration_version") == MIGRATION_VERSION
+            or str(run.get("prompt_version") or "").startswith("workflow-v4-reader")
         ),
     )
 
@@ -1108,6 +1670,8 @@ def _quality_audit(repository: PostgresRepository) -> dict[str, object]:
             observations.append(
                 {
                     "run_id": run_id,
+                    "as_of": run.get("as_of"),
+                    "validation_profile": validation_profile_from_run(run),
                     "stored_status": stored.status.value if stored else "missing",
                     "current_status": current.status.value,
                     "blocking_reasons": validation_blocking_reasons(current),
@@ -1136,6 +1700,8 @@ def _quality_audit(repository: PostgresRepository) -> dict[str, object]:
             observations.append(
                 {
                     "run_id": run_id,
+                    "as_of": run.get("as_of"),
+                    "validation_profile": validation_profile_from_run(run),
                     "stored_status": stored.status.value if stored else "missing",
                     "current_status": "blocked",
                     "blocking_reasons": ["stale_validation"],
@@ -1143,7 +1709,17 @@ def _quality_audit(repository: PostgresRepository) -> dict[str, object]:
                     "stale_validation": True,
                 }
             )
-    current_statuses = [str(item["current_status"]) for item in observations]
+    strict_observations = [
+        item for item in observations if item.get("validation_profile") == "full"
+    ]
+    def observation_as_of(item: dict[str, object]) -> datetime:
+        value = item.get("as_of")
+        return value if isinstance(value, datetime) else datetime.min.replace(tzinfo=UTC)
+
+    latest_strict = max(strict_observations, key=observation_as_of, default=None)
+    current_statuses = (
+        [str(latest_strict["current_status"])] if latest_strict is not None else []
+    )
     reason_counts: dict[str, int] = {}
     for observation in observations:
         raw_reasons = observation.get("blocking_reasons", [])
@@ -1153,6 +1729,7 @@ def _quality_audit(repository: PostgresRepository) -> dict[str, object]:
                 reason_counts[reason] = reason_counts.get(reason, 0) + 1
     return {
         "active_runs_checked": len(observations),
+        "latest_strict_run": latest_strict,
         "current_status_counts": {
             status: current_statuses.count(status)
             for status in sorted(set(current_statuses))
@@ -1160,7 +1737,7 @@ def _quality_audit(repository: PostgresRepository) -> dict[str, object]:
         "stale_validation_count": sum(
             bool(item.get("stale_validation")) for item in observations
         ),
-        "blocking_reason_counts": dict(sorted(reason_counts.items())),
+        "raw_active_defect_reason_counts": dict(sorted(reason_counts.items())),
         "reports": observations,
     }
 
@@ -1393,8 +1970,15 @@ def _review_command(args: argparse.Namespace, settings: Settings) -> int:
             if run is None or run.get("status") != RunStatus.SUCCEEDED.value:
                 print("BLOCKED: only a succeeded run may be approved")
                 return 2
-            validation = repository.get_validation(args.run_id)
-            if validation is None or validation.status is not ValidationStatus.PASS:
+            try:
+                validation = _build_persisted_validation(repository, args.run_id)
+            except (KeyError, TypeError, ValueError) as error:
+                print(
+                    "BLOCKED: current validation could not be computed: "
+                    f"{error.__class__.__name__}"
+                )
+                return 2
+            if validation.status is not ValidationStatus.PASS:
                 print("BLOCKED: only a fully passing validation may be approved")
                 return 2
         repository.review_brief(args.run_id, decision, args.reviewer, args.notes)
@@ -1413,39 +1997,101 @@ def _export_command(args: argparse.Namespace, settings: Settings) -> int:
         if brief is None:
             print(f"ERROR: brief not found: {args.run_id}")
             return 2
-        if repository.get_validation(args.run_id) is None:
-            print("BLOCKED: run has no validation report")
-            return 2
         run = repository.get_run(args.run_id)
         if run is None or run.get("status") != "succeeded":
             print("BLOCKED: only a succeeded run may be exported")
             return 2
-        destination = (
+        try:
+            validation = _build_persisted_validation(repository, args.run_id)
+        except (KeyError, TypeError, ValueError) as error:
+            print(
+                "BLOCKED: current validation could not be computed: "
+                f"{error.__class__.__name__}"
+            )
+            return 2
+        if brief.review_state is not ReviewState.APPROVED:
+            print("BLOCKED: only reviewed briefs may be exported")
+            return 2
+        if validation.status is not ValidationStatus.PASS:
+            print("BLOCKED: only briefs with passing validation may be exported")
+            return 2
+        export_format = getattr(args, "format", "md")
+        requested_destination = (
             Path(args.output).resolve()
             if args.output
             else settings.resolved_obsidian_output_dir
             / f"{brief.covered_until.date()} - {brief.title}.md"
         )
+        if export_format == "pdf":
+            markdown_destination = requested_destination.with_suffix(".md")
+            pdf_destination = requested_destination.with_suffix(".pdf")
+        else:
+            markdown_destination = requested_destination.with_suffix(".md")
+            pdf_destination = requested_destination.with_suffix(".pdf")
         output_root = settings.resolved_obsidian_output_dir.resolve()
-        if output_root not in destination.parents and destination != output_root:
+        destinations = [markdown_destination] if export_format == "md" else [pdf_destination]
+        if export_format == "both":
+            destinations = [markdown_destination, pdf_destination]
+        if any(output_root not in destination.parents for destination in destinations):
             print("BLOCKED: exports are limited to obsidian/06_Research/Agent Runs/")
             return 2
-        export_reviewed_brief(
+        sources = repository.get_run_sources(args.run_id)
+        distillations = repository.get_run_distillations(args.run_id)
+        claims = repository.get_run_claims(args.run_id)
+        source_hashes = repository.get_run_source_hashes(args.run_id)
+        signals = repository.get_run_signal_events(args.run_id)
+        steps = repository.get_run_steps(args.run_id)
+        tool_calls = repository.get_run_tool_calls(args.run_id)
+        markdown = render_weekly_markdown(
             brief,
-            destination,
-            validation=repository.get_validation(args.run_id),
-            sources=repository.get_run_sources(args.run_id),
-            distillations=repository.get_run_distillations(args.run_id),
-            claims=repository.get_run_claims(args.run_id),
-            source_hashes=repository.get_run_source_hashes(args.run_id),
-            signals=repository.get_run_signal_events(args.run_id),
-            steps=repository.get_run_steps(args.run_id),
-            tool_calls=repository.get_run_tool_calls(args.run_id),
+            validation=validation,
+            sources=sources,
+            distillations=distillations,
+            claims=claims,
+            source_hashes=source_hashes,
+            signals=signals,
+            steps=steps,
+            tool_calls=tool_calls,
             run=run,
+            status="approved",
         )
-        print(destination)
+        if export_format in {"md", "both"}:
+            export_reviewed_brief(
+                brief,
+                markdown_destination,
+                validation=validation,
+                sources=sources,
+                distillations=distillations,
+                claims=claims,
+                source_hashes=source_hashes,
+                signals=signals,
+                steps=steps,
+                tool_calls=tool_calls,
+                run=run,
+            )
+        output_paths: list[str] = [str(markdown_destination)] if export_format != "pdf" else []
+        if export_format in {"pdf", "both"}:
+            if settings.blob_read_write_token is None:
+                print("BLOCKED: BLOB_READ_WRITE_TOKEN is required for PDF export")
+                return 2
+            from .pdf import render_pdf
+
+            render_pdf(markdown, pdf_destination)
+            artifact = upload_private_pdf(
+                pdf_destination,
+                f"reports/{args.run_id}.pdf",
+                settings.blob_read_write_token.get_secret_value(),
+            )
+            repository.record_pdf_artifact(
+                args.run_id,
+                blob_path=artifact["pathname"],
+                blob_url=artifact["url"],
+                content_hash=hashlib.sha256(pdf_destination.read_bytes()).hexdigest(),
+            )
+            output_paths.append(str(pdf_destination))
+        print("\n".join(output_paths))
         return 0
-    except PermissionError as error:
+    except (PermissionError, RuntimeError, OSError) as error:
         print(f"BLOCKED: {error}")
         return 2
     finally:
@@ -1458,14 +2104,16 @@ def _parser() -> argparse.ArgumentParser:
 
     run = subparsers.add_parser("run")
     run.add_argument("--topic-set", default="dnd-port")
+    run.add_argument("--scope", choices=["global", "us-mexico"], default="global")
+    run.add_argument("--new-only", action="store_true")
     run.add_argument("--cadence", choices=["daily", "weekly"], default="weekly")
     run.add_argument("--strict", action="store_true")
     run.add_argument("--allow-free-fallbacks", action="store_true")
     run.add_argument("--json", action="store_true")
     run.add_argument("--verbose", action="store_true")
-    run.add_argument("--run-id")
+    run.add_argument("--run-id", required=True)
     run.add_argument("--since")
-    run.add_argument("--as-of")
+    run.add_argument("--as-of", required=True)
     run.add_argument("--max-sources", type=int, default=25)
     run.add_argument("--model")
     run.add_argument("--seed-url", action="append", default=[])
@@ -1474,10 +2122,12 @@ def _parser() -> argparse.ArgumentParser:
     e2e.add_argument(
         "--profile", choices=["canary", "global-canary", "full"], default="canary"
     )
+    e2e.add_argument("--scope", choices=["global", "us-mexico"], default="global")
+    e2e.add_argument("--new-only", action="store_true")
     e2e.add_argument("--strict", action="store_true")
     e2e.add_argument("--allow-free-fallbacks", action="store_true")
     e2e.add_argument("--run-id", required=True)
-    e2e.add_argument("--as-of")
+    e2e.add_argument("--as-of", required=True)
     e2e.add_argument("--json", action="store_true")
     e2e.add_argument("--verbose", action="store_true")
 
@@ -1520,10 +2170,14 @@ def _parser() -> argparse.ArgumentParser:
     audit.add_argument("--allow-free-fallbacks", action="store_true")
     audit.add_argument("--json", action="store_true")
 
+    system_report = subparsers.add_parser("system-report")
+    system_report.add_argument("--output")
+    system_report.add_argument("--json", action="store_true")
+
     repair = subparsers.add_parser("repair")
     repair.add_argument("--source-scope", choices=["incomplete"], default="incomplete")
     repair.add_argument("--run-id", required=True)
-    repair.add_argument("--as-of")
+    repair.add_argument("--as-of", required=True)
     repair.add_argument("--max-sources", type=int, default=25)
     repair.add_argument("--allow-free-fallbacks", action="store_true")
     repair.add_argument("--verbose", action="store_true")
@@ -1547,6 +2201,7 @@ def _parser() -> argparse.ArgumentParser:
     export = subparsers.add_parser("export")
     export.add_argument("--run-id", required=True)
     export.add_argument("--output")
+    export.add_argument("--format", choices=["md", "pdf", "both"], default="md")
     return parser
 
 
@@ -1559,6 +2214,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _rollup_command(args, settings)
     if args.command == "audit":
         return _audit_command(args, settings)
+    if args.command == "system-report":
+        return _system_report_command(args, settings)
     if args.command == "repair":
         return _repair_command(args, settings)
     if args.command == "e2e":
@@ -1633,7 +2290,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         import uvicorn
 
-        uvicorn.run(create_app(repository), host=settings.host, port=settings.port)
+        uvicorn.run(
+            create_app(repository, settings=settings),
+            host=settings.host,
+            port=settings.port,
+        )
         return 0
     print("Unknown command", file=sys.stderr)
     return 2

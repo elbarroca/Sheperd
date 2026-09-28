@@ -12,18 +12,29 @@ from sheperd_research.contracts import (
     ArticleDistillation,
     ArticleInsight,
     ClaimDraft,
+    DecisionScore,
+    DistillationQualityStatus,
     EvidenceStatus,
     ExtractionStatus,
+    PageType,
+    PublicationDateBasis,
     ReportBullet,
     ResearchRunRequest,
+    RunKind,
     RunStatus,
     SignalEvent,
     SourceCandidate,
+    ValidationCheck,
     ValidationReport,
     ValidationStatus,
     WeeklyBrief,
 )
-from sheperd_research.db import InMemoryRepository, PostgresRepository, run_migrations
+from sheperd_research.db import (
+    MIGRATION_VERSION,
+    InMemoryRepository,
+    PostgresRepository,
+    run_migrations,
+)
 
 
 def test_task4_migration_adds_structured_audit_indexes_without_raw_storage() -> None:
@@ -112,6 +123,538 @@ def test_migrations_enforce_the_exact_gemma_database_policy() -> None:
     assert "IS DISTINCT FROM 'google/gemma-4-26b-a4b-it:free'" in strict_migration
 
 
+def test_0016_adds_repair_lineage_snapshots_and_complete_event_contract() -> None:
+    migration = (
+        Path(__file__).parents[1]
+        / "migrations"
+        / "0016_repair_lineage_event_contract.sql"
+    ).read_text(encoding="utf-8")
+
+    assert MIGRATION_VERSION == "0016_repair_lineage_event_contract"
+    assert not migration.startswith("BEGIN;")
+    assert not migration.rstrip().endswith("COMMIT;")
+    assert "ADD COLUMN IF NOT EXISTS run_kind" in migration
+    assert "ADD COLUMN IF NOT EXISTS parent_run_id" in migration
+    assert "ADD COLUMN IF NOT EXISTS repair_round" in migration
+    assert "ADD COLUMN IF NOT EXISTS source_snapshot JSONB" in migration
+    assert "ADD COLUMN IF NOT EXISTS published_at_snapshot TIMESTAMPTZ" in migration
+    assert "ADD COLUMN IF NOT EXISTS retrieved_at_snapshot TIMESTAMPTZ" in migration
+    assert "snapshot_basis" in migration
+    assert "'legacy_backfill'" in migration
+    assert "published_at_snapshot = s.published_at" in migration
+    assert "retrieved_at_snapshot = s.retrieved_at" in migration
+    assert "COALESCE(s.published_at, s.retrieved_at)" not in migration
+    for column in (
+        "headline",
+        "what_changed",
+        "published_at",
+        "retrieved_at",
+        "period_status",
+        "period_basis",
+        "eligible_for_weekly",
+        "region",
+        "lane",
+        "evidence_locator",
+        "impact",
+        "risk",
+        "opportunity",
+        "next_step",
+        "limitations",
+    ):
+        assert f"ADD COLUMN IF NOT EXISTS {column}" in migration
+
+
+def test_in_memory_run_lineage_and_source_snapshots_are_parent_scoped() -> None:
+    repository = InMemoryRepository()
+    parent_request = ResearchRunRequest(topic_set="dnd-port")
+    repository.create_run("parent", parent_request)
+    repair_request = ResearchRunRequest(
+        topic_set="dnd-port",
+        validation_profile="repair",
+        run_kind=RunKind.REPAIR,
+        parent_run_id="parent",
+        repair_round=1,
+    )
+    repository.create_run("repair-p-parent-r1", repair_request)
+    original = SourceCandidate(
+        url="https://example.com/source",
+        title="Original title",
+        published_at=datetime(2026, 8, 18, tzinfo=UTC),
+    )
+    repository.record_source(original, run_id="parent")
+    repository.record_source(
+        original.model_copy(update={"title": "Mutable canonical title"}),
+        run_id="repair-p-parent-r1",
+    )
+    for run_id in ("parent", "repair-p-parent-r1"):
+        repository.record_brief(
+            WeeklyBrief(
+                run_id=run_id,
+                title=f"Brief {run_id}",
+                covered_from=datetime(2026, 8, 18, tzinfo=UTC),
+                covered_until=datetime(2026, 8, 19, tzinfo=UTC),
+                summary="Draft.",
+            )
+        )
+
+    repair_run = repository.get_run("repair-p-parent-r1")
+    assert repair_run is not None
+    assert repair_run["run_kind"] == "repair"
+    assert repair_run["parent_run_id"] == "parent"
+    assert repair_run["repair_round"] == 1
+    assert repository.get_run_sources("parent")[0].title == "Original title"
+    assert [run["run_id"] for run in repository.list_runs()] == ["parent"]
+    assert {
+        run["run_id"] for run in repository.list_runs(include_repairs=True)
+    } == {"parent", "repair-p-parent-r1"}
+    assert [brief.run_id for brief in repository.list_briefs()] == ["parent"]
+
+
+def test_run_source_period_eligibility_requires_direct_complete_scored_evidence() -> None:
+    repository = InMemoryRepository()
+    request = ResearchRunRequest(
+        topic_set="dnd-port",
+        as_of=datetime(2026, 8, 28, tzinfo=UTC),
+    )
+    repository.create_run("eligibility", request)
+    score = DecisionScore(
+        sheperd_relevance=30,
+        operational_impact=25,
+        actionability=20,
+        recency=15,
+        source_authority=10,
+        total=100,
+    )
+    direct = SourceCandidate(
+        url="https://example.com/direct",
+        published_at=datetime(2026, 8, 25, tzinfo=UTC),
+        extraction_status=ExtractionStatus.SUCCEEDED,
+        page_type=PageType.ARTICLE,
+        direct_content=True,
+        publication_date_basis=PublicationDateBasis.PAGE,
+        lane="us-ports",
+        region="us",
+    )
+    archive = direct.model_copy(
+        update={
+            "url": "https://example.com/news",
+            "page_type": PageType.ARCHIVE,
+            "direct_content": False,
+        }
+    )
+    unscored = direct.model_copy(update={"url": "https://example.com/unscored"})
+    feed = direct.model_copy(update={"url": "https://example.com/comments/feed"})
+    for source in (direct, archive, unscored, feed):
+        repository.record_source(source, run_id="eligibility")
+    for source in (direct, archive, feed):
+        repository.record_distillation(
+            "eligibility",
+            ArticleDistillation(
+                source_url=source.url,
+                summary="Complete decision packet.",
+                quality_status=DistillationQualityStatus.COMPLETE,
+                decision_score=score,
+                insight_packet={"decision_score": score.model_dump(mode="json")},
+            ),
+        )
+
+    repository.set_run_source_periods(
+        "eligibility",
+        datetime(2026, 8, 21, tzinfo=UTC),
+        datetime(2026, 8, 28, tzinfo=UTC),
+    )
+
+    periods = repository.get_run_source_periods("eligibility")
+    assert periods[direct.url]["eligible_for_weekly"] is True
+    assert periods[archive.url]["period_status"] == "in_period"
+    assert periods[archive.url]["eligible_for_weekly"] is False
+    assert periods[unscored.url]["eligible_for_weekly"] is False
+    assert periods[feed.url]["eligible_for_weekly"] is False
+
+
+def test_postgres_period_eligibility_reads_the_immutable_snapshot_and_packet() -> None:
+    repository = PostgresRepository(Mock())
+
+    with patch.object(repository, "_execute") as execute:
+        repository.set_run_source_periods(
+            "run-1",
+            datetime(2026, 8, 21, tzinfo=UTC),
+            datetime(2026, 8, 28, tzinfo=UTC),
+        )
+
+    query = execute.call_args.args[0]
+    assert "rs.source_snapshot ->> 'direct_content'" in query
+    assert "rs.source_snapshot ->> 'page_type'" in query
+    assert "rs.source_snapshot ->> 'publication_date_basis'" in query
+    assert "ad.insight_packet -> 'decision_score'" in query
+    assert "/feed" in query
+
+
+def test_postgres_persists_repair_lineage_and_run_source_snapshot() -> None:
+    repository = PostgresRepository(Mock(), neon_branch_id="main")
+    request = ResearchRunRequest(
+        topic_set="dnd-port",
+        context_version="commit:manifest",
+        research_timezone="Europe/Lisbon",
+        validation_profile="repair",
+        run_kind=RunKind.REPAIR,
+        parent_run_id="parent",
+        repair_round=2,
+    )
+    source = SourceCandidate(
+        url="https://example.com/source?token=secret",
+        title="Snapshot title",
+        published_at=datetime(2026, 8, 18, tzinfo=UTC),
+        retrieved_at=datetime(2026, 8, 19, tzinfo=UTC),
+        lane="us-ports",
+    )
+
+    with patch.object(repository, "_execute", return_value=[]) as execute:
+        repository.create_run("repair-run", request)
+        repository.record_source(source, run_id="repair-run")
+
+    create_query, create_params = execute.call_args_list[0].args
+    assert "run_kind, parent_run_id, repair_round" in create_query
+    assert create_params[8] == "workflow-v4-reader"
+    assert create_params[-3:] == (RunKind.REPAIR, "parent", 2)
+    persisted_request = json.loads(create_params[2])
+    assert persisted_request["context_version"] == "commit:manifest"
+    assert persisted_request["research_timezone"] == "Europe/Lisbon"
+
+    snapshot_query, snapshot_params = execute.call_args_list[2].args
+    assert "source_snapshot" in snapshot_query
+    assert "published_at_snapshot" in snapshot_query
+    assert "retrieved_at_snapshot" in snapshot_query
+    assert "FROM research_runs" in snapshot_query
+    snapshot = json.loads(snapshot_params[4])
+    assert snapshot["url"] == "https://example.com/source"
+    assert snapshot["title"] == "Snapshot title"
+    assert snapshot_params[5] == source.published_at
+    assert snapshot_params[6] == source.retrieved_at
+    assert snapshot_params[7] == "captured"
+
+
+def test_postgres_signal_event_round_trip_uses_complete_contract() -> None:
+    repository = PostgresRepository(Mock())
+    event = SignalEvent(
+        event_id="event-1",
+        run_id="run-1",
+        event_type="port",
+        summary="A port update.",
+        headline="Port update",
+        what_changed="The port changed its published operating guidance.",
+        published_at=datetime(2026, 8, 18, tzinfo=UTC),
+        retrieved_at=datetime(2026, 8, 19, tzinfo=UTC),
+        period_status="in_period",
+        period_basis="published_at",
+        eligible_for_weekly=True,
+        region="us",
+        lane="us-ports",
+        source_urls=["https://example.com/source"],
+        evidence_locator="paragraph 2",
+        impact="Operators may need to adjust.",
+        risk="Not observed: no material risk was established.",
+        opportunity="Not observed: no opportunity was established.",
+        next_step="Monitor the port update.",
+        limitations=["One public source."],
+    )
+
+    with patch.object(repository, "_execute", return_value=[]) as execute:
+        repository.record_signal_events([event])
+    assert "headline, what_changed" in execute.call_args.args[0]
+    assert "limitations" in execute.call_args.args[0]
+
+    row = (
+        event.event_id,
+        event.event_type,
+        event.summary,
+        event.geographies,
+        event.ports,
+        event.carriers,
+        event.event_at,
+        event.source_urls,
+        event.evidence_status.value,
+        event.headline,
+        event.what_changed,
+        event.published_at,
+        event.retrieved_at,
+        event.period_status.value,
+        event.period_basis.value,
+        event.eligible_for_weekly,
+        event.region,
+        event.lane,
+        event.evidence_locator,
+        event.impact,
+        event.risk,
+        event.opportunity,
+        event.next_step,
+        event.limitations,
+    )
+    with patch.object(repository, "_execute", return_value=[row]):
+        loaded = repository.get_run_signal_events("run-1")
+
+    assert loaded == [event]
+
+
+def test_postgres_run_source_reads_use_the_immutable_snapshot() -> None:
+    repository = PostgresRepository(Mock())
+    retrieved_at = datetime(2026, 8, 19, tzinfo=UTC)
+    snapshot = SourceCandidate(
+        url="https://example.com/snapshot",
+        title="Captured title",
+        published_at=None,
+        retrieved_at=retrieved_at,
+        lane="regulatory",
+    ).model_dump(mode="json")
+    row = (
+        snapshot,
+        None,
+        retrieved_at,
+        "succeeded",
+        None,
+        "undated",
+        "unknown",
+        False,
+    )
+
+    with patch.object(repository, "_execute", return_value=[row]) as execute:
+        loaded = repository.get_run_sources("run-1")
+
+    query = execute.call_args.args[0]
+    assert "rs.source_snapshot" in query
+    assert "rs.published_at_snapshot" in query
+    assert loaded[0].title == "Captured title"
+    assert loaded[0].published_at is None
+    assert loaded[0].retrieved_at == retrieved_at
+
+
+def test_in_memory_clone_run_evidence_preserves_parent_hashes_and_packets() -> None:
+    repository = InMemoryRepository()
+    parent_request = ResearchRunRequest(topic_set="dnd-port")
+    repository.create_run("parent", parent_request)
+    child_request = ResearchRunRequest(
+        topic_set="dnd-port",
+        validation_profile="repair",
+        run_kind="repair",
+        parent_run_id="parent",
+        repair_round=1,
+    )
+    repository.create_run("child", child_request)
+    source = SourceCandidate(
+        url="https://example.com/source",
+        extraction_status=ExtractionStatus.SUCCEEDED,
+    )
+    claim = ClaimDraft(claim="A cited claim.", source_urls=[source.url])
+    distillation = ArticleDistillation(
+        source_url=source.url,
+        summary="Complete summary.",
+        key_points=["Point one.", "Point two."],
+        claims=[claim],
+    )
+    repository.record_source(source, run_id="parent")
+    repository.record_snapshot("parent", source, "immutable body")
+    repository.record_distillation("parent", distillation)
+    repository.record_claims("parent", [claim])
+
+    repository.clone_run_evidence("parent", "child", [source.url])
+
+    assert repository.get_run_sources("child") == repository.get_run_sources("parent")
+    assert repository.get_run_snapshot_hashes("child") == repository.get_run_snapshot_hashes(
+        "parent"
+    )
+    assert repository.get_run_distillations("child") == [distillation]
+    assert repository.get_run_claims("child") == [claim]
+
+
+def test_in_memory_retention_copies_latest_snapshot_receipt_without_content() -> None:
+    repository = InMemoryRepository()
+    repository.create_run("origin", ResearchRunRequest(topic_set="dnd-port"))
+    repository.create_run("weekly", ResearchRunRequest(topic_set="dnd-port"))
+    source = SourceCandidate(url="https://example.com/source")
+    repository.record_source(source, run_id="origin")
+    repository.record_snapshot("origin", source, "immutable source body")
+    origin_hash = repository.get_run_snapshot_hashes("origin")[0]
+
+    copied_hash = repository.copy_latest_source_snapshot("weekly", source.url)
+
+    assert copied_hash == origin_hash
+    assert repository.get_run_snapshot_hashes("weekly") == [origin_hash]
+    assert "content" not in repository.source_snapshots[("weekly", source.url)]
+
+
+def test_postgres_retention_copies_latest_snapshot_receipt_append_only() -> None:
+    repository = PostgresRepository(Mock())
+    expected_hash = "a" * 64
+    with patch.object(
+        repository,
+        "_execute",
+        side_effect=[[(expected_hash,)]],
+    ) as execute:
+        copied_hash = repository.copy_latest_source_snapshot(
+            "weekly",
+            "https://example.com/source?secret=redacted",
+        )
+
+    query, params = execute.call_args.args
+    assert copied_hash == expected_hash
+    assert "INSERT INTO source_snapshots" in query
+    assert "SELECT %s, normalized_url, content_hash, content_length, retrieved_at" in query
+    assert "DELETE" not in query.upper()
+    assert params == (
+        "weekly",
+        "https://example.com/source",
+        "weekly",
+    )
+
+
+def test_audit_separates_raw_legacy_defects_from_resolved_repair_parents() -> None:
+    repository = InMemoryRepository()
+    repository.create_run("parent", ResearchRunRequest(topic_set="dnd-port"))
+    source = SourceCandidate(url="https://example.com/source")
+    repository.record_source(source, run_id="parent")
+    repository.record_distillation(
+        "parent",
+        ArticleDistillation(source_url=source.url, summary="Legacy packet."),
+    )
+    child_request = ResearchRunRequest(
+        topic_set="dnd-port",
+        validation_profile="repair",
+        run_kind="repair",
+        parent_run_id="parent",
+        repair_round=1,
+    )
+    repository.create_run("child", child_request)
+    repository.update_run_status("child", RunStatus.SUCCEEDED)
+    repository.record_validation(
+        ValidationReport(
+            run_id="child",
+            status=ValidationStatus.PASS,
+            checks=[
+                ValidationCheck(
+                    name="reader_source_contract",
+                    status=ValidationStatus.PASS,
+                    observed=1,
+                    expected=1,
+                    message="direct dated scored article contract",
+                )
+            ],
+        )
+    )
+
+    history = repository.audit_summary()["history_quality"]
+
+    assert history["raw_defect_parent_count"] == 1
+    assert history["resolved_parent_count"] == 1
+    assert history["unresolved_parent_count"] == 0
+    assert history["unresolved_parent_ids"] == []
+
+
+def test_audit_does_not_treat_a_legacy_pass_as_reader_contract_repair() -> None:
+    repository = InMemoryRepository()
+    repository.create_run("parent", ResearchRunRequest(topic_set="dnd-port"))
+    source = SourceCandidate(url="https://example.com/source")
+    repository.record_source(source, run_id="parent")
+    repository.record_distillation(
+        "parent",
+        ArticleDistillation(source_url=source.url, summary="Legacy packet."),
+    )
+    repository.create_run(
+        "child",
+        ResearchRunRequest(
+            topic_set="dnd-port",
+            validation_profile="repair",
+            run_kind="repair",
+            parent_run_id="parent",
+            repair_round=1,
+        ),
+    )
+    repository.update_run_status("child", RunStatus.SUCCEEDED)
+    repository.record_validation(
+        ValidationReport(run_id="child", status=ValidationStatus.PASS)
+    )
+
+    history = repository.audit_summary()["history_quality"]
+
+    assert history["resolved_parent_count"] == 0
+    assert history["unresolved_parent_count"] == 1
+    assert history["unresolved_parent_ids"] == ["parent"]
+
+
+def test_audit_keeps_source_less_raw_defects_out_of_the_repair_gate() -> None:
+    repository = InMemoryRepository()
+    repository.create_run("raw-only", ResearchRunRequest(topic_set="dnd-port"))
+
+    history = repository.audit_summary()["history_quality"]
+
+    assert history["raw_defect_parent_count"] == 1
+    assert history["resolved_parent_count"] == 0
+    assert history["unresolved_parent_count"] == 0
+    assert history["unresolved_parent_ids"] == []
+
+
+def test_audit_keeps_unenrolled_source_defects_out_of_the_repair_gate() -> None:
+    repository = InMemoryRepository()
+    repository.create_run("raw-only", ResearchRunRequest(topic_set="dnd-port"))
+    repository.record_source(
+        SourceCandidate(url="https://example.com/source"),
+        run_id="raw-only",
+    )
+
+    history = repository.audit_summary()["history_quality"]
+
+    assert history["raw_defect_parent_count"] == 1
+    assert history["repair_parent_count"] == 0
+    assert history["unresolved_parent_count"] == 0
+    assert history["unresolved_parent_ids"] == []
+
+
+def test_postgres_history_gate_uses_reader_contract_and_validated_child() -> None:
+    repository = PostgresRepository(Mock())
+    with patch.object(
+        repository,
+        "_execute",
+        side_effect=[
+            [(0,) * 14],
+            [("neondb", "schema_migrations", "16")],
+            [(MIGRATION_VERSION,)],
+            [(0, 0, 0, 0, 0)],
+            [],
+        ],
+    ) as execute:
+        repository.audit_summary()
+
+    history_query = execute.call_args_list[-1].args[0]
+    assert "source_snapshot ->> 'direct_content'" in history_query
+    assert "source_snapshot ->> 'page_type'" in history_query
+    assert "source_snapshot ->> 'publication_date_basis'" in history_query
+    assert "ad.prompt_version LIKE 'distill-v7%%'" in history_query
+    assert "decision_score" in history_query
+    assert "reader_source_contract" in history_query
+    assert "child.parent_run_id = parent.run_id" in history_query
+    assert "/feed" in history_query
+
+
+def test_postgres_clone_run_evidence_is_append_only_and_parent_scoped() -> None:
+    repository = PostgresRepository(Mock())
+
+    with patch.object(repository, "_execute", return_value=[]) as execute:
+        repository.clone_run_evidence(
+            "parent",
+            "child",
+            ["https://example.com/source?token=secret"],
+        )
+
+    assert execute.call_count == 4
+    queries = [call.args[0] for call in execute.call_args_list]
+    assert "INSERT INTO run_sources" in queries[0]
+    assert "INSERT INTO source_snapshots" in queries[1]
+    assert "INSERT INTO article_distillations" in queries[2]
+    assert "INSERT INTO claims" in queries[3]
+    assert all("DELETE" not in query.upper() for query in queries)
+    assert all(call.args[1][:2] == ("child", "parent") for call in execute.call_args_list)
+    assert execute.call_args_list[0].args[1][2] == ["https://example.com/source"]
+
+
 def test_postgres_health_blocks_stale_or_missing_schema_migration() -> None:
     repository = PostgresRepository(Mock(), neon_branch_id="branch-1")
 
@@ -128,7 +671,7 @@ def test_postgres_health_blocks_stale_or_missing_schema_migration() -> None:
     assert stale["status"] == "blocked"
     assert stale["database"] == "neondb"
     assert stale["migration_version"] == "0012_article_insight_quality"
-    assert stale["expected_migration_version"] == "0013_run_sources"
+    assert stale["expected_migration_version"] == MIGRATION_VERSION
     assert "schema_migration_stale" in stale["blocking_reasons"]
     assert "user" not in stale
 
@@ -250,6 +793,7 @@ def test_in_memory_repository_exposes_structured_step_audit_and_source_hashes() 
 def test_repositories_redact_raw_step_metadata_before_persistence() -> None:
     metadata = {
         "source_count": 1,
+        "selection_basis": "captured_tool_evidence_fallback",
         "prompt": "PROMPT_SECRET",
         "reasoning": "REASONING_SECRET",
         "article_body": "BODY_SECRET",
@@ -278,6 +822,7 @@ def test_repositories_redact_raw_step_metadata_before_persistence() -> None:
     stored = json.dumps(repository.get_run_steps("run-1")[0]["metadata"])
 
     assert '"source_count": 1' in stored
+    assert "captured_tool_evidence_fallback" in stored
     assert "critic-v4" in stored
     assert "tavily_search" in stored
     for secret in (
@@ -297,6 +842,7 @@ def test_repositories_redact_raw_step_metadata_before_persistence() -> None:
 
     persisted = json.loads(execute.call_args.args[1][3])
     assert persisted["source_count"] == 1
+    assert persisted["selection_basis"] == "captured_tool_evidence_fallback"
     assert persisted["call"]["prompt_version"] == "critic-v4"
     assert "prompt" not in persisted
     assert "reasoning" not in persisted
@@ -373,6 +919,60 @@ def test_postgres_brief_summary_aggregates_are_scoped_to_the_report_page() -> No
     assert "JOIN page_briefs page_claim" in query
     assert "JOIN page_briefs page_signal" in query
     assert "JOIN page_briefs page_article" in query
+    assert "/feed" in query
+    assert (
+        "AND NOT (lower(trim(trailing '/' from split_part(adq.normalized_url"
+        in query
+    )
+
+
+def test_postgres_report_count_excludes_repair_runs_by_default() -> None:
+    repository = PostgresRepository(Mock())
+    with patch.object(repository, "_execute", return_value=[(0,)]) as execute:
+        repository.count_brief_summaries(ready_only=True)
+
+    assert "rr.run_kind = 'research'" in execute.call_args.args[0]
+    assert "/feed" in execute.call_args.args[0]
+
+
+def test_postgres_trailing_evidence_reads_run_snapshots() -> None:
+    repository = PostgresRepository(Mock())
+    since = datetime(2026, 8, 12, tzinfo=UTC)
+    until = datetime(2026, 8, 19, tzinfo=UTC)
+    with patch.object(repository, "_execute", return_value=[]) as execute:
+        repository.get_trailing_evidence(
+            topic_set="dnd-port",
+            since=since,
+            until=until,
+        )
+
+    query = execute.call_args.args[0]
+    assert "JOIN run_sources rs" in query
+    assert "rs.source_snapshot" in query
+    assert "rs.published_at_snapshot" in query
+    assert "rs.retrieved_at_snapshot" in query
+    assert " s.published_at," not in query
+
+
+def test_postgres_read_snapshot_reuses_one_read_only_transaction() -> None:
+    connection = MagicMock()
+    cursor = MagicMock()
+    cursor.__enter__.return_value = cursor
+    cursor.description = True
+    cursor.fetchall.return_value = [(1,)]
+    connection.cursor.return_value = cursor
+    repository = PostgresRepository(connection)
+
+    with repository.read_snapshot():
+        assert repository._execute("SELECT 1") == [(1,)]
+        assert repository._execute("SELECT 2") == [(1,)]
+
+    assert [call.args[0] for call in cursor.execute.call_args_list] == [
+        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY",
+        "SELECT 1",
+        "SELECT 2",
+    ]
+    connection.commit.assert_not_called()
 
 
 def test_postgres_brief_summaries_restore_provider_blocking_reasons() -> None:
@@ -791,10 +1391,12 @@ def test_postgres_failed_source_has_run_membership_without_a_snapshot() -> None:
     association_query, association_params = execute.call_args_list[1].args
     assert "INSERT INTO run_sources" in association_query
     assert association_params[:2] == ("failed-run", source.url)
-    assert association_params[2:] == (
+    assert association_params[2:4] == (
         ExtractionStatus.FAILED,
         "provider_unavailable",
     )
+    assert json.loads(association_params[4])["url"] == source.url
+    assert association_params[7] == "captured"
 
     row = (
         source.url,
@@ -825,7 +1427,7 @@ def test_postgres_failed_source_has_run_membership_without_a_snapshot() -> None:
     with patch.object(repository, "_execute", return_value=[row]) as execute:
         loaded = repository.get_run_sources("failed-run")
 
-    assert "JOIN run_sources" in execute.call_args.args[0]
+    assert "FROM run_sources" in execute.call_args.args[0]
     assert loaded[0].extraction_status is ExtractionStatus.FAILED
     assert loaded[0].extraction_error_code == "provider_unavailable"
 
@@ -1105,6 +1707,9 @@ def test_postgres_source_upsert_returns_merged_seed_metadata() -> None:
 def test_postgres_repository_reconnects_once_after_connection_loss() -> None:
     disconnected = Mock()
     disconnected.cursor.side_effect = OperationalError("SSL connection is closed")
+    disconnected.rollback.side_effect = OperationalError(
+        "another command is already in progress"
+    )
     replacement = Mock()
     cursor = Mock(description=None)
     cursor_context = MagicMock()
@@ -1121,6 +1726,8 @@ def test_postgres_repository_reconnects_once_after_connection_loss() -> None:
         assert repository._execute("SELECT 1") == []
 
     connect.assert_called_once()
+    disconnected.rollback.assert_not_called()
+    disconnected.close.assert_called_once()
     replacement.commit.assert_called_once()
 
 

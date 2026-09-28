@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import threading
-from collections import defaultdict
-from collections.abc import Sequence
+from collections import Counter, defaultdict
+from collections.abc import Iterator, Sequence
+from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -19,6 +20,8 @@ from .contracts import (
     EvidenceStatus,
     ExtractionStatus,
     FreshnessStatus,
+    PeriodBasis,
+    PeriodStatus,
     ReportBullet,
     ResearchRunRequest,
     ReviewState,
@@ -30,6 +33,7 @@ from .contracts import (
     ValidationStatus,
     WeeklyBrief,
 )
+from .periods import classify_period, utc_datetime
 from .validation import validation_blocking_reasons
 from .validators import (
     ACTIONABLE_REPORT_SECTIONS,
@@ -38,9 +42,13 @@ from .validators import (
     content_hash,
     normalize_url,
     quality_metrics,
+    reader_source_contract_issues,
+    source_weekly_evidence_ready,
+    validate_report_sections,
 )
 
-MIGRATION_VERSION = "0013_run_sources"
+MIGRATION_VERSION = "0016_repair_lineage_event_contract"
+WORKFLOW_PROMPT_VERSION = "workflow-v4-reader"
 ArchiveScope = Literal["active", "archived", "all"]
 _ARCHIVE_SCOPES = frozenset({"active", "archived", "all"})
 _AUDIT_TEXT_LIMIT = 400
@@ -90,6 +98,7 @@ _AUDIT_METADATA_TEXT_FIELDS = frozenset(
         "request_id",
         "resolved_model",
         "requested_model",
+        "selection_basis",
         "source_url",
         "status",
     }
@@ -235,6 +244,10 @@ def _row_float(value: object) -> float:
     return float(value) if isinstance(value, (Decimal, int, float)) else 0.0
 
 
+def _row_int(value: object) -> int:
+    return int(value) if isinstance(value, (Decimal, int, float)) else 0
+
+
 def _row_strings(value: object) -> list[str]:
     if not isinstance(value, (list, tuple)):
         return []
@@ -249,6 +262,17 @@ def _archive_scope_clause(scope: str, column: str) -> str:
     if scope == "archived":
         return f"{column} IS NOT NULL"
     return "TRUE"
+
+
+def _navigation_url_sql(expression: str) -> str:
+    normalized = f"lower(trim(trailing '/' from split_part({expression}, '?', 1)))"
+    return (
+        f"({normalized} ~ '(/feed|/rss|[.](atom|rss|xml))$' "
+        f"OR {normalized} ~ '/(archive|category|search)(/|$)' "
+        f"OR {normalized} ~ '/(articles|blog|media|news|news-events|newsroom|"
+        "press-releases|updates)$' "
+        f"OR {normalized} ~ '^https?://[^/]+$')"
+    )
 
 
 def _is_archived(run: dict[str, object]) -> bool:
@@ -465,6 +489,12 @@ def _seed_safe_source(source: SourceCandidate) -> SourceCandidate:
     )
 
 
+def _run_source_snapshot(source: SourceCandidate) -> dict[str, object]:
+    payload = source.model_dump(mode="json")
+    payload["url"] = normalize_url(source.url)
+    return payload
+
+
 def _safe_public_url(value: object) -> str | None:
     if not isinstance(value, str):
         return None
@@ -529,6 +559,12 @@ def _article_distillation_from_row(
     insight_packet = row[17] if len(row) > 17 and isinstance(row[17], dict) else {}
     return ArticleDistillation(
         source_url=_require_public_url(row[0]),
+        headline=cast(str, insight_packet.get("headline") or ""),
+        event_type=cast(str, insight_packet.get("event_type") or "other"),
+        event_at=insight_packet.get("event_at"),
+        event_at_locator=cast(
+            str | None, insight_packet.get("event_at_locator")
+        ),
         summary=cast(str, row[1]),
         key_points=cast(list[str], row[2] or []),
         entities=cast(list[str], row[3] or []),
@@ -555,6 +591,7 @@ def _article_distillation_from_row(
         next_steps=cast(list[str], insight_packet.get("next_steps", []) or []),
         quality_status=quality_status,
         quality_issues=cast(list[str], quality_issues),
+        decision_score=insight_packet.get("decision_score"),
     )
 
 
@@ -569,7 +606,45 @@ def _validate_new_distillation_evidence(distillation: ArticleDistillation) -> No
             raise ValueError("evidence_locators entries must be at most 300 characters")
 
 
+def _signal_event_from_row(
+    row: Sequence[object], *, run_id: str | None = None
+) -> SignalEvent:
+    current_run_id = cast(str, row[1]) if run_id is None else run_id
+    values = row[2:] if run_id is None else row[1:]
+    return SignalEvent(
+        event_id=cast(str, row[0]),
+        run_id=current_run_id,
+        event_type=cast(str, values[0]),
+        summary=cast(str, values[1]),
+        geographies=cast(list[str], values[2] or []),
+        ports=cast(list[str], values[3] or []),
+        carriers=cast(list[str], values[4] or []),
+        event_at=cast(datetime | None, values[5]),
+        source_urls=_safe_public_urls(values[6] or []),
+        evidence_status=EvidenceStatus(cast(str, values[7])),
+        headline=cast(str, values[8] or ""),
+        what_changed=cast(str, values[9] or ""),
+        published_at=cast(datetime | None, values[10]),
+        retrieved_at=cast(datetime | None, values[11]),
+        period_status=(
+            PeriodStatus(cast(str, values[12])) if values[12] else None
+        ),
+        period_basis=PeriodBasis(cast(str, values[13])) if values[13] else None,
+        eligible_for_weekly=bool(values[14]),
+        region=cast(str, values[15] or ""),
+        lane=cast(str, values[16] or ""),
+        evidence_locator=cast(str | None, values[17]),
+        impact=cast(str, values[18] or ""),
+        risk=cast(str, values[19] or ""),
+        opportunity=cast(str, values[20] or ""),
+        next_step=cast(str, values[21] or ""),
+        limitations=cast(list[str], values[22] or []),
+    )
+
+
 class RepositoryProtocol(Protocol):
+    def read_snapshot(self) -> AbstractContextManager[None]: ...
+
     def create_run(self, run_id: str, request: ResearchRunRequest) -> None: ...
 
     def update_run_status(
@@ -647,6 +722,12 @@ class RepositoryProtocol(Protocol):
 
     def record_snapshot(self, run_id: str, source: SourceCandidate, content: str) -> None: ...
 
+    def copy_latest_source_snapshot(self, run_id: str, source_url: str) -> str | None: ...
+
+    def clone_run_evidence(
+        self, parent_run_id: str, child_run_id: str, source_urls: list[str]
+    ) -> None: ...
+
     def record_distillation(self, run_id: str, distillation: ArticleDistillation) -> None: ...
 
     def record_claims(self, run_id: str, claims: list[ClaimDraft]) -> None: ...
@@ -668,6 +749,14 @@ class RepositoryProtocol(Protocol):
     def get_run(self, run_id: str) -> dict[str, object] | None: ...
 
     def get_run_sources(self, run_id: str) -> list[SourceCandidate]: ...
+
+    def set_run_source_periods(
+        self, run_id: str, covered_from: datetime, covered_until: datetime
+    ) -> None: ...
+
+    def get_run_source_periods(self, run_id: str) -> dict[str, dict[str, object]]: ...
+
+    def get_run_period_counts(self, run_id: str) -> dict[str, int]: ...
 
     def get_run_claims(self, run_id: str) -> list[ClaimDraft]: ...
 
@@ -699,6 +788,7 @@ class RepositoryProtocol(Protocol):
         status: RunStatus | str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
+        include_repairs: bool = False,
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict[str, object]]: ...
@@ -801,6 +891,14 @@ class RepositoryProtocol(Protocol):
 
     def audit_summary(self) -> dict[str, object]: ...
 
+    def system_snapshot(self) -> dict[str, object]: ...
+
+    def record_pdf_artifact(
+        self, run_id: str, *, blob_path: str, blob_url: str, content_hash: str
+    ) -> None: ...
+
+    def get_pdf_artifact(self, run_id: str) -> dict[str, object] | None: ...
+
 
 class InMemoryRepository:
     """Offline repository used by tests and provider-free local development."""
@@ -810,6 +908,7 @@ class InMemoryRepository:
         self.steps: list[dict[str, object]] = []
         self.sources: dict[str, SourceCandidate] = {}
         self.run_sources: dict[tuple[str, str], SourceCandidate] = {}
+        self.run_source_periods: dict[tuple[str, str], dict[str, object]] = {}
         self.source_snapshots: dict[tuple[str, str], dict[str, object]] = {}
         self.distillations: dict[tuple[str, str], ArticleDistillation] = {}
         self.claims: dict[tuple[str, str, tuple[str, ...]], ClaimDraft] = {}
@@ -818,6 +917,11 @@ class InMemoryRepository:
         self.review_decisions: list[dict[str, object]] = []
         self.validations: dict[str, ValidationReport] = {}
         self.tool_calls: list[dict[str, object]] = []
+        self.pdf_artifacts: dict[str, dict[str, object]] = {}
+
+    @contextmanager
+    def read_snapshot(self) -> Iterator[None]:
+        yield
 
     def create_run(self, run_id: str, request: ResearchRunRequest) -> None:
         self.runs.setdefault(
@@ -832,6 +936,9 @@ class InMemoryRepository:
                 "prompt_version": None,
                 "neon_branch_id": None,
                 "migration_version": MIGRATION_VERSION,
+                "run_kind": request.run_kind.value,
+                "parent_run_id": request.parent_run_id,
+                "repair_round": request.repair_round,
                 "error": None,
                 "archived_at": None,
                 "archive_reason": None,
@@ -938,12 +1045,7 @@ class InMemoryRepository:
             )
         result = self.sources[normalized]
         if run_id is not None:
-            self.run_sources[(run_id, normalized)] = result.model_copy(
-                update={
-                    "extraction_status": stored.extraction_status,
-                    "extraction_error_code": stored.extraction_error_code,
-                }
-            )
+            self.run_sources[(run_id, normalized)] = stored
         return result
 
     def record_tool_calls(
@@ -1231,13 +1333,61 @@ class InMemoryRepository:
         stored = self.sources.get(normalized)
         if stored is None:
             stored = self.record_source(source)
-        self.run_sources.setdefault((run_id, normalized), stored)
+        self.run_sources.setdefault(
+            (run_id, normalized),
+            _seed_safe_source(source).model_copy(update={"url": normalized}),
+        )
         self.source_snapshots[(run_id, normalized)] = {
             "run_id": run_id,
             "url": normalized,
             "content_hash": content_hash(content),
             "content_length": len(content),
+            "retrieved_at": source.retrieved_at,
         }
+
+    def copy_latest_source_snapshot(self, run_id: str, source_url: str) -> str | None:
+        normalized = normalize_url(source_url)
+        candidates = [
+            snapshot
+            for (snapshot_run_id, url), snapshot in self.source_snapshots.items()
+            if snapshot_run_id != run_id and url == normalized
+        ]
+        if not candidates:
+            return None
+        latest = max(
+            candidates,
+            key=lambda snapshot: cast(datetime, snapshot["retrieved_at"]),
+        )
+        copied = {**latest, "run_id": run_id, "url": normalized}
+        self.source_snapshots.setdefault((run_id, normalized), copied)
+        return cast(str, copied["content_hash"])
+
+    def clone_run_evidence(
+        self, parent_run_id: str, child_run_id: str, source_urls: list[str]
+    ) -> None:
+        if parent_run_id not in self.runs or child_run_id not in self.runs:
+            raise KeyError("repair lineage run not found")
+        urls = {normalize_url(url) for url in source_urls}
+        for url in urls:
+            parent_key = (parent_run_id, url)
+            child_key = (child_run_id, url)
+            if source := self.run_sources.get(parent_key):
+                self.run_sources[child_key] = source.model_copy(deep=True)
+            if periods := self.run_source_periods.get(parent_key):
+                self.run_source_periods[child_key] = dict(periods)
+            if snapshot := self.source_snapshots.get(parent_key):
+                self.source_snapshots[child_key] = {
+                    **snapshot,
+                    "run_id": child_run_id,
+                }
+            if distillation := self.distillations.get(parent_key):
+                self.distillations[child_key] = distillation.model_copy(deep=True)
+        for (run_id, claim_text, claim_urls), claim in list(self.claims.items()):
+            if run_id != parent_run_id or not urls.intersection(claim_urls):
+                continue
+            self.claims[(child_run_id, claim_text, claim_urls)] = claim.model_copy(
+                deep=True
+            )
 
     def record_distillation(self, run_id: str, distillation: ArticleDistillation) -> None:
         _validate_new_distillation_evidence(distillation)
@@ -1266,6 +1416,21 @@ class InMemoryRepository:
                 "uncertainties": _safe_public_bullets(brief.uncertainties),
             }
         )
+
+    def record_pdf_artifact(
+        self, run_id: str, *, blob_path: str, blob_url: str, content_hash: str
+    ) -> None:
+        self.pdf_artifacts[run_id] = {
+            "run_id": run_id,
+            "blob_path": blob_path,
+            "blob_url": blob_url,
+            "content_hash": content_hash,
+            "uploaded_at": datetime.now(UTC),
+        }
+
+    def get_pdf_artifact(self, run_id: str) -> dict[str, object] | None:
+        artifact = self.pdf_artifacts.get(run_id)
+        return dict(artifact) if artifact is not None else None
 
     def record_validation(self, report: ValidationReport) -> None:
         self.validations[report.run_id] = report
@@ -1304,6 +1469,61 @@ class InMemoryRepository:
             for (current_run, _), source in self.run_sources.items()
             if current_run == run_id
         ]
+
+    def set_run_source_periods(
+        self, run_id: str, covered_from: datetime, covered_until: datetime
+    ) -> None:
+        run = self.runs.get(run_id, {})
+        as_of = run.get("as_of")
+        if not isinstance(as_of, datetime):
+            as_of = covered_until
+        for key, source in list(self.run_sources.items()):
+            if key[0] != run_id:
+                continue
+            classification = classify_period(
+                source.published_at,
+                covered_from=covered_from,
+                covered_until=covered_until,
+                as_of=as_of,
+            )
+            updated = source.model_copy(
+                update={
+                    "period_status": classification.status,
+                    "period_basis": classification.basis,
+                    "eligible_for_weekly": (
+                        classification.eligible_for_weekly
+                        and source_weekly_evidence_ready(
+                            source,
+                            self.distillations.get(key),
+                        )
+                    ),
+                }
+            )
+            self.run_sources[key] = updated
+            self.run_source_periods[key] = {
+                "period_status": classification.status.value,
+                "period_basis": classification.basis.value,
+                "eligible_for_weekly": updated.eligible_for_weekly,
+            }
+
+    def get_run_source_periods(self, run_id: str) -> dict[str, dict[str, object]]:
+        return {
+            url: dict(self.run_source_periods.get((run_id, url), {
+                "period_status": source.period_status.value,
+                "period_basis": source.period_basis.value,
+                "eligible_for_weekly": source.eligible_for_weekly,
+            }))
+            for (current_run, url), source in self.run_sources.items()
+            if current_run == run_id
+        }
+
+    def get_run_period_counts(self, run_id: str) -> dict[str, int]:
+        counts: Counter[str] = Counter()
+        for period in self.get_run_source_periods(run_id).values():
+            value = period.get("period_status")
+            if isinstance(value, str):
+                counts[value] += 1
+        return dict(sorted(counts.items()))
 
     def get_run_claims(self, run_id: str) -> list[ClaimDraft]:
         return [claim for key, claim in self.claims.items() if key[0] == run_id]
@@ -1372,11 +1592,12 @@ class InMemoryRepository:
                 and request.topic_set == topic_set
             ):
                 continue
-            run_as_of = run.get("as_of")
-            observed_at = source.published_at or (
-                run_as_of if isinstance(run_as_of, datetime) else source.retrieved_at
+            observed_at = source.retrieved_at
+            publication_in_window = (
+                source.published_at is not None
+                and since <= source.published_at < until
             )
-            if not since <= observed_at <= until:
+            if not (since <= observed_at < until or publication_in_window):
                 continue
             claims = [
                 claim
@@ -1402,6 +1623,7 @@ class InMemoryRepository:
         status: RunStatus | str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
+        include_repairs: bool = False,
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict[str, object]]:
@@ -1421,6 +1643,8 @@ class InMemoryRepository:
             ):
                 continue
             if expected_status is not None and run.get("status") != expected_status:
+                continue
+            if not include_repairs and run.get("run_kind", "research") == "repair":
                 continue
             if since is not None and (not isinstance(run_as_of, datetime) or run_as_of < since):
                 continue
@@ -1533,6 +1757,8 @@ class InMemoryRepository:
             brief
             for brief in self.briefs.values()
             if (not needle or needle in f"{brief.title} {brief.summary}".lower())
+            and self.runs.get(brief.run_id, {}).get("run_kind", "research")
+            != "repair"
             and (expected_review is None or brief.review_state.value == expected_review)
             and (
                 cadence is None
@@ -1798,6 +2024,66 @@ class InMemoryRepository:
     def audit_summary(self) -> dict[str, object]:
         runs = list(self.runs.values())
         validations = list(self.validations.values())
+        raw_defect_parents: set[str] = set()
+        repair_candidate_parents: set[str] = set()
+        enrolled_parent_ids = {
+            str(parent_run_id)
+            for run in self.runs.values()
+            if run.get("run_kind") == "repair"
+            and (parent_run_id := run.get("parent_run_id"))
+        }
+        for run_id, run in self.runs.items():
+            if run.get("run_kind", "research") != "research":
+                continue
+            sources = self.get_run_sources(run_id)
+            known_urls = {normalize_url(source.url) for source in sources}
+            distillations = {
+                normalize_url(item.source_url): item
+                for item in self.get_run_distillations(run_id)
+            }
+            hashes = self.get_run_source_hashes(run_id)
+            brief = self.get_brief(run_id)
+            run_as_of = run.get("as_of")
+            incomplete_article = any(
+                reader_source_contract_issues(
+                    source,
+                    distillations.get(normalize_url(source.url)),
+                    as_of=run_as_of if isinstance(run_as_of, datetime) else None,
+                )
+                or normalize_url(source.url) not in hashes
+                for source in sources
+            )
+            incomplete_existing_brief = brief is not None and bool(
+                validate_report_sections(brief, known_urls)
+            )
+            if (
+                not sources
+                or incomplete_article
+                or brief is None
+                or bool(validate_report_sections(brief, known_urls))
+            ):
+                raw_defect_parents.add(run_id)
+            if run_id in enrolled_parent_ids and sources and (
+                incomplete_article
+                or brief is None
+                or incomplete_existing_brief
+            ):
+                repair_candidate_parents.add(run_id)
+        resolved_parents = {
+            str(run.get("parent_run_id"))
+            for run_id, run in self.runs.items()
+            if run.get("run_kind") == "repair"
+            and run.get("parent_run_id")
+            and run.get("status") is RunStatus.SUCCEEDED
+            and (validation := self.validations.get(run_id)) is not None
+            and validation.status is ValidationStatus.PASS
+            and any(
+                check.name == "reader_source_contract"
+                and check.status is ValidationStatus.PASS
+                for check in validation.checks
+            )
+        }
+        unresolved_parents = repair_candidate_parents - resolved_parents
         return {
             "reports": {
                 "active": sum(not _is_archived(run) for run in runs),
@@ -1829,9 +2115,56 @@ class InMemoryRepository:
                     for item in self.distillations.values()
                 ),
             },
+            "history_quality": {
+                "raw_defect_parent_count": len(raw_defect_parents),
+                "repair_parent_count": len(repair_candidate_parents),
+                "resolved_parent_count": len(
+                    repair_candidate_parents & resolved_parents
+                ),
+                "unresolved_parent_count": len(unresolved_parents),
+                "unresolved_parent_ids": sorted(unresolved_parents),
+            },
             "migration_version": MIGRATION_VERSION,
         }
 
+    def system_snapshot(self) -> dict[str, object]:
+        table_counts = {
+            "research_runs": len(self.runs),
+            "agent_steps": len(self.steps),
+            "agent_tool_calls": len(self.tool_calls),
+            "run_sources": len(self.run_sources),
+            "sources": len(self.sources),
+            "source_snapshots": len(self.source_snapshots),
+            "article_distillations": len(self.distillations),
+            "claims": len(self.claims),
+            "signal_events": len(self.signal_events),
+            "weekly_briefs": len(self.briefs),
+            "validation_checks": len(self.validations),
+            "review_decisions": len(self.review_decisions),
+            "checkpoints": 0,
+            "checkpoint_blobs": 0,
+            "checkpoint_writes": 0,
+        }
+        step_counts: Counter[str] = Counter(str(step["agent_name"]) for step in self.steps)
+        tool_counts: Counter[str] = Counter(
+            str(call.get("tool_name", "unknown")) for call in self.tool_calls
+        )
+        model_counts: Counter[str] = Counter()
+        for step in self.steps:
+            model = step.get("resolved_model") or step.get("requested_model")
+            if isinstance(model, str) and model:
+                model_counts[model] += 1
+        period_counts: Counter[str] = Counter()
+        for run_id in self.runs:
+            period_counts.update(self.get_run_period_counts(run_id))
+        return {
+            "table_counts": table_counts,
+            "agent_steps_by_agent": dict(sorted(step_counts.items())),
+            "tool_calls_by_tool": dict(sorted(tool_counts.items())),
+            "models": dict(sorted(model_counts.items())),
+            "period_counts": dict(sorted(period_counts.items())),
+            "orphaned_records": {},
+        }
 
 class PostgresRepository:
     def __init__(
@@ -1844,6 +2177,7 @@ class PostgresRepository:
         self.neon_branch_id = neon_branch_id
         self._connection_url = connection_url
         self._connection_lock = threading.RLock()
+        self._snapshot_local = threading.local()
 
     @classmethod
     def from_url(
@@ -1878,6 +2212,10 @@ class PostgresRepository:
     def _execute(
         self, query: str, params: tuple[object, ...] = ()
     ) -> list[tuple[object, ...]]:
+        snapshot_cursor = getattr(self._snapshot_local, "cursor", None)
+        if snapshot_cursor is not None:
+            snapshot_cursor.execute(query, params)
+            return list(snapshot_cursor.fetchall()) if snapshot_cursor.description else []
         with self._connection_lock:
             for attempt in range(2):
                 try:
@@ -1886,7 +2224,12 @@ class PostgresRepository:
                         rows = cursor.fetchall() if cursor.description else []
                     self.connection.commit()
                     return rows
-                except (OperationalError, InternalError):
+                except OperationalError:
+                    self.connection.close()
+                    if attempt == 1 or self._connection_url is None:
+                        raise
+                    self._reconnect()
+                except InternalError:
                     self.connection.rollback()
                     if attempt == 1 or self._connection_url is None:
                         raise
@@ -1897,14 +2240,61 @@ class PostgresRepository:
                     raise
         raise OperationalError("database operation could not be completed")
 
+    @contextmanager
+    def read_snapshot(self) -> Iterator[None]:
+        """Keep all report reads in one repeatable, read-only transaction."""
+        with self._connection_lock:
+            try:
+                with self.connection.transaction(), self.connection.cursor() as cursor:
+                    cursor.execute(
+                        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
+                    )
+                    self._snapshot_local.cursor = cursor
+                    yield
+            except Exception:
+                self.connection.rollback()
+                raise
+            finally:
+                if hasattr(self._snapshot_local, "cursor"):
+                    del self._snapshot_local.cursor
+
+    def _execute_read_snapshot(
+        self,
+        statements: Sequence[tuple[str, tuple[object, ...]]],
+    ) -> list[list[tuple[object, ...]]]:
+        """Execute related read queries in one consistent read-only transaction."""
+        with self._connection_lock:
+            for attempt in range(2):
+                try:
+                    with self.connection.transaction(), self.connection.cursor() as cursor:
+                        cursor.execute("SET TRANSACTION READ ONLY")
+                        results: list[list[tuple[object, ...]]] = []
+                        for query, params in statements:
+                            cursor.execute(query, params)
+                            results.append(
+                                list(cursor.fetchall()) if cursor.description else []
+                            )
+                    return results
+                except (OperationalError, InternalError):
+                    self.connection.rollback()
+                    if attempt == 1 or self._connection_url is None:
+                        raise
+                    self.connection.close()
+                    self._reconnect()
+                except Exception:
+                    self.connection.rollback()
+                    raise
+        raise OperationalError("read snapshot could not be completed")
+
     def create_run(self, run_id: str, request: ResearchRunRequest) -> None:
         self._execute(
             """
             INSERT INTO research_runs (
                 run_id, topic_set, request, status, as_of, started_at,
-                neon_branch_id, migration_version, model_id, prompt_version
+                neon_branch_id, migration_version, model_id, prompt_version,
+                run_kind, parent_run_id, repair_round
             )
-            VALUES (%s, %s, %s::jsonb, %s, %s, now(), %s, %s, %s, %s)
+            VALUES (%s, %s, %s::jsonb, %s, %s, now(), %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (run_id) DO NOTHING
             """,
             (
@@ -1916,9 +2306,124 @@ class PostgresRepository:
                 self.neon_branch_id,
                 MIGRATION_VERSION,
                 request.model,
-                "workflow-v2",
+                WORKFLOW_PROMPT_VERSION,
+                request.run_kind,
+                request.parent_run_id,
+                request.repair_round,
             ),
         )
+
+    def clone_run_evidence(
+        self, parent_run_id: str, child_run_id: str, source_urls: list[str]
+    ) -> None:
+        urls = sorted({normalize_url(url) for url in source_urls})
+        if not urls:
+            return
+        self._execute(
+            """
+            INSERT INTO run_sources (
+                run_id, normalized_url, extraction_status, extraction_error_code,
+                period_status, period_basis, eligible_for_weekly, source_snapshot,
+                published_at_snapshot, retrieved_at_snapshot, snapshot_basis,
+                created_at, updated_at
+            )
+            SELECT %s, normalized_url, extraction_status, extraction_error_code,
+                   period_status, period_basis, eligible_for_weekly, source_snapshot,
+                   published_at_snapshot, retrieved_at_snapshot, snapshot_basis,
+                   now(), now()
+            FROM run_sources
+            WHERE run_id = %s AND normalized_url = ANY(%s)
+            ON CONFLICT (run_id, normalized_url) DO NOTHING
+            """,
+            (child_run_id, parent_run_id, urls),
+        )
+        self._execute(
+            """
+            INSERT INTO source_snapshots (
+                run_id, normalized_url, content_hash, content_length, retrieved_at
+            )
+            SELECT %s, normalized_url, content_hash, content_length, retrieved_at
+            FROM source_snapshots
+            WHERE run_id = %s AND normalized_url = ANY(%s)
+            ON CONFLICT (run_id, normalized_url) DO NOTHING
+            """,
+            (child_run_id, parent_run_id, urls),
+        )
+        self._execute(
+            """
+            INSERT INTO article_distillations (
+                run_id, normalized_url, summary, key_points, entities, signals,
+                limitations, model_id, prompt_version, content_hash, evidence_status,
+                source_language, summary_original, key_points_original,
+                translation_status, evidence_excerpts, evidence_locators,
+                insight_packet, quality_status, quality_issues
+            )
+            SELECT %s, normalized_url, summary, key_points, entities, signals,
+                   limitations, model_id, prompt_version, content_hash, evidence_status,
+                   source_language, summary_original, key_points_original,
+                   translation_status, evidence_excerpts, evidence_locators,
+                   insight_packet, quality_status, quality_issues
+            FROM article_distillations
+            WHERE run_id = %s AND normalized_url = ANY(%s)
+            ON CONFLICT (run_id, normalized_url) DO NOTHING
+            """,
+            (child_run_id, parent_run_id, urls),
+        )
+        self._execute(
+            """
+            INSERT INTO claims (
+                run_id, claim_hash, claim_text, evidence_status, confidence,
+                source_urls, support_locator, conflicts, original_claim,
+                evidence_excerpt, independent_source_count, citation_status,
+                verification_basis
+            )
+            SELECT %s, claim_hash, claim_text, evidence_status, confidence,
+                   source_urls, support_locator, conflicts, original_claim,
+                   evidence_excerpt, independent_source_count, citation_status,
+                   verification_basis
+            FROM claims c
+            WHERE c.run_id = %s
+              AND EXISTS (
+                  SELECT 1 FROM jsonb_array_elements_text(c.source_urls) AS source_url(value)
+                  WHERE source_url.value = ANY(%s)
+              )
+            ON CONFLICT (run_id, claim_hash) DO NOTHING
+            """,
+            (child_run_id, parent_run_id, urls),
+        )
+
+    def record_pdf_artifact(
+        self, run_id: str, *, blob_path: str, blob_url: str, content_hash: str
+    ) -> None:
+        self._execute(
+            """
+            UPDATE weekly_briefs
+            SET pdf_blob_path = %s,
+                pdf_blob_url = %s,
+                pdf_content_hash = %s,
+                pdf_uploaded_at = now()
+            WHERE brief_id = %s
+            """,
+            (blob_path, blob_url, content_hash, run_id),
+        )
+
+    def get_pdf_artifact(self, run_id: str) -> dict[str, object] | None:
+        rows = self._execute(
+            """
+            SELECT pdf_blob_path, pdf_blob_url, pdf_content_hash, pdf_uploaded_at
+            FROM weekly_briefs WHERE brief_id = %s
+            """,
+            (run_id,),
+        )
+        if not rows or not rows[0][0]:
+            return None
+        return {
+            "run_id": run_id,
+            "blob_path": cast(str, rows[0][0]),
+            "blob_url": cast(str | None, rows[0][1]),
+            "content_hash": cast(str | None, rows[0][2]),
+            "uploaded_at": rows[0][3],
+        }
 
     def record_tool_calls(
         self,
@@ -2185,19 +2690,33 @@ class PostgresRepository:
             self._execute(
                 """
                 INSERT INTO run_sources (
-                    run_id, normalized_url, extraction_status, extraction_error_code
+                    run_id, normalized_url, extraction_status, extraction_error_code,
+                    source_snapshot, published_at_snapshot, retrieved_at_snapshot,
+                    snapshot_basis
                 )
-                VALUES (%s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s)
                 ON CONFLICT (run_id, normalized_url) DO UPDATE SET
                     extraction_status = EXCLUDED.extraction_status,
                     extraction_error_code = EXCLUDED.extraction_error_code,
+                    source_snapshot = EXCLUDED.source_snapshot,
+                    published_at_snapshot = EXCLUDED.published_at_snapshot,
+                    retrieved_at_snapshot = EXCLUDED.retrieved_at_snapshot,
+                    snapshot_basis = EXCLUDED.snapshot_basis,
                     updated_at = now()
+                WHERE EXISTS (
+                    SELECT 1 FROM research_runs rr
+                    WHERE rr.run_id = EXCLUDED.run_id AND rr.status = 'running'
+                )
                 """,
                 (
                     run_id,
                     normalized,
                     stored.extraction_status,
                     stored.extraction_error_code,
+                    json.dumps(_run_source_snapshot(stored)),
+                    stored.published_at,
+                    stored.retrieved_at,
+                    "captured",
                 ),
             )
         return result
@@ -2205,12 +2724,36 @@ class PostgresRepository:
     def record_snapshot(self, run_id: str, source: SourceCandidate, content: str) -> None:
         self._execute(
             """
-            INSERT INTO run_sources (run_id, normalized_url)
-            VALUES (%s, %s)
-            ON CONFLICT (run_id, normalized_url) DO NOTHING
+            INSERT INTO run_sources (
+                run_id, normalized_url, extraction_status, extraction_error_code,
+                source_snapshot, published_at_snapshot, retrieved_at_snapshot,
+                snapshot_basis
+            )
+            VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, 'captured')
+            ON CONFLICT (run_id, normalized_url) DO UPDATE SET
+                extraction_status = EXCLUDED.extraction_status,
+                extraction_error_code = EXCLUDED.extraction_error_code,
+                source_snapshot = EXCLUDED.source_snapshot,
+                published_at_snapshot = EXCLUDED.published_at_snapshot,
+                retrieved_at_snapshot = EXCLUDED.retrieved_at_snapshot,
+                snapshot_basis = EXCLUDED.snapshot_basis,
+                updated_at = now()
+            WHERE EXISTS (
+                SELECT 1 FROM research_runs rr
+                WHERE rr.run_id = EXCLUDED.run_id AND rr.status = 'running'
+            )
             """,
-            (run_id, normalize_url(source.url)),
+            (
+                run_id,
+                normalize_url(source.url),
+                source.extraction_status,
+                source.extraction_error_code,
+                json.dumps(_run_source_snapshot(source)),
+                source.published_at,
+                source.retrieved_at,
+            ),
         )
+
         self._execute(
             """
             INSERT INTO source_snapshots (
@@ -2227,6 +2770,24 @@ class PostgresRepository:
                 source.retrieved_at,
             ),
         )
+
+    def copy_latest_source_snapshot(self, run_id: str, source_url: str) -> str | None:
+        rows = self._execute(
+            """
+            INSERT INTO source_snapshots (
+                run_id, normalized_url, content_hash, content_length, retrieved_at
+            )
+            SELECT %s, normalized_url, content_hash, content_length, retrieved_at
+            FROM source_snapshots
+            WHERE normalized_url = %s AND run_id <> %s
+            ORDER BY retrieved_at DESC, snapshot_id DESC
+            LIMIT 1
+            ON CONFLICT (run_id, normalized_url) DO NOTHING
+            RETURNING content_hash
+            """,
+            (run_id, normalize_url(source_url), run_id),
+        )
+        return cast(str, rows[0][0]) if rows else None
 
     def record_distillation(self, run_id: str, distillation: ArticleDistillation) -> None:
         _validate_new_distillation_evidence(distillation)
@@ -2353,9 +2914,16 @@ class PostgresRepository:
                 """
                 INSERT INTO signal_events (
                     event_id, run_id, event_type, summary, geographies, ports,
-                    carriers, event_at, source_urls, evidence_status
+                    carriers, event_at, source_urls, evidence_status,
+                    headline, what_changed, published_at, retrieved_at,
+                    period_status, period_basis, eligible_for_weekly, region, lane,
+                    evidence_locator, impact, risk, opportunity, next_step, limitations
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s::jsonb
+                )
                 ON CONFLICT (event_id) DO NOTHING
                 """,
                 (
@@ -2369,6 +2937,21 @@ class PostgresRepository:
                     event.event_at,
                     json.dumps([normalize_url(url) for url in event.source_urls]),
                     event.evidence_status,
+                    event.headline,
+                    event.what_changed,
+                    event.published_at,
+                    event.retrieved_at,
+                    event.period_status,
+                    event.period_basis,
+                    event.eligible_for_weekly,
+                    event.region,
+                    event.lane,
+                    event.evidence_locator,
+                    event.impact,
+                    event.risk,
+                    event.opportunity,
+                    event.next_step,
+                    json.dumps(event.limitations),
                 ),
             )
 
@@ -2588,7 +3171,8 @@ class PostgresRepository:
         rows = self._execute(
             "SELECT run_id, topic_set, request, status, as_of, started_at, completed_at, error, "
             "model_id, prompt_version, citation_coverage, validation_status, neon_branch_id, "
-            "migration_version, archived_at, archive_reason "
+            "migration_version, archived_at, archive_reason, run_kind, parent_run_id, "
+            "repair_round "
             "FROM research_runs WHERE run_id = %s",
             (run_id,),
         )
@@ -2612,31 +3196,69 @@ class PostgresRepository:
             "migration_version": row[13],
             "archived_at": row[14],
             "archive_reason": row[15],
+            "run_kind": row[16],
+            "parent_run_id": row[17],
+            "repair_round": row[18],
         }
 
     def get_run_sources(self, run_id: str) -> list[SourceCandidate]:
         rows = self._execute(
             """
-            SELECT s.url, s.title, s.publisher, s.published_at, s.retrieved_at,
-                   s.source_kind, s.snippet, s.topics, s.geographies, s.lane,
-                   s.is_seed, s.evidence_status, s.region, s.language_code,
-                   s.language_confidence, s.authority_tier, s.catalog_source_id,
-                   s.source_type, s.freshness_status, s.freshness_days,
+            SELECT CASE
+                       WHEN rs.source_snapshot = '{}'::jsonb THEN jsonb_strip_nulls(
+                           jsonb_build_object(
+                               'url', s.url, 'title', s.title, 'publisher', s.publisher,
+                               'published_at', s.published_at, 'retrieved_at', s.retrieved_at,
+                               'source_kind', s.source_kind, 'snippet', s.snippet,
+                               'topics', to_jsonb(s.topics),
+                               'geographies', to_jsonb(s.geographies), 'lane', s.lane,
+                               'is_seed', s.is_seed, 'evidence_status', s.evidence_status,
+                               'region', s.region, 'language_code', s.language_code,
+                               'language_confidence', s.language_confidence,
+                               'authority_tier', s.authority_tier,
+                               'catalog_source_id', s.catalog_source_id,
+                               'source_type', s.source_type,
+                               'freshness_status', s.freshness_status,
+                               'freshness_days', s.freshness_days,
+                               'normalized_title_en', s.normalized_title_en,
+                               'normalized_snippet_en', s.normalized_snippet_en
+                           )
+                       )
+                       ELSE rs.source_snapshot
+                   END,
+                   rs.published_at_snapshot,
+                   COALESCE(rs.retrieved_at_snapshot, s.retrieved_at),
                    rs.extraction_status, rs.extraction_error_code,
-                   s.normalized_title_en, s.normalized_snippet_en
-            FROM sources s
-            JOIN run_sources rs ON rs.normalized_url = s.normalized_url
+                   rs.period_status, rs.period_basis, rs.eligible_for_weekly
+            FROM run_sources rs
+            JOIN sources s ON s.normalized_url = rs.normalized_url
             WHERE rs.run_id = %s
-            ORDER BY s.retrieved_at DESC
+            ORDER BY COALESCE(rs.retrieved_at_snapshot, s.retrieved_at) DESC
             """,
             (run_id,),
         )
         sources: list[SourceCandidate] = []
         for row in rows:
+            if isinstance(row[0], dict):
+                payload = dict(cast(dict[str, object], row[0]))
+                payload.update(
+                    {
+                        "url": _require_public_url(payload.get("url")),
+                        "published_at": row[1],
+                        "retrieved_at": row[2],
+                        "extraction_status": row[3],
+                        "extraction_error_code": row[4],
+                        "period_status": row[5],
+                        "period_basis": row[6],
+                        "eligible_for_weekly": bool(row[7]),
+                    }
+                )
+                sources.append(SourceCandidate.model_validate(payload))
+                continue
             url = _safe_public_url(row[0])
             if url is None:
                 continue
-            quality = row[12:] if len(row) >= 24 else ()
+            quality = row[12:24] if len(row) >= 24 else ()
             sources.append(
                 SourceCandidate(
                     url=url,
@@ -2671,9 +3293,106 @@ class PostgresRepository:
                     extraction_error_code=cast(str | None, quality[9]) if quality else None,
                     normalized_title_en=cast(str | None, quality[10]) if quality else None,
                     normalized_snippet_en=cast(str | None, quality[11]) if quality else None,
+                    period_status=(
+                        PeriodStatus(cast(str, row[24]))
+                        if len(row) > 24 and row[24]
+                        else PeriodStatus.UNDATED
+                    ),
+                    period_basis=(
+                        PeriodBasis(cast(str, row[25]))
+                        if len(row) > 25 and row[25]
+                        else PeriodBasis.UNKNOWN
+                    ),
+                    eligible_for_weekly=(
+                        bool(row[26]) if len(row) > 26 else False
+                    ),
                 )
             )
         return sources
+
+    def set_run_source_periods(
+        self, run_id: str, covered_from: datetime, covered_until: datetime
+    ) -> None:
+        start = utc_datetime(covered_from)
+        end = utc_datetime(covered_until)
+        if start >= end:
+            raise ValueError("period start must be before period end")
+        self._execute(
+            f"""
+            UPDATE run_sources rs
+            SET period_status = CASE
+                    WHEN rs.published_at_snapshot IS NULL THEN 'undated'
+                    WHEN rs.published_at_snapshot > rr.as_of THEN 'future'
+                    WHEN rs.published_at_snapshot >= %s
+                         AND rs.published_at_snapshot < %s
+                        THEN 'in_period'
+                    ELSE 'background'
+                END,
+                period_basis = CASE
+                    WHEN rs.published_at_snapshot IS NULL THEN 'unknown'
+                    ELSE 'published_at'
+                END,
+                eligible_for_weekly = (
+                    rs.published_at_snapshot IS NOT NULL
+                    AND rs.published_at_snapshot <= rr.as_of
+                    AND rs.published_at_snapshot >= %s
+                    AND rs.published_at_snapshot < %s
+                    AND COALESCE(rs.source_snapshot ->> 'direct_content', 'false') = 'true'
+                    AND rs.source_snapshot ->> 'page_type'
+                        IN ('article', 'official_document')
+                    AND NOT {_navigation_url_sql('rs.normalized_url')}
+                    AND rs.source_snapshot ->> 'publication_date_basis'
+                        IN ('matched', 'page', 'search')
+                    AND rs.extraction_status = 'succeeded'
+                    AND rs.source_snapshot ->> 'lane'
+                        IN ('regulatory', 'us-ports', 'mexico')
+                    AND COALESCE(rs.source_snapshot ->> 'region', '') <> ''
+                    AND EXISTS (
+                        SELECT 1
+                        FROM article_distillations ad
+                        WHERE ad.run_id = rs.run_id
+                          AND ad.normalized_url = rs.normalized_url
+                          AND ad.quality_status = 'complete'
+                          AND jsonb_typeof(ad.insight_packet -> 'decision_score') = 'object'
+                          AND jsonb_typeof(ad.insight_packet -> 'decision_score' -> 'total')
+                              = 'number'
+                    )
+                ),
+                updated_at = now()
+            FROM research_runs rr
+            WHERE rs.run_id = %s
+              AND rr.run_id = rs.run_id
+            """,
+            (start, end, start, end, run_id),
+        )
+
+    def get_run_source_periods(self, run_id: str) -> dict[str, dict[str, object]]:
+        rows = self._execute(
+            """
+            SELECT normalized_url, period_status, period_basis, eligible_for_weekly
+            FROM run_sources WHERE run_id = %s ORDER BY normalized_url
+            """,
+            (run_id,),
+        )
+        return {
+            cast(str, row[0]): {
+                "period_status": cast(str, row[1]),
+                "period_basis": cast(str, row[2]),
+                "eligible_for_weekly": bool(row[3]),
+            }
+            for row in rows
+        }
+
+    def get_run_period_counts(self, run_id: str) -> dict[str, int]:
+        rows = self._execute(
+            """
+            SELECT period_status, count(*)
+            FROM run_sources WHERE run_id = %s
+            GROUP BY period_status ORDER BY period_status
+            """,
+            (run_id,),
+        )
+        return {cast(str, row[0]): _row_int(row[1]) for row in rows}
 
     def get_run_claims(self, run_id: str) -> list[ClaimDraft]:
         rows = self._execute(
@@ -2770,13 +3489,14 @@ class PostgresRepository:
         rows = self._execute(
             """
             SELECT ad.normalized_url, ad.summary, ad.key_points, ad.entities, ad.signals,
-                   ad.limitations, s.published_at, ad.model_id, ad.prompt_version,
+                   ad.limitations, rs.published_at_snapshot, ad.model_id, ad.prompt_version,
                    ad.evidence_status, ad.content_hash, ad.source_language,
                    ad.summary_original, ad.key_points_original, ad.translation_status,
                    ad.evidence_excerpts, ad.evidence_locators, ad.insight_packet,
                    ad.quality_status, ad.quality_issues
             FROM article_distillations ad
-            JOIN sources s ON s.normalized_url = ad.normalized_url
+            JOIN run_sources rs
+              ON rs.run_id = ad.run_id AND rs.normalized_url = ad.normalized_url
             WHERE ad.run_id = %s ORDER BY ad.distillation_id
             """,
             (run_id,),
@@ -2797,26 +3517,15 @@ class PostgresRepository:
         rows = self._execute(
             """
             SELECT event_id, event_type, summary, geographies, ports, carriers,
-                   event_at, source_urls, evidence_status
+                   event_at, source_urls, evidence_status, headline, what_changed,
+                   published_at, retrieved_at, period_status, period_basis,
+                   eligible_for_weekly, region, lane, evidence_locator, impact, risk,
+                   opportunity, next_step, limitations
             FROM signal_events WHERE run_id = %s ORDER BY created_at, event_id
             """,
             (run_id,),
         )
-        return [
-            SignalEvent(
-                event_id=cast(str, row[0]),
-                run_id=run_id,
-                event_type=cast(str, row[1]),
-                summary=cast(str, row[2]),
-                geographies=cast(list[str], row[3] or []),
-                ports=cast(list[str], row[4] or []),
-                carriers=cast(list[str], row[5] or []),
-                event_at=cast(datetime | None, row[6]),
-                source_urls=_safe_public_urls(row[7] or []),
-                evidence_status=EvidenceStatus(cast(str, row[8])),
-            )
-            for row in rows
-        ]
+        return [_signal_event_from_row(row, run_id=run_id) for row in rows]
 
     def get_trailing_evidence(
         self,
@@ -2829,29 +3538,33 @@ class PostgresRepository:
         bounded_limit = max(1, min(limit, 1000))
         rows = self._execute(
             """
-            SELECT ad.run_id, s.url, s.title, s.publisher, s.published_at,
-                   s.retrieved_at, s.source_kind, s.snippet, s.topics, s.geographies,
-                   s.lane, s.is_seed, s.evidence_status, ad.summary, ad.key_points,
-                   ad.entities, ad.signals, ad.limitations, ad.model_id,
-                   ad.prompt_version, ad.evidence_status, ad.content_hash,
-                   s.region, s.language_code, s.language_confidence, s.authority_tier,
-                   s.catalog_source_id, s.source_type, s.freshness_status, s.freshness_days,
-                   s.extraction_status, s.extraction_error_code, s.normalized_title_en,
-                   s.normalized_snippet_en, ad.source_language, ad.summary_original,
-                   ad.key_points_original, ad.translation_status, ad.evidence_excerpts,
-                   ad.evidence_locators, ad.insight_packet, ad.quality_status,
-                   ad.quality_issues
+            SELECT ad.run_id, rs.source_snapshot, rs.published_at_snapshot,
+                   rs.retrieved_at_snapshot, rs.extraction_status,
+                   rs.extraction_error_code, rs.period_status, rs.period_basis,
+                   rs.eligible_for_weekly, ad.normalized_url, ad.summary, ad.key_points,
+                   ad.entities, ad.signals, ad.limitations, rs.published_at_snapshot,
+                   ad.model_id, ad.prompt_version, ad.evidence_status, ad.content_hash,
+                   ad.source_language, ad.summary_original, ad.key_points_original,
+                   ad.translation_status, ad.evidence_excerpts, ad.evidence_locators,
+                   ad.insight_packet, ad.quality_status, ad.quality_issues
             FROM article_distillations ad
-            JOIN sources s ON s.normalized_url = ad.normalized_url
+            JOIN run_sources rs ON rs.run_id = ad.run_id
+                               AND rs.normalized_url = ad.normalized_url
             JOIN research_runs rr ON rr.run_id = ad.run_id
             WHERE rr.topic_set = %s
-              AND NOT s.is_seed
-              AND coalesce(s.published_at, rr.as_of) >= %s
-              AND coalesce(s.published_at, rr.as_of) <= %s
-            ORDER BY coalesce(s.published_at, rr.as_of) DESC, ad.distillation_id
+              AND NOT COALESCE((rs.source_snapshot ->> 'is_seed')::boolean, false)
+              AND (
+                  (rs.retrieved_at_snapshot >= %s AND rs.retrieved_at_snapshot < %s)
+                  OR (rs.published_at_snapshot >= %s AND rs.published_at_snapshot < %s)
+              )
+            ORDER BY GREATEST(
+                         rs.retrieved_at_snapshot,
+                         COALESCE(rs.published_at_snapshot, rs.retrieved_at_snapshot)
+                     ) DESC,
+                     ad.distillation_id
             LIMIT %s
             """,
-            (topic_set, since, until, bounded_limit),
+            (topic_set, since, until, since, until, bounded_limit),
         )
         claims_by_run_url: dict[tuple[str, str], list[ClaimDraft]] = defaultdict(list)
         for run_id in {cast(str, row[0]) for row in rows}:
@@ -2863,62 +3576,29 @@ class PostgresRepository:
         distillations: list[ArticleDistillation] = []
         seen_urls: set[str] = set()
         for row in rows:
-            normalized_url = normalize_url(cast(str, row[1]))
+            normalized_url = normalize_url(cast(str, row[9]))
             if normalized_url in seen_urls:
                 continue
             seen_urls.add(normalized_url)
             run_id = cast(str, row[0])
-            source = SourceCandidate(
-                url=normalized_url,
-                title=cast(str, row[2]),
-                publisher=cast(str, row[3]),
-                published_at=cast(datetime | None, row[4]),
-                retrieved_at=cast(datetime, row[5]),
-                source_kind=cast(str, row[6]),
-                snippet=cast(str, row[7]),
-                topics=cast(list[str], row[8] or []),
-                geographies=cast(list[str], row[9] or []),
-                lane=cast(str, row[10]),
-                is_seed=cast(bool, row[11]),
-                evidence_status=EvidenceStatus(cast(str, row[12])),
-                region=cast(str, row[22]),
-                language_code=cast(str, row[23]),
-                language_confidence=_row_float(row[24]),
-                authority_tier=cast(str, row[25]),
-                catalog_source_id=cast(str | None, row[26]),
-                source_type=cast(str, row[27]),
-                freshness_status=FreshnessStatus(cast(str, row[28])),
-                freshness_days=cast(int | None, row[29]),
-                extraction_status=ExtractionStatus(cast(str, row[30])),
-                extraction_error_code=cast(str | None, row[31]),
-                normalized_title_en=cast(str | None, row[32]),
-                normalized_snippet_en=cast(str | None, row[33]),
+            snapshot = dict(cast(dict[str, object], row[1] or {}))
+            snapshot.update(
+                {
+                    "url": normalized_url,
+                    "published_at": row[2],
+                    "retrieved_at": row[3],
+                    "extraction_status": row[4],
+                    "extraction_error_code": row[5],
+                    "period_status": row[6],
+                    "period_basis": row[7],
+                    "eligible_for_weekly": row[8],
+                }
             )
+            source = SourceCandidate.model_validate(snapshot)
             sources.append(source)
             distillations.append(
                 _article_distillation_from_row(
-                    (
-                        row[1],
-                        row[13],
-                        row[14],
-                        row[15],
-                        row[16],
-                        row[17],
-                        row[4],
-                        row[18],
-                        row[19],
-                        row[20],
-                        row[21],
-                        row[34],
-                        row[35],
-                        row[36],
-                        row[37],
-                        row[38],
-                        row[39],
-                        row[40],
-                        row[41],
-                        row[42],
-                    ),
+                    row[9:],
                     claims=claims_by_run_url.get((run_id, normalized_url), []),
                 )
             )
@@ -3113,26 +3793,15 @@ class PostgresRepository:
         params.extend((max(1, min(limit, 1000)), max(0, offset)))
         rows = self._execute(
             "SELECT event_id, run_id, event_type, summary, geographies, ports, carriers, "
-            "event_at, source_urls, evidence_status FROM signal_events WHERE "
+            "event_at, source_urls, evidence_status, headline, what_changed, published_at, "
+            "retrieved_at, period_status, period_basis, eligible_for_weekly, region, lane, "
+            "evidence_locator, impact, risk, opportunity, next_step, limitations "
+            "FROM signal_events WHERE "
             + " AND ".join(clauses)
             + " ORDER BY created_at, event_id LIMIT %s OFFSET %s",
             tuple(params),
         )
-        return [
-            SignalEvent(
-                event_id=cast(str, row[0]),
-                run_id=cast(str, row[1]),
-                event_type=cast(str, row[2]),
-                summary=cast(str, row[3]),
-                geographies=cast(list[str], row[4] or []),
-                ports=cast(list[str], row[5] or []),
-                carriers=cast(list[str], row[6] or []),
-                event_at=cast(datetime | None, row[7]),
-                source_urls=_safe_public_urls(row[8] or []),
-                evidence_status=EvidenceStatus(cast(str, row[9])),
-            )
-            for row in rows
-        ]
+        return [_signal_event_from_row(row) for row in rows]
 
     def list_runs(
         self,
@@ -3141,6 +3810,7 @@ class PostgresRepository:
         status: RunStatus | str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
+        include_repairs: bool = False,
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict[str, object]]:
@@ -3159,10 +3829,13 @@ class PostgresRepository:
         if until is not None:
             clauses.append("as_of <= %s")
             params.append(until)
+        if not include_repairs:
+            clauses.append("run_kind = 'research'")
         params.append(max(1, min(limit, 1000)))
         params.append(max(0, offset))
         rows = self._execute(
-            "SELECT run_id, topic_set, status, as_of, started_at, completed_at, error "
+            "SELECT run_id, topic_set, status, as_of, started_at, completed_at, error, "
+            "run_kind, parent_run_id, repair_round "
             f"FROM research_runs WHERE {' AND '.join(clauses)} "
             "ORDER BY started_at DESC LIMIT %s OFFSET %s",
             tuple(params),
@@ -3176,6 +3849,9 @@ class PostgresRepository:
                 "started_at": row[4],
                 "completed_at": row[5],
                 "error": row[6],
+                "run_kind": row[7],
+                "parent_run_id": row[8],
+                "repair_round": row[9],
             }
             for row in rows
         ]
@@ -3240,7 +3916,15 @@ class PostgresRepository:
             "topics, geographies, lane, is_seed, evidence_status, region, language_code, "
             "language_confidence, authority_tier, catalog_source_id, source_type, "
             "freshness_status, freshness_days, extraction_status, extraction_error_code, "
-            "normalized_title_en, normalized_snippet_en FROM sources "
+            "normalized_title_en, normalized_snippet_en, "
+            "period.period_status, period.period_basis, period.eligible_for_weekly "
+            "FROM sources s "
+            "LEFT JOIN LATERAL ("
+            "SELECT rs.period_status, rs.period_basis, rs.eligible_for_weekly "
+            "FROM run_sources rs JOIN research_runs rr ON rr.run_id = rs.run_id "
+            "WHERE rs.normalized_url = s.normalized_url "
+            "ORDER BY rr.as_of DESC, rs.updated_at DESC LIMIT 1"
+            ") period ON TRUE "
             f"WHERE {' AND '.join(clauses)} "
             "ORDER BY retrieved_at DESC, normalized_url ASC LIMIT %s OFFSET %s",
             tuple(params),
@@ -3250,7 +3934,7 @@ class PostgresRepository:
             url = _safe_public_url(row[0])
             if url is None:
                 continue
-            quality = row[12:] if len(row) >= 24 else ()
+            quality = row[12:24] if len(row) >= 24 else ()
             sources.append(
                 SourceCandidate(
                     url=url,
@@ -3285,6 +3969,17 @@ class PostgresRepository:
                     extraction_error_code=cast(str | None, quality[9]) if quality else None,
                     normalized_title_en=cast(str | None, quality[10]) if quality else None,
                     normalized_snippet_en=cast(str | None, quality[11]) if quality else None,
+                    period_status=(
+                        PeriodStatus(cast(str, row[24]))
+                        if len(row) > 24 and row[24]
+                        else PeriodStatus.UNDATED
+                    ),
+                    period_basis=(
+                        PeriodBasis(cast(str, row[25]))
+                        if len(row) > 25 and row[25]
+                        else PeriodBasis.UNKNOWN
+                    ),
+                    eligible_for_weekly=(bool(row[26]) if len(row) > 26 else False),
                 )
             )
         return sources
@@ -3493,7 +4188,7 @@ class PostgresRepository:
         offset: int = 0,
         archive_scope: ArchiveScope = "active",
     ) -> list[WeeklyBrief]:
-        clauses = ["TRUE"]
+        clauses = ["rr.run_kind = 'research'"]
         params: list[object] = []
         if query.strip():
             clauses.append("search_vector @@ plainto_tsquery('english', %s)")
@@ -3663,6 +4358,10 @@ class PostgresRepository:
             "OR EXISTS (SELECT 1 FROM run_sources rsq "
             "JOIN sources sq ON sq.normalized_url = rsq.normalized_url "
             "WHERE rsq.run_id = wb.run_id AND NOT sq.is_seed "
+            f"AND {_navigation_url_sql('rsq.normalized_url')}) "
+            "OR EXISTS (SELECT 1 FROM run_sources rsq "
+            "JOIN sources sq ON sq.normalized_url = rsq.normalized_url "
+            "WHERE rsq.run_id = wb.run_id AND NOT sq.is_seed "
             "AND rsq.extraction_status = 'succeeded' "
             "AND NOT EXISTS (SELECT 1 FROM article_distillations adm "
             "WHERE adm.run_id = wb.run_id AND adm.normalized_url = rsq.normalized_url))"
@@ -3765,7 +4464,7 @@ class PostgresRepository:
             f"CASE WHEN NOT ({report_complete_sql}) THEN 'empty_report_section' END"
             "], NULL)"
         )
-        clauses = ["TRUE"]
+        clauses = ["rr.run_kind = 'research'"]
         params: list[object] = []
         if query.strip():
             clauses.append("wb.search_vector @@ plainto_tsquery('english', %s)")
@@ -3795,6 +4494,22 @@ class PostgresRepository:
         params.extend((bounded_limit, bounded_offset))
         article_complete_for_aggregate_sql = article_complete_sql.replace(
             "wb.run_id", "adq.run_id"
+        )
+        reader_contract_for_aggregate_sql = (
+            "(adq.prompt_version NOT LIKE 'distill-v7%%' OR ("
+            "rsa.extraction_status = 'succeeded' "
+            "AND COALESCE(rsa.source_snapshot ->> 'direct_content', 'false') = 'true' "
+            "AND COALESCE(rsa.source_snapshot ->> 'page_type', 'unknown') "
+            "IN ('article', 'official_document') "
+            f"AND NOT {_navigation_url_sql('adq.normalized_url')} "
+            "AND jsonb_array_length(COALESCE(adq.key_points, '[]'::jsonb)) = 3 "
+            "AND jsonb_typeof(adq.insight_packet -> 'decision_score') = 'object' "
+            "AND (rsa.published_at_snapshot IS NULL OR ("
+            "COALESCE(rsa.source_snapshot ->> 'publication_date_basis', 'unknown') "
+            "IN ('matched', 'page', 'search') "
+            "AND trim(COALESCE("
+            "rsa.source_snapshot ->> 'publication_date_locator', ''"
+            ")) <> ''))))"
         )
         aggregate_ctes = f"""
             WITH page_briefs AS (
@@ -3875,6 +4590,7 @@ class PostgresRepository:
                                WHERE rsa.run_id = adq.run_id
                                  AND rsa.normalized_url = adq.normalized_url
                                  AND NOT sa.is_seed
+                                 AND {reader_contract_for_aggregate_sql}
                            )
                            AND ({article_complete_for_aggregate_sql})
                        ) AS complete_article_count
@@ -4154,6 +4870,10 @@ class PostgresRepository:
             "OR EXISTS (SELECT 1 FROM run_sources rsq "
             "JOIN sources sq ON sq.normalized_url = rsq.normalized_url "
             "WHERE rsq.run_id = wb.run_id AND NOT sq.is_seed "
+            f"AND {_navigation_url_sql('rsq.normalized_url')}) "
+            "OR EXISTS (SELECT 1 FROM run_sources rsq "
+            "JOIN sources sq ON sq.normalized_url = rsq.normalized_url "
+            "WHERE rsq.run_id = wb.run_id AND NOT sq.is_seed "
             "AND rsq.extraction_status = 'succeeded' "
             "AND NOT EXISTS (SELECT 1 FROM article_distillations adm "
             "WHERE adm.run_id = wb.run_id AND adm.normalized_url = rsq.normalized_url))"
@@ -4227,7 +4947,7 @@ class PostgresRepository:
             f"AND NOT ({incomplete_article_sql}) "
             f"AND {report_complete_sql}"
         )
-        clauses = ["TRUE"]
+        clauses = ["rr.run_kind = 'research'"]
         params: list[object] = []
         if review_state is not None:
             clauses.append("wb.review_state = %s")
@@ -4420,6 +5140,122 @@ class PostgresRepository:
         quality_counts = [
             int(value) if isinstance(value, int) else 0 for value in quality
         ]
+        history_rows = self._execute(
+            f"""
+            WITH raw_defect_parents AS (
+                SELECT rr.run_id
+                FROM research_runs rr
+                WHERE rr.run_kind = 'research'
+                  AND (
+                    NOT EXISTS (
+                        SELECT 1 FROM run_sources rs WHERE rs.run_id = rr.run_id
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM run_sources rs
+                        WHERE rs.run_id = rr.run_id
+                          AND (
+                            rs.extraction_status <> 'succeeded'
+                            OR rs.source_snapshot = '{{}}'::jsonb
+                            OR COALESCE(rs.source_snapshot ->> 'direct_content', 'false') <> 'true'
+                            OR COALESCE(rs.source_snapshot ->> 'page_type', 'unknown')
+                               NOT IN ('article', 'official_document')
+                            OR {_navigation_url_sql('rs.normalized_url')}
+                            OR (
+                                rs.published_at_snapshot IS NOT NULL
+                                AND (
+                                    COALESCE(
+                                        rs.source_snapshot ->> 'publication_date_basis',
+                                        'unknown'
+                                    )
+                                        NOT IN ('matched', 'page', 'search')
+                                    OR trim(COALESCE(
+                                        rs.source_snapshot ->> 'publication_date_locator',
+                                        ''
+                                    )) = ''
+                                )
+                            )
+                            OR NOT EXISTS (
+                                SELECT 1 FROM source_snapshots ss
+                                WHERE ss.run_id = rs.run_id
+                                  AND ss.normalized_url = rs.normalized_url
+                            )
+                            OR NOT EXISTS (
+                                SELECT 1 FROM article_distillations ad
+                                WHERE ad.run_id = rs.run_id
+                                  AND ad.normalized_url = rs.normalized_url
+                                  AND ad.quality_status = 'complete'
+                                  AND trim(COALESCE(ad.insight_packet ->> 'headline', '')) <> ''
+                                  AND ad.prompt_version LIKE 'distill-v7%%'
+                                  AND jsonb_array_length(COALESCE(ad.key_points, '[]'::jsonb)) = 3
+                                  AND jsonb_typeof(ad.insight_packet -> 'decision_score') = 'object'
+                            )
+                          )
+                    )
+                    OR NOT EXISTS (
+                        SELECT 1 FROM weekly_briefs wb WHERE wb.run_id = rr.run_id
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM weekly_briefs wb
+                        WHERE wb.run_id = rr.run_id
+                          AND (
+                            jsonb_array_length(COALESCE(wb.executive_bullets, '[]'::jsonb)) = 0
+                            OR jsonb_array_length(COALESCE(wb.developments, '[]'::jsonb)) = 0
+                            OR jsonb_array_length(COALESCE(wb.risks, '[]'::jsonb)) = 0
+                            OR jsonb_array_length(COALESCE(wb.opportunities, '[]'::jsonb)) = 0
+                            OR jsonb_array_length(COALESCE(wb.uncertainties, '[]'::jsonb)) = 0
+                            OR jsonb_array_length(COALESCE(wb.follow_up_questions, '[]'::jsonb)) = 0
+                          )
+                    )
+                  )
+            ),
+            repair_candidate_parents AS (
+                SELECT parent.run_id
+                FROM raw_defect_parents parent
+                WHERE EXISTS (
+                    SELECT 1 FROM run_sources rs WHERE rs.run_id = parent.run_id
+                )
+                  AND EXISTS (
+                      SELECT 1 FROM research_runs child
+                      WHERE child.run_kind = 'repair'
+                        AND child.parent_run_id = parent.run_id
+                  )
+            )
+            SELECT parent.run_id,
+                   candidate.run_id IS NOT NULL AS repair_candidate,
+                   EXISTS (
+                       SELECT 1 FROM research_runs child
+                       WHERE child.run_kind = 'repair'
+                         AND child.parent_run_id = parent.run_id
+                         AND child.status = 'succeeded'
+                         AND child.validation_status = 'pass'
+                         AND EXISTS (
+                             SELECT 1
+                             FROM validation_checks child_validation
+                             WHERE child_validation.run_id = child.run_id
+                               AND child_validation.checks @>
+                                   '[{{"name":"reader_source_contract","status":"pass"}}]'::jsonb
+                         )
+                   ) AS resolved
+            FROM raw_defect_parents parent
+            LEFT JOIN repair_candidate_parents candidate
+              ON candidate.run_id = parent.run_id
+            ORDER BY parent.run_id
+            """
+        )
+        raw_defect_parent_ids = [cast(str, item[0]) for item in history_rows]
+        repair_parent_ids = [
+            cast(str, item[0]) for item in history_rows if bool(item[1])
+        ]
+        resolved_parent_ids = [
+            cast(str, item[0])
+            for item in history_rows
+            if bool(item[1]) and bool(item[2])
+        ]
+        unresolved_parent_ids = [
+            cast(str, item[0])
+            for item in history_rows
+            if bool(item[1]) and not bool(item[2])
+        ]
         return {
             "database": health,
             "reports": {
@@ -4459,7 +5295,155 @@ class PostgresRepository:
                     else 0.0
                 ),
             },
+            "history_quality": {
+                "raw_defect_parent_count": len(raw_defect_parent_ids),
+                "repair_parent_count": len(repair_parent_ids),
+                "resolved_parent_count": len(resolved_parent_ids),
+                "unresolved_parent_count": len(unresolved_parent_ids),
+                "unresolved_parent_ids": unresolved_parent_ids,
+            },
             "migration_version": health.get("migration_version"),
+        }
+
+    def system_snapshot(self) -> dict[str, object]:
+        snapshot_results = self._execute_read_snapshot(
+            [
+                (
+                    """
+                    SELECT 'research_runs', count(*) FROM research_runs
+                    UNION ALL SELECT 'agent_steps', count(*) FROM agent_steps
+                    UNION ALL SELECT 'agent_tool_calls', count(*) FROM agent_tool_calls
+                    UNION ALL SELECT 'run_sources', count(*) FROM run_sources
+                    UNION ALL SELECT 'sources', count(*) FROM sources
+                    UNION ALL SELECT 'source_snapshots', count(*) FROM source_snapshots
+                    UNION ALL SELECT 'article_distillations', count(*) FROM article_distillations
+                    UNION ALL SELECT 'claims', count(*) FROM claims
+                    UNION ALL SELECT 'signal_events', count(*) FROM signal_events
+                    UNION ALL SELECT 'weekly_briefs', count(*) FROM weekly_briefs
+                    UNION ALL SELECT 'validation_checks', count(*) FROM validation_checks
+                    UNION ALL SELECT 'review_decisions', count(*) FROM review_decisions
+                    """,
+                    (),
+                ),
+                (
+                    """
+                    SELECT agent_name, count(*),
+                           count(*) FILTER (WHERE status IN ('succeeded', 'pass')),
+                           count(*) FILTER (WHERE status IN ('failed', 'error')),
+                           COALESCE(sum(duration_ms), 0),
+                           COALESCE(sum(input_tokens), 0),
+                           COALESCE(sum(output_tokens), 0)
+                    FROM agent_steps
+                    GROUP BY agent_name ORDER BY agent_name
+                    """,
+                    (),
+                ),
+                (
+                    """
+                    SELECT tool_name, status, count(*), COALESCE(sum(result_count), 0),
+                           COALESCE(sum(latency_ms), 0)
+                    FROM agent_tool_calls
+                    GROUP BY tool_name, status ORDER BY tool_name, status
+                    """,
+                    (),
+                ),
+                (
+                    """
+                    SELECT COALESCE(resolved_model, requested_model, 'not recorded'), count(*),
+                           COALESCE(sum(input_tokens), 0), COALESCE(sum(output_tokens), 0)
+                    FROM agent_steps
+                    GROUP BY COALESCE(resolved_model, requested_model, 'not recorded')
+                    ORDER BY 1
+                    """,
+                    (),
+                ),
+                (
+                    "SELECT period_status, count(*) FROM run_sources "
+                    "GROUP BY period_status ORDER BY period_status",
+                    (),
+                ),
+                (
+                    """
+                    SELECT
+                      (SELECT count(*) FROM run_sources rs
+                       LEFT JOIN sources s ON s.normalized_url = rs.normalized_url
+                       WHERE s.normalized_url IS NULL),
+                      (SELECT count(*) FROM article_distillations ad
+                       LEFT JOIN sources s ON s.normalized_url = ad.normalized_url
+                       WHERE s.normalized_url IS NULL),
+                      (SELECT count(*) FROM claims c
+                       LEFT JOIN research_runs rr ON rr.run_id = c.run_id
+                       WHERE rr.run_id IS NULL)
+                    """,
+                    (),
+                ),
+                (
+                    "SELECT indexname FROM pg_indexes "
+                    "WHERE schemaname = 'public' ORDER BY indexname",
+                    (),
+                ),
+            ]
+        )
+        table_rows, step_rows, tool_rows, model_rows, period_rows, orphan_rows, index_rows = (
+            snapshot_results
+        )
+        table_counts = {cast(str, row[0]): _row_int(row[1]) for row in table_rows}
+        for optional_table in ("checkpoints", "checkpoint_blobs", "checkpoint_writes"):
+            try:
+                rows = self._execute(
+                    f"SELECT count(*) FROM {optional_table}"
+                )
+            except Exception:
+                table_counts[optional_table] = 0
+            else:
+                table_counts[optional_table] = _row_int(rows[0][0]) if rows else 0
+
+        agent_steps = [
+            {
+                "agent_name": row[0],
+                "steps": _row_int(row[1]),
+                "succeeded": _row_int(row[2]),
+                "failed": _row_int(row[3]),
+                "latency_ms": _row_int(row[4]),
+                "input_tokens": _row_int(row[5]),
+                "output_tokens": _row_int(row[6]),
+            }
+            for row in step_rows
+        ]
+        tool_calls = [
+            {
+                "tool_name": row[0],
+                "status": row[1],
+                "calls": _row_int(row[2]),
+                "results": _row_int(row[3]),
+                "latency_ms": _row_int(row[4]),
+            }
+            for row in tool_rows
+        ]
+        models = [
+            {
+                "model": row[0],
+                "steps": _row_int(row[1]),
+                "input_tokens": _row_int(row[2]),
+                "output_tokens": _row_int(row[3]),
+            }
+            for row in model_rows
+        ]
+        orphan_values = orphan_rows[0] if orphan_rows else (0, 0, 0)
+        return {
+            "table_counts": table_counts,
+            "agent_steps": agent_steps,
+            "tool_calls": tool_calls,
+            "models": models,
+            "period_counts": {
+                cast(str, row[0]): _row_int(row[1]) for row in period_rows
+            },
+            "indexes": [cast(str, row[0]) for row in index_rows],
+            "orphaned_records": {
+                "run_sources_without_source": _row_int(orphan_values[0]),
+                "distillations_without_source": _row_int(orphan_values[1]),
+                "claims_without_run": _row_int(orphan_values[2]),
+            },
         }
 
 

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SheperD Engineering Module Map</title>
+    <style>
+      :root {
+        --navy: #081d31;
+        --navy-2: #17324d;
+        --ink: #10263a;
+        --muted: #557086;
+        --paper: #f2f6f8;
+        --white: #ffffff;
+        --teal: #11b5a4;
+        --teal-dark: #087e78;
+        --yellow: #f4c95d;
+        --yellow-soft: #fff5cf;
+        --line: #d8e2e9;
+        --coral: #f07b62;
+      }
+
+      * { box-sizing: border-box; }
+
+      body { margin: 0; background: var(--paper); color: var(--ink); font-family: Arial, Helvetica, sans-serif; }
+
+      .canvas {
+        width: 5600px;
+        height: 1800px;
+        overflow: hidden;
+        position: relative;
+        padding: 48px 70px 42px;
+        background:
+          radial-gradient(circle at 91% 3%, rgba(17,181,164,.14), transparent 19%),
+          linear-gradient(135deg, #f8fafb 0%, #edf3f6 100%);
+      }
+
+      .header { display: flex; align-items: flex-start; height: 145px; }
+      .brand { display: flex; align-items: center; gap: 17px; color: var(--teal-dark); font-size: 22px; font-weight: 800; letter-spacing: 4px; }
+      .mark { display: flex; align-items: end; gap: 4px; height: 34px; }
+      .mark span { width: 8px; border-radius: 4px 4px 1px 1px; background: var(--teal); }
+      .mark span:nth-child(1) { height: 17px; opacity: .55; }
+      .mark span:nth-child(2) { height: 25px; opacity: .78; }
+      .mark span:nth-child(3) { height: 34px; }
+      h1 { margin: 18px 0 8px; color: var(--navy); font-size: 57px; line-height: 1.02; letter-spacing: -2px; }
+      .subtitle { margin: 0; color: var(--muted); font-size: 25px; }
+
+      .diagram-shell { height: 1015px; border: 1px solid var(--line); border-radius: 18px; padding: 20px 25px 24px; background: rgba(255,255,255,.78); box-shadow: 0 18px 42px rgba(16,42,67,.08); }
+      .diagram-head { display: flex; align-items: center; justify-content: space-between; height: 45px; }
+      .diagram-title { display: flex; align-items: center; gap: 12px; color: var(--teal-dark); font-size: 18px; font-weight: 800; letter-spacing: 2.1px; text-transform: uppercase; }
+      .diagram-title::before { width: 30px; height: 4px; border-radius: 2px; background: var(--yellow); content: ""; }
+      .diagram-note { color: var(--muted); font-size: 16px; font-weight: 700; }
+      .diagram { display: block; width: 100%; height: 915px; object-fit: contain; object-position: center top; }
+
+      .bottom { display: grid; grid-template-columns: 2.05fr 1.1fr 1.1fr; gap: 24px; margin-top: 24px; height: 420px; }
+      .card { border: 1px solid var(--line); border-radius: 16px; padding: 23px 27px; background: var(--white); box-shadow: 0 12px 30px rgba(16,42,67,.06); }
+      .card.dark { border-color: var(--navy-2); background: var(--navy-2); color: var(--white); }
+      .card.gold { border-color: #e8d992; background: #fffdf2; }
+      .label { display: flex; align-items: center; gap: 10px; margin-bottom: 13px; color: var(--teal-dark); font-size: 16px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; }
+      .dark .label { color: #88e2d8; }
+      .gold .label { color: #8a6200; }
+      .label::before { width: 27px; height: 4px; border-radius: 2px; background: var(--yellow); content: ""; }
+      .card h2 { margin: 0 0 12px; color: var(--navy); font-size: 30px; letter-spacing: -.7px; }
+      .dark h2 { color: var(--white); }
+      .gold h2 { color: var(--navy); }
+      .card p { margin: 0; font-size: 18px; line-height: 1.35; }
+      .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 20px 0 17px; }
+      .metric { border-left: 4px solid var(--teal); padding-left: 12px; }
+      .metric strong { display: block; color: var(--yellow); font-size: 31px; letter-spacing: -.8px; }
+      .metric span { display: block; color: #cfdee6; font-size: 15px; line-height: 1.2; }
+      .small { color: #6b8190; font-size: 15px !important; }
+      .dark .small { color: #cfdee6; }
+      .costs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .cost { border: 1px solid #ecd98b; border-radius: 9px; padding: 10px 12px; background: var(--yellow-soft); }
+      .cost strong { display: block; color: #785400; font-size: 21px; }
+      .cost span { display: block; margin-top: 4px; color: #6d634b; font-size: 13px; line-height: 1.2; }
+      .stack-notes { display: grid; gap: 12px; margin-top: 17px; }
+      .stack-note { border-left: 3px solid var(--teal); padding-left: 11px; color: #334e63; font-size: 16px; line-height: 1.28; }
+      .stack-note.warn { border-left-color: var(--coral); }
+      .stack-note strong { color: var(--navy); }
+      .foot { position: absolute; right: 70px; bottom: 14px; left: 70px; display: flex; justify-content: space-between; color: #6b8190; font-size: 14px; letter-spacing: .4px; }
+      .foot strong { color: var(--teal-dark); }
+    </style>
+  </head>
+  <body>
+    <main class="canvas">
+      <header class="header">
+        <div>
+          <div class="brand"><span class="mark"><span></span><span></span><span></span></span> SHEPERD / ENGINEERING MODULE MAP</div>
+          <h1>How the research system actually works</h1>
+          <p class="subtitle">A plain-English engineering map: Tavily researches, LangGraph orchestrates, Neon stores evidence, and a human approves the 16-page PDF.</p>
+        </div>
+      </header>
+
+      <section class="diagram-shell">
+        <div class="diagram-head">
+          <div class="diagram-title">Mermaid module flow · end to end</div>
+          <div class="diagram-note">Solid arrows = data path · dashed arrows = cross-cutting controls · red branches = stop conditions</div>
+        </div>
+        <img class="diagram" src="2026-09-01-shepherd-module-map-compact.svg" alt="Detailed Mermaid flowchart of the SheperD research pipeline" />
+      </section>
+
+      <section class="bottom">
+        <article class="card dark">
+          <div class="label">Report artifact achieved</div>
+          <h2>What the PDF gives the CEO</h2>
+          <p>One source-forward report from the same canonical Neon snapshot: cover, executive summary, finding cards, watchlist/background, limitations, source index, and validation.</p>
+          <div class="metrics">
+            <div class="metric"><strong>13</strong><span>source packets</span></div>
+            <div class="metric"><strong>12</strong><span>eligible dated sources</span></div>
+            <div class="metric"><strong>35</strong><span>cited claims</span></div>
+            <div class="metric"><strong>100%</strong><span>citation coverage</span></div>
+          </div>
+          <p class="small">Current output: USA + Mexico · new findings only · 16-page A4 custom HTML/CSS PDF · status remains draft/review_required.</p>
+        </article>
+
+        <article class="card gold">
+          <div class="label">Cost model</div>
+          <h2>~$25 / month for a weekly report</h2>
+          <div class="costs">
+            <div class="cost"><strong>~$0.76</strong><span>OpenAI tokens<br/>weekly report basis</span></div>
+            <div class="cost"><strong>$0–$0.70</strong><span>Tavily research credits<br/>~87 credits; 1,000 free allowance</span></div>
+            <div class="cost"><strong>~$20–$24</strong><span>Server + scheduler + PDF runtime<br/>required for autonomy</span></div>
+            <div class="cost"><strong>$0 for now</strong><span>Neon database<br/>prototype tier; indexing later may add cost</span></div>
+          </div>
+          <p class="small" style="margin-top: 14px;"><strong>Prototype planning estimate:</strong> 4.3 weekly runs/month; provider usage plus a small deployed server. Future full indexing/storage can increase the total. Not a provider quote.</p>
+        </article>
+
+        <article class="card">
+          <div class="label">Plain-English stack</div>
+          <h2>What each piece does</h2>
+          <div class="stack-notes">
+            <div class="stack-note"><strong>Tavily</strong> is the web research layer: it discovers candidate pages and extracts direct source content.</div>
+            <div class="stack-note"><strong>LangGraph</strong> is the workflow layer: it routes state, budgets, checkpoints, agents, and stop gates.</div>
+            <div class="stack-note"><strong>Neon PostgreSQL</strong> is the canonical evidence store; database cost is $0 for now. No blockchain is used in the current design.</div>
+            <div class="stack-note warn"><strong>Autonomy warning:</strong> unattended runs require a deployed server, scheduler, secrets, monitoring, and PDF runtime. Add that hosting cost before launch.</div>
+          </div>
+        </article>
+      </section>
+
+      <footer class="foot"><span><strong>SHEPERD</strong> · source-bound intelligence for maritime, port, carrier, terminal, and D&amp;D decisions</span><span>Engineering explainer · 01 Sep 2026 · Mermaid source included</span></footer>
+    </main>
+  </body>
+</html>

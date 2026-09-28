@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextvars import ContextVar
+from datetime import UTC, datetime
 from types import TracebackType
 
 import httpx
@@ -9,7 +10,7 @@ import pytest
 from pydantic import BaseModel
 
 import sheperd_research.providers.openrouter as openrouter_module
-from sheperd_research.contracts import SourceCandidate
+from sheperd_research.contracts import PageType, PublicationDateBasis, SourceCandidate
 from sheperd_research.providers.errors import ProviderError
 from sheperd_research.providers.openrouter import BriefOutput, OpenRouterProvider
 from sheperd_research.providers.tavily import TavilyProvider
@@ -78,8 +79,16 @@ def patch_client(
 
 def valid_article_response(source_url: str) -> dict[str, object]:
     return {
+        "headline": "A public maritime development",
+        "event_type": "port",
+        "event_at": "2026-08-25T10:00:00Z",
+        "event_at_locator": "paragraph 1",
         "summary": "A source-bound summary.",
-        "key_points": ["A reported point.", "A second reported point."],
+        "key_points": [
+            "A reported point.",
+            "A second reported point.",
+            "A third reported point.",
+        ],
         "what_happened": "The source reports a public development.",
         "why_it_matters": "The development changes the operating picture.",
         "risk_assessment": {
@@ -395,6 +404,198 @@ def test_tavily_extract_chunks_batches_at_twenty_urls() -> None:
     assert [len(batch) for batch in calls] == [20, 1]
 
 
+def test_tavily_extract_requests_full_advanced_markdown() -> None:
+    captured: dict[str, object] = {}
+
+    class CapturingProvider(TavilyProvider):
+        async def _post(self, endpoint: str, payload: dict[str, object]) -> dict[str, object]:
+            captured["endpoint"] = endpoint
+            captured["payload"] = payload
+            return {
+                "results": [
+                    {
+                        "url": "https://example.com/article",
+                        "raw_content": "# Direct article\nPublished: 2026-08-25\nBody",
+                    }
+                ]
+            }
+
+    extracted = asyncio.run(
+        CapturingProvider("secret").extract(
+            [SourceCandidate(url="https://example.com/article")]
+        )
+    )
+
+    assert extracted["https://example.com/article"].startswith("# Direct article")
+    assert captured == {
+        "endpoint": "extract",
+        "payload": {
+            "urls": ["https://example.com/article"],
+            "extract_depth": "advanced",
+            "format": "markdown",
+            "include_images": False,
+        },
+    }
+
+
+def test_tavily_map_is_bounded_and_rejects_external_urls() -> None:
+    captured: dict[str, object] = {}
+
+    class MappingProvider(TavilyProvider):
+        async def _post(self, endpoint: str, payload: dict[str, object]) -> dict[str, object]:
+            captured["endpoint"] = endpoint
+            captured["payload"] = payload
+            return {
+                "results": [
+                    "https://example.com/news/direct-article",
+                    "https://external.example/news/other",
+                ]
+            }
+
+    urls = asyncio.run(MappingProvider("secret").map("https://example.com/news"))
+
+    assert urls == ["https://example.com/news/direct-article"]
+    assert captured == {
+        "endpoint": "map",
+        "payload": {
+            "url": "https://example.com/news",
+            "max_depth": 1,
+            "max_breadth": 10,
+            "limit": 10,
+            "allow_external": False,
+        },
+    }
+
+
+def test_tavily_resolves_an_archive_to_one_dated_direct_article() -> None:
+    parent_url = "https://example.com/news"
+    child_url = "https://example.com/news/2026/08/direct-port-update"
+
+    class ResolvingProvider(TavilyProvider):
+        async def _post(self, endpoint: str, payload: dict[str, object]) -> dict[str, object]:
+            if endpoint == "map":
+                return {"results": [child_url]}
+            assert endpoint == "extract"
+            assert payload["urls"] == [child_url]
+            return {
+                "results": [
+                    {
+                        "url": child_url,
+                        "raw_content": (
+                            "# Direct port update\n"
+                            "Published: 2026-08-25\n"
+                            "The port announced a direct operational update."
+                        ),
+                    }
+                ]
+            }
+
+    parent = SourceCandidate(
+        url=parent_url,
+        title="News archive",
+        published_at=datetime(2026, 8, 25, tzinfo=UTC),
+        search_published_at=datetime(2026, 8, 25, tzinfo=UTC),
+        lane="us-ports",
+        region="us",
+        geographies=["West Coast"],
+    )
+
+    sources, content = asyncio.run(
+        ResolvingProvider("secret").resolve_sources(
+            [parent],
+            {parent_url: "# News archive\nRecent stories"},
+            since=datetime(2026, 8, 21, tzinfo=UTC),
+            until=datetime(2026, 8, 28, tzinfo=UTC),
+        )
+    )
+
+    assert len(sources) == 1
+    assert sources[0].url == child_url
+    assert sources[0].parent_navigation_url == parent_url
+    assert sources[0].page_type is PageType.ARTICLE
+    assert sources[0].direct_content is True
+    assert sources[0].publication_date_basis is PublicationDateBasis.PAGE
+    assert sources[0].published_at == datetime(2026, 8, 25, tzinfo=UTC)
+    assert list(content) == [child_url]
+
+
+def test_tavily_archive_resolution_tolerates_an_inaccessible_mapped_child() -> None:
+    parent_url = "https://example.com/news"
+    missing_child = "https://example.com/news/missing"
+    direct_child = "https://example.com/news/2026/08/direct-port-update"
+
+    class ResolvingProvider(TavilyProvider):
+        async def _post(self, endpoint: str, payload: dict[str, object]) -> dict[str, object]:
+            if endpoint == "map":
+                return {"results": [missing_child, direct_child]}
+            assert endpoint == "extract"
+            assert payload["urls"] == [missing_child, direct_child]
+            return {
+                "results": [
+                    {
+                        "url": direct_child,
+                        "raw_content": (
+                            "# Direct port update\n"
+                            "Published: 2026-08-25\n"
+                            "The port announced a direct operational update."
+                        ),
+                    }
+                ]
+            }
+
+    parent = SourceCandidate(url=parent_url, title="News archive")
+
+    sources, content = asyncio.run(
+        ResolvingProvider("secret").resolve_sources(
+            [parent],
+            {parent_url: "# News archive\nRecent stories"},
+            since=datetime(2026, 8, 21, tzinfo=UTC),
+            until=datetime(2026, 8, 28, tzinfo=UTC),
+        )
+    )
+
+    assert [source.url for source in sources] == [direct_child]
+    assert list(content) == [direct_child]
+
+
+def test_tavily_resolution_rejects_an_unresolved_archive_but_keeps_direct_siblings() -> None:
+    archive_url = "https://example.com/news"
+    mapped_landing = "https://example.com/about"
+    direct_url = "https://example.com/updates/2026/08/direct-port-update"
+
+    class ResolvingProvider(TavilyProvider):
+        async def _post(self, endpoint: str, payload: dict[str, object]) -> dict[str, object]:
+            if endpoint == "map":
+                return {"results": [mapped_landing]}
+            assert endpoint == "extract"
+            return {
+                "results": [
+                    {
+                        "url": mapped_landing,
+                        "raw_content": "# About us\nGeneral company information.",
+                    }
+                ]
+            }
+
+    archive = SourceCandidate(url=archive_url, title="News archive")
+    direct = SourceCandidate(url=direct_url, title="Direct port update")
+
+    sources, content = asyncio.run(
+        ResolvingProvider("secret").resolve_sources(
+            [archive, direct],
+            {
+                archive_url: "# News archive\nRecent stories",
+                direct_url: "# Direct port update\nPublished: 2026-08-25\nBody",
+            },
+            since=datetime(2026, 8, 21, tzinfo=UTC),
+            until=datetime(2026, 8, 28, tzinfo=UTC),
+        )
+    )
+
+    assert [source.url for source in sources] == [direct_url]
+    assert list(content) == [direct_url]
+
+
 def test_tavily_incomplete_extract_errors_redact_missing_urls() -> None:
     class MissingContentProvider(TavilyProvider):
         async def _post(self, endpoint: str, payload: dict[str, object]) -> dict[str, object]:
@@ -405,7 +606,7 @@ def test_tavily_incomplete_extract_errors_redact_missing_urls() -> None:
     with pytest.raises(ProviderError, match=r"incomplete content for 1 URL\(s\)") as raised:
         asyncio.run(MissingContentProvider("secret").extract([SourceCandidate(url=raw_url)]))
 
-    assert raised.value.error_code == "malformed_output"
+    assert raised.value.error_code == "source_access"
     assert raw_url not in str(raised.value)
 
 
@@ -449,6 +650,67 @@ def test_tavily_search_uses_basic_depth_for_discovery_requests(
         "include_domains": ["fmc.gov"],
         "exclude_domains": ["linkedin.com"],
     }
+
+
+def test_tavily_windowed_search_uses_advanced_news_for_publication_dates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class CapturingClient(FakeAsyncClient):
+        async def post(self, _: object, **kwargs: object) -> httpx.Response:
+            captured["json"] = kwargs.get("json")
+            return response(200, {"results": []})
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_: CapturingClient([]))
+
+    asyncio.run(
+        TavilyProvider("secret").search(
+            "weekly port news",
+            since=datetime(2026, 8, 20, tzinfo=UTC),
+            until=datetime(2026, 8, 27, tzinfo=UTC),
+        )
+    )
+
+    assert captured["json"] == {
+        "query": "weekly port news",
+        "search_depth": "advanced",
+        "topic": "news",
+        "max_results": 5,
+        "include_answer": False,
+        "include_raw_content": False,
+        "start_date": "2026-08-20",
+        "end_date": "2026-08-27",
+    }
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("Wed, 26 Aug 2026 18:30:00 GMT", datetime(2026, 8, 26, 18, 30, tzinfo=UTC)),
+        ("2026-08-26", datetime(2026, 8, 26, tzinfo=UTC)),
+        ("2026-08-26T19:30:00+01:00", datetime(2026, 8, 26, 18, 30, tzinfo=UTC)),
+    ],
+)
+def test_tavily_publication_dates_normalize_to_utc(
+    value: str,
+    expected: datetime,
+) -> None:
+    assert TavilyProvider._parse_datetime(value) == expected
+
+
+def test_tavily_search_date_keeps_an_explicit_provenance_locator() -> None:
+    source = TavilyProvider._source_from_result(
+        {
+            "url": "https://example.com/news/direct-article",
+            "title": "Direct article",
+            "published_date": "2026-08-26",
+        },
+        "port news",
+    )
+
+    assert source.publication_date_basis is PublicationDateBasis.SEARCH
+    assert source.publication_date_locator == "tavily.search.published_date"
 
 
 class MalformedStructuredOutput:
@@ -542,6 +804,10 @@ def test_openrouter_uses_create_agent_schema_and_records_resolved_model(
     assert type(created["response_format"]).__name__ == "ToolStrategy"
     assert created["name"] == "source_distillation_agent"
     assert result.model_id == STRICT_OPENROUTER_MODEL
+    assert result.headline == "A public maritime development"
+    assert result.event_type == "port"
+    assert result.event_at == datetime(2026, 8, 25, 10, tzinfo=UTC)
+    assert result.event_at_locator == "paragraph 1"
     assert provider.last_call_metadata["request_id"] == "request-1"
     assert provider.last_call_metadata["total_tokens"] == 20
 
@@ -656,3 +922,55 @@ def test_openrouter_distillation_prompt_is_source_bound(
     assert "User-provided seed links remain unverified" in agent.prompt
     assert "source URL exactly as provided" in agent.prompt
     assert "Do not provide legal advice" in agent.prompt
+
+
+def test_openrouter_distillation_packs_the_full_article_and_scores_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = SourceCandidate(
+        url="https://example.com/news/direct-article",
+        title="Direct article",
+        publisher="example.com",
+        published_at=datetime(2026, 8, 25, tzinfo=UTC),
+        page_type=PageType.ARTICLE,
+        direct_content=True,
+        lane="us-ports",
+        region="us",
+        authority_tier="primary",
+    )
+    body = "\n".join(
+        [
+            "OPENING_SENTINEL",
+            *(f"opening filler {index} " + "x" * 80 for index in range(160)),
+            "Published: 2026-08-25",
+            *(f"closing filler {index} " + "y" * 80 for index in range(160)),
+            "CLOSING_SENTINEL",
+        ]
+    )
+    agent = CapturingAgent(
+        {
+            "structured_response": valid_article_response(source.url),
+            "messages": [RawResponse()],
+        }
+    )
+    provider = _stub_provider()
+    provider._model_for = lambda _: object()
+    monkeypatch.setattr(openrouter_module, "create_agent", lambda **_: agent)
+
+    result = asyncio.run(
+        provider.distill(
+            source,
+            body,
+            prompt_version="distill-v7-reader",
+            as_of=datetime(2026, 8, 28, tzinfo=UTC),
+        )
+    )
+
+    assert "OPENING_SENTINEL" in agent.prompt
+    assert "Published: 2026-08-25" in agent.prompt
+    assert "CLOSING_SENTINEL" in agent.prompt
+    assert result.decision_score is not None
+    assert result.decision_score.total == 100
+    assert result.insight_packet["decision_score"] == result.decision_score.model_dump(
+        mode="json"
+    )

@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import json
 import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from time import monotonic
@@ -13,9 +13,15 @@ from urllib.parse import urlsplit
 
 import httpx
 from langchain.agents import create_agent
+from langchain.agents.middleware import (
+    AgentMiddleware,
+    AgentState,
+    ModelRequest,
+    ModelResponse,
+)
 from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import (
     BaseModel,
@@ -51,6 +57,8 @@ from ..source_catalog import authoritative_geography_domain_catalog
 from ..validators import (
     can_extract_url,
     normalize_url,
+    pack_article_content,
+    score_article,
     url_policy_error,
     validate_article_distillation_quality,
     validate_claim_citations,
@@ -138,8 +146,23 @@ class ExtractToolInput(BaseModel):
 class ArticleOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    headline: str = Field(min_length=1, max_length=180)
+    event_type: Literal[
+        "regulatory",
+        "court",
+        "port",
+        "carrier",
+        "terminal",
+        "congestion",
+        "closure",
+        "fee",
+        "volume",
+        "other",
+    ]
+    event_at: datetime | None = None
+    event_at_locator: str | None = Field(default=None, max_length=300)
     summary: str = Field(min_length=1, max_length=700)
-    key_points: list[str] = Field(min_length=2, max_length=4)
+    key_points: list[str] = Field(min_length=3, max_length=3)
     what_happened: str = Field(min_length=1, max_length=700)
     why_it_matters: str = Field(min_length=1, max_length=700)
     risk_assessment: ArticleInsight
@@ -396,7 +419,7 @@ class OpenRouterProvider:
         if cached is not None:
             return cached
         try:
-            from langchain_openrouter import ChatOpenRouter
+            from langchain_openrouter import ChatOpenRouter  # type: ignore[import-not-found]
         except ImportError as error:
             raise ProviderError("langchain-openrouter is not installed") from error
         created: BaseChatModel = ChatOpenRouter(
@@ -1058,6 +1081,9 @@ class OpenRouterProvider:
         tool_failure_sink: list[dict[str, object]] | None = None,
         runtime_tool_receipts: list[dict[str, object]] | None = None,
         validate_output: Callable[[OutputT], None] | None = None,
+        middleware: Sequence[
+            AgentMiddleware[AgentState[OutputT], None, OutputT]
+        ] = (),
     ) -> OutputT:
         last_error: BaseException | None = None
         last_error_code: str | None = None
@@ -1072,6 +1098,26 @@ class OpenRouterProvider:
                 runtime_receipt_start = (
                     len(runtime_tool_receipts) if runtime_tool_receipts is not None else 0
                 )
+
+                def include_runtime_receipts(
+                    receipts: list[dict[str, object]],
+                    start_index: int = runtime_receipt_start,
+                ) -> None:
+                    if runtime_tool_receipts is None:
+                        return
+                    observed = {
+                        (receipt.get("tool_name"), receipt.get("input_hash"))
+                        for receipt in receipts
+                    }
+                    for runtime_receipt in runtime_tool_receipts[start_index:]:
+                        identity = (
+                            runtime_receipt.get("tool_name"),
+                            runtime_receipt.get("input_hash"),
+                        )
+                        if identity in observed:
+                            continue
+                        receipts.append(dict(runtime_receipt))
+                        observed.add(identity)
                 try:
                     progress = getattr(self, "_progress", None)
                     if progress is not None:
@@ -1093,6 +1139,7 @@ class OpenRouterProvider:
                         ),
                         response_format=strategy,
                         name=AGENT_NAMES.get(operation),
+                        middleware=list(middleware),
                     )
                     result = await self._invoke_agent_request(
                         agent,
@@ -1129,12 +1176,9 @@ class OpenRouterProvider:
                         for receipt in self._tool_call_receipts(result)
                         if receipt.get("tool_name") not in structured_tool_names
                     ]
-                    if not tool_receipts and runtime_tool_receipts is not None:
-                        tool_receipts = [
-                            dict(receipt)
-                            for receipt in runtime_tool_receipts[runtime_receipt_start:]
-                        ]
-                    if tool_failure_sink is not None:
+                    include_runtime_receipts(tool_receipts)
+                    if tool_failure_sink:
+                        tool_receipts.extend(dict(item) for item in tool_failure_sink)
                         tool_failure_sink.clear()
                     tool_names = {tool.name for tool in tools}
                     for receipt in tool_receipts:
@@ -1149,7 +1193,11 @@ class OpenRouterProvider:
                         raise ProviderError(
                             "unexpected tool call: " + ", ".join(sorted(unknown_tools))
                         )
-                    if any(receipt.get("status") != "succeeded" for receipt in tool_receipts):
+                    if any(
+                        receipt.get("status") != "succeeded"
+                        and receipt.get("error_code") != "source_access_skipped"
+                        for receipt in tool_receipts
+                    ):
                         raise ProviderError("agent tool call did not succeed")
                     if tool_latency_by_input is not None:
                         for receipt in tool_receipts:
@@ -1213,11 +1261,7 @@ class OpenRouterProvider:
                     last_error = error
                     error_code = self._error_code(error)
                     last_error_code = error_code
-                    if not tool_receipts and runtime_tool_receipts is not None:
-                        tool_receipts = [
-                            dict(receipt)
-                            for receipt in runtime_tool_receipts[runtime_receipt_start:]
-                        ]
+                    include_runtime_receipts(tool_receipts)
                     if tool_failure_sink:
                         for failure in tool_failure_sink:
                             matching = next(
@@ -1309,6 +1353,9 @@ class OpenRouterProvider:
         tool_failure_sink: list[dict[str, object]] | None = None,
         runtime_tool_receipts: list[dict[str, object]] | None = None,
         validate_output: Callable[[OutputT], None] | None = None,
+        middleware: Sequence[
+            AgentMiddleware[AgentState[OutputT], None, OutputT]
+        ] = (),
     ) -> OutputT:
         return await self._invoke_agent(
             schema,
@@ -1323,6 +1370,7 @@ class OpenRouterProvider:
             tool_failure_sink=tool_failure_sink,
             runtime_tool_receipts=runtime_tool_receipts,
             validate_output=validate_output,
+            middleware=middleware,
         )
 
     async def discover_lane(
@@ -1473,7 +1521,7 @@ class OpenRouterProvider:
                     until=until,
                     include_domains=include_domains,
                     exclude_domains=exclude_domains,
-                    max_results=min(max(1, max_results), MAX_DISCOVERY_SOURCES),
+                    max_results=MAX_DISCOVERY_SOURCES,
                 )
                 valid_sources: list[SourceCandidate] = []
                 for source in found:
@@ -1564,6 +1612,7 @@ class OpenRouterProvider:
             input_hash = self._tool_input_hash(None, urls)
             started = monotonic()
             failure: BaseException | None = None
+            failure_receipt_start = len(tool_failure_receipts)
             try:
                 normalized = [normalize_url(url) for url in urls]
                 reserve_tool_call(sum(len(url) for url in normalized))
@@ -1608,6 +1657,9 @@ class OpenRouterProvider:
                         )
                 if not normalized_extracted and last_failure is not None:
                     raise last_failure
+                for receipt in tool_failure_receipts[failure_receipt_start:]:
+                    if receipt.get("error_code") == "source_access":
+                        receipt["error_code"] = "source_access_skipped"
             except Exception as error:
                 failure = error
                 tool_errors.append(error.__class__.__name__)
@@ -1672,11 +1724,67 @@ class OpenRouterProvider:
             args_schema=ExtractToolInput,
         )
         tools = [search_tool, extract_tool]
+
+        class DiscoveryToolOrderMiddleware(
+            AgentMiddleware[
+                AgentState[LaneDiscoveryPacket],
+                None,
+                LaneDiscoveryPacket,
+            ]
+        ):
+            async def awrap_model_call(
+                self,
+                request: ModelRequest[None],
+                handler: Callable[
+                    [ModelRequest[None]],
+                    Awaitable[ModelResponse[LaneDiscoveryPacket]],
+                ],
+            ) -> ModelResponse[LaneDiscoveryPacket]:
+                tool_names_by_id = {
+                    tool_call["id"]: tool_call["name"]
+                    for message in request.messages
+                    if isinstance(message, AIMessage)
+                    for tool_call in message.tool_calls
+                }
+                successful_tools: set[str] = set()
+                for message in request.messages:
+                    if not isinstance(message, ToolMessage) or message.status == "error":
+                        continue
+                    tool_name = message.name or tool_names_by_id.get(message.tool_call_id)
+                    if tool_name is not None:
+                        successful_tools.add(tool_name)
+                if (
+                    len(search_calls) < len(queries)
+                    or "tavily_search" not in successful_tools
+                ):
+                    staged = request.override(
+                        tools=[search_tool],
+                        tool_choice="required",
+                        response_format=None,
+                    )
+                else:
+                    extraction_urls: list[str] = []
+                    if len(queries) <= max_results:
+                        for query in queries:
+                            for source in search_results_by_query.get(query, []):
+                                url = normalize_url(source.url)
+                                if url not in extraction_urls:
+                                    extraction_urls.append(url)
+                                    break
+                    for url in known_sources:
+                        if url not in extraction_urls:
+                            extraction_urls.append(url)
+                    await run_extract(extraction_urls[:max_results])
+                    staged = request.override(tools=[], tool_choice=None)
+                return await handler(staged)
+
+        enforce_discovery_tool_order = DiscoveryToolOrderMiddleware()
+
         prompt = (
             f"You are the bounded {lane} discovery worker. Research only these configured "
             f"geographies: {list(geographies)}. You must call tavily_search for every "
-            "configured query family, then call tavily_extract for URLs returned by search "
-            "before returning your structured packet. Use no outside retrieval. "
+            "configured query family. The orchestrator then extracts eligible URLs returned "
+            "by search before enabling your structured packet. Use no outside retrieval. "
             "Do not invent URLs, dates, publishers, or claims. Select only public, "
             "non-LinkedIn sources returned by the tools. Return the selected source URLs, "
             "the exact selected queries, and short evidence notes. Do not reveal reasoning.\n\n"
@@ -1687,6 +1795,7 @@ class OpenRouterProvider:
             "coverage follow-up, select at least one successfully extracted source for each "
             "query before selecting additional sources."
         )
+        selection_basis = "model_structured"
         try:
             packet = await self._invoke_structured(
                 LaneDiscoveryPacket,
@@ -1700,14 +1809,46 @@ class OpenRouterProvider:
                 tool_provider_metadata_by_input=tool_provider_metadata_by_input,
                 tool_failure_sink=tool_failure_receipts,
                 runtime_tool_receipts=runtime_tool_receipts,
+                middleware=[enforce_discovery_tool_order],
             )
         except ProviderError as error:
             if tool_calls > MAX_DISCOVERY_TOOL_CALLS:
                 raise discovery_error("discovery tool-call budget exceeded") from error
             if tool_input_chars > MAX_DISCOVERY_INPUT_CHARS:
                 raise discovery_error("discovery tool-input budget exceeded") from error
-            error.attempts = list(attempt_sink)
-            raise
+            failed_receipts: list[dict[str, object]] = []
+            for attempt in attempt_sink:
+                raw_receipts = attempt.get("tool_call_receipts")
+                if isinstance(raw_receipts, list):
+                    failed_receipts.extend(
+                        receipt for receipt in raw_receipts if isinstance(receipt, dict)
+                    )
+            unresolved_tool_failure = any(
+                receipt.get("status") != "succeeded"
+                and receipt.get("error_code") != "source_access_skipped"
+                for receipt in failed_receipts
+            )
+            malformed_selection_only = bool(attempt_sink) and all(
+                attempt.get("error_code") == "malformed_output"
+                and attempt.get("error_type")
+                in {"StructuredOutputValidationError", "ValidationError"}
+                for attempt in attempt_sink
+            )
+            if (
+                error.error_code == "malformed_output"
+                and malformed_selection_only
+                and captured_content
+                and set(queries).issubset(search_calls)
+                and not unresolved_tool_failure
+            ):
+                packet = LaneDiscoveryPacket(
+                    source_urls=list(captured_content)[:max_results],
+                    selected_queries=list(queries),
+                )
+                selection_basis = "captured_tool_evidence_fallback"
+            else:
+                error.attempts = list(attempt_sink)
+                raise
         if tool_calls > MAX_DISCOVERY_TOOL_CALLS:
             raise discovery_error("discovery tool-call budget exceeded")
         if tool_input_chars > MAX_DISCOVERY_INPUT_CHARS:
@@ -1715,23 +1856,52 @@ class OpenRouterProvider:
         # A corrective retry may recover a transient tool failure. The failed
         # attempt remains in the audit trail, while the final agent result is
         # authoritative for lane readiness.
-        known_urls = set(known_sources)
-        missing_queries = sorted(set(queries) - search_calls)
+        missing_queries = [query for query in queries if query not in search_calls]
         if missing_queries:
-            raise discovery_error(
-                "discovery agent skipped configured query families: "
-                + ", ".join(missing_queries)
+            recovery_runtime_start = len(runtime_tool_receipts)
+            for query in missing_queries:
+                await run_search(query)
+            recovery_urls = [
+                normalize_url(source.url)
+                for query in queries
+                for source in search_results_by_query.get(query, [])
+                if normalize_url(source.url) not in captured_content
+            ]
+            if recovery_urls:
+                await run_extract(list(dict.fromkeys(recovery_urls))[:max_results])
+            packet = packet.model_copy(
+                update={
+                    "selected_queries": list(
+                        dict.fromkeys([*packet.selected_queries, *missing_queries])
+                    )
+                }
             )
+            if attempt_sink:
+                raw_receipts = attempt_sink[-1].get("tool_call_receipts")
+                if isinstance(raw_receipts, list):
+                    seen_receipts = {
+                        (item.get("tool_name"), item.get("input_hash"))
+                        for item in raw_receipts
+                        if isinstance(item, dict)
+                    }
+                    for receipt in runtime_tool_receipts[recovery_runtime_start:]:
+                        identity = (receipt.get("tool_name"), receipt.get("input_hash"))
+                        if identity not in seen_receipts:
+                            raw_receipts.append(dict(receipt))
+                            seen_receipts.add(identity)
+                    attempt_sink[-1]["tool_calls"] = len(raw_receipts)
+        if missing_queries:
+            selection_basis = "captured_tool_evidence_fallback"
         if not captured_content:
             raise discovery_error("discovery agent did not extract any source content")
         if any(url not in captured_content for url in requested_extraction_urls):
             raise discovery_error("discovery extraction returned incomplete content")
         candidate_selected_urls = [normalize_url(url) for url in packet.source_urls]
         invalid_selected_urls = [
-            url for url in candidate_selected_urls if url not in known_urls
+            url for url in candidate_selected_urls if url not in captured_content
         ]
         selected_urls = [
-            url for url in candidate_selected_urls if url in known_urls
+            url for url in candidate_selected_urls if url in captured_content
         ]
         invalid_selected_queries = sorted(
             query for query in packet.selected_queries if query not in queries
@@ -1749,7 +1919,14 @@ class OpenRouterProvider:
                     if url in captured_content and url not in selected_urls:
                         selected_urls.append(url)
                         break
-        selected_urls = list(dict.fromkeys(selected_urls or list(captured_content)))[:max_results]
+        selected_urls = list(
+            dict.fromkeys(
+                [
+                    *selected_urls,
+                    *captured_content,
+                ]
+            )
+        )[:max_results]
         missing_extractions = [url for url in selected_urls if url not in captured_content]
         if missing_extractions:
             raise discovery_error(
@@ -1772,6 +1949,7 @@ class OpenRouterProvider:
             "filtered_source_reasons": sorted(set(filtered_source_rejections)),
             "invalid_selected_url_count": len(invalid_selected_urls),
             "invalid_selected_queries": invalid_selected_queries,
+            "selection_basis": selection_basis,
             "agent_call": dict(attempt_sink[-1]) if attempt_sink else {},
             "attempts": list(attempt_sink),
         }
@@ -1814,9 +1992,14 @@ class OpenRouterProvider:
         source: SourceCandidate,
         content: str,
         *,
-        prompt_version: str = "distill-v6-insight",
+        prompt_version: str = "distill-v7-reader",
+        as_of: datetime | None = None,
     ) -> ArticleDistillation:
         self._reset_task_call_state()
+        packed_content = pack_article_content(
+            content,
+            max_chars=MAX_SOURCE_CONTENT_CHARS,
+        )
         prompt = (
             "You are an evidence distiller for maritime and D&D intelligence. "
             "Use only the supplied public source; do not use outside knowledge. "
@@ -1824,8 +2007,10 @@ class OpenRouterProvider:
             "Do not provide legal advice. Return only the requested structured fields.\n\n"
             "Rules: keep the summary concise; detect the source language; preserve an "
             "original-language summary and key points, then provide normalized English "
-            "fields; return at least two short key_points, one or more claims, entities, "
-            "signals, and limitations; provide what_happened, why_it_matters, at least "
+            "fields; return exactly three short key_points, one or more claims, entities, "
+            "signals, and limitations; provide a factual headline and classify event_type "
+            "as regulatory, court, port, carrier, terminal, congestion, closure, fee, "
+            "volume, or other; provide what_happened, why_it_matters, at least "
             "one uncertainty, and at least one next_step; provide both a risk_assessment "
             "and opportunity_assessment using status supported or not_observed; "
             "when evidence does not support a risk or opportunity, use "
@@ -1833,12 +2018,14 @@ class OpenRouterProvider:
             "a conclusion; "
             "include limitations and access gaps; mark unsupported or inferred claims "
             "unverified; use the source URL exactly as provided for every citation; "
-            "never invent a citation, date, number, entity, or event. Evidence excerpts "
+            "never invent a citation, date, number, entity, or event. Set event_at only "
+            "when the source explicitly states an event date, and then include the exact "
+            "event_at_locator. Evidence excerpts "
             "must be <=320 characters and <=40 words and must be copied from the source; "
             "supported risk and opportunity assessments require an evidence excerpt or "
             "locator. Return no null, blank, placeholder, or omitted required field.\n\n"
             f"SOURCE URL: {source.url}\nTITLE: {source.title}\n"
-            f"PUBLISHER: {source.publisher}\nCONTENT:\n{content[:MAX_SOURCE_CONTENT_CHARS]}"
+            f"PUBLISHER: {source.publisher}\nCONTENT:\n{packed_content}"
         )
 
         def article_from_output(
@@ -1852,8 +2039,12 @@ class OpenRouterProvider:
                 and translation_status is TranslationStatus.NOT_NEEDED
             ):
                 translation_status = TranslationStatus.FAILED
-            return ArticleDistillation(
+            distillation = ArticleDistillation(
                 source_url=source.url,
+                headline=output.headline,
+                event_type=output.event_type,
+                event_at=output.event_at,
+                event_at_locator=output.event_at_locator,
                 summary=output.summary,
                 key_points=output.key_points[:MAX_KEY_POINTS_PER_SOURCE],
                 entities=output.entities,
@@ -1882,6 +2073,20 @@ class OpenRouterProvider:
                     and translation_status is TranslationStatus.FAILED
                     else EvidenceStatus.MIXED
                 ),
+            )
+            decision_score = score_article(
+                source,
+                distillation,
+                as_of or source.retrieved_at,
+            )
+            return distillation.model_copy(
+                update={
+                    "decision_score": decision_score,
+                    "insight_packet": {
+                        **distillation.insight_packet,
+                        "decision_score": decision_score.model_dump(mode="json"),
+                    },
+                }
             )
 
         def validate_article_output(output: ArticleOutput) -> None:
@@ -2020,6 +2225,35 @@ class OpenRouterProvider:
                 f"{[claim.model_dump(mode='json') for claim in item.claims]}"
             )
         evidence = "\n\n".join(evidence_blocks)
+        known_source_urls = sorted(
+            {normalize_url(item.source_url) for item in distillations}
+        )
+        known_source_url_set = set(known_source_urls)
+
+        def validate_synthesis_output(output: BriefOutput) -> None:
+            for section in (
+                "executive_bullets",
+                "developments",
+                "risks",
+                "opportunities",
+                "uncertainties",
+            ):
+                for bullet in getattr(output, section):
+                    try:
+                        bullet_urls = {
+                            normalize_url(url) for url in bullet.source_urls
+                        }
+                    except ValueError as error:
+                        raise ProviderError(
+                            "OpenRouter synthesis returned a malformed citation URL",
+                            error_code="malformed_output",
+                        ) from error
+                    if not bullet_urls.issubset(known_source_url_set):
+                        raise ProviderError(
+                            "OpenRouter synthesis introduced an unknown citation",
+                            error_code="malformed_output",
+                        )
+
         prompt = (
             f"Create a concise {cadence_label} maritime intelligence brief using only the "
             "source-bound evidence below. Write an executive summary suitable for "
@@ -2034,8 +2268,11 @@ class OpenRouterProvider:
             "not support a material item, include an explicit evidence-backed absence "
             "statement with a supplied citation instead of inventing an item or leaving "
             "the section empty. Every risks, opportunities, and uncertainties bullet "
-            "must include non-empty why_it_matters and next_step fields.\n\n"
-            f"RUN ID: {run_id}\nEVIDENCE:\n{evidence[:30000]}"
+            "must include non-empty why_it_matters and next_step fields. Please copy source "
+            "URLs exactly from the allow-list below; never invent, alter, or substitute "
+            "a URL.\n\n"
+            f"RUN ID: {run_id}\nKNOWN SOURCE URLS: {known_source_urls}\n"
+            f"EVIDENCE:\n{evidence[:30000]}"
         )
         try:
             output = await self._invoke_structured(
@@ -2043,6 +2280,7 @@ class OpenRouterProvider:
                 prompt,
                 prompt_version=prompt_version,
                 operation="synthesis",
+                validate_output=validate_synthesis_output,
             )
             metadata = self.current_call_metadata()
             return WeeklyBrief(

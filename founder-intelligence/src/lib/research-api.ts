@@ -61,6 +61,16 @@ export interface ResearchSource {
   extraction_error_code?: string | null;
   normalized_title_en?: string | null;
   normalized_snippet_en?: string | null;
+  period_status?: string;
+  period_basis?: string;
+  eligible_for_weekly?: boolean;
+  page_type?: string;
+  direct_content?: boolean;
+  search_published_at?: string | null;
+  page_published_at?: string | null;
+  publication_date_basis?: string;
+  publication_date_locator?: string | null;
+  parent_navigation_url?: string | null;
 }
 
 export interface ResearchClaim {
@@ -88,21 +98,103 @@ export interface ArticleInsight {
   evidence_locator?: string | null;
 }
 
+export interface DecisionScore {
+  sheperd_relevance: number;
+  operational_impact: number;
+  actionability: number;
+  recency: number;
+  source_authority: number;
+  total: number;
+  priority: string;
+  rationale: Record<string, string>;
+}
+
+export interface ReaderArticle {
+  source_url: string;
+  headline: string;
+  publisher: string;
+  published_at: string | null;
+  event_at: string | null;
+  date_basis: string;
+  date_locator: string | null;
+  retrieved_at: string;
+  page_type: string;
+  score: DecisionScore | null;
+  key_points: string[];
+  what_changed: string;
+  why_sheperd_cares: string;
+  recommended_action: string;
+  risk: string | null;
+  opportunity: string | null;
+  limitations: string[];
+  lane: string;
+  region: string;
+  eligible_for_weekly: boolean;
+  validation_status: string;
+}
+
+export interface ReaderSourceIndexEntry {
+  url: string;
+  title: string;
+  publisher: string;
+  published_at: string | null;
+  date_basis: string;
+  page_type: string;
+  eligible_for_weekly: boolean;
+  validation_status: string;
+}
+
+export interface ReaderReport {
+  run_id: string;
+  title: string;
+  covered_from: string;
+  covered_until: string;
+  report_status: string;
+  validation_status: string;
+  readiness_status: string;
+  canonical_hash: string;
+  three_things: string[];
+  top_action: string;
+  ranked_articles: ReaderArticle[];
+  watchlist: ReaderArticle[];
+  background_articles: ReaderArticle[];
+  source_index: ReaderSourceIndexEntry[];
+}
+
 export interface ResearchSignal {
   event_id: string;
   run_id: string;
   event_type: string;
   summary: string;
+  headline: string;
+  what_changed: string;
   geographies: string[];
   ports: string[];
   carriers: string[];
   event_at: string | null;
+  published_at: string | null;
+  retrieved_at: string | null;
+  period_status: string | null;
+  period_basis: string | null;
+  eligible_for_weekly: boolean;
+  region: string;
+  lane: string;
   source_urls: string[];
+  evidence_locator: string | null;
+  impact: string;
+  risk: string;
+  opportunity: string;
+  next_step: string;
+  limitations: string[];
   evidence_status: EvidenceStatus;
 }
 
 export interface ArticleDistillation {
   source_url: string;
+  headline?: string;
+  event_type?: string;
+  event_at?: string | null;
+  event_at_locator?: string | null;
   summary: string;
   key_points: string[];
   entities: string[];
@@ -128,6 +220,7 @@ export interface ArticleDistillation {
   next_steps?: string[];
   quality_status?: string;
   quality_issues?: string[];
+  decision_score?: DecisionScore | null;
   insight_packet?: Record<string, unknown>;
 }
 
@@ -234,6 +327,11 @@ export interface ReportPayload {
     archived?: boolean;
     archived_at?: string | null;
     archive_reason?: string | null;
+    run_kind: string;
+    parent_run_id: string | null;
+    repair_round: number | null;
+    context_version: string;
+    research_timezone: string;
   } | null;
   validation: ValidationReport | null;
   lane_coverage: string[];
@@ -244,6 +342,7 @@ export interface ReportPayload {
   tool_calls?: ToolCallReceipt[];
   sources: ResearchSource[];
   source_hashes: string[];
+  source_hash_by_url: Record<string, string>;
   distillations: ArticleDistillation[];
   claims: ResearchClaim[];
   signals: ResearchSignal[];
@@ -254,6 +353,64 @@ export interface ReportPayload {
   ready?: boolean;
   readiness_status?: string;
   blocking_reasons?: string[];
+  period_counts?: Record<string, number>;
+  source_periods?: Record<string, {
+    period_status: string;
+    period_basis: string;
+    eligible_for_weekly: boolean;
+  }>;
+  cost_estimate?: CostEstimate;
+  pdf: PdfArtifact;
+  canonical_hash: string;
+  reader_report: ReaderReport;
+}
+
+export interface CostEstimate {
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  llm_estimated_usd: number;
+  tavily: {
+    search_calls: number;
+    extracted_urls: number;
+    search_credits: number;
+    extract_credits: number;
+    credits: number;
+    estimated_usd: number;
+    free_allowance_credits: number;
+  };
+  estimated_provider_usd: number;
+  rate_card: {
+    retrieved_at: string;
+    openai: {
+      model: string;
+      input_usd_per_million_tokens: number;
+      output_usd_per_million_tokens: number;
+      source_url: string;
+      basis: string;
+    };
+    tavily: {
+      search_credits_per_call: number;
+      extract_urls_per_credit: number;
+      usd_per_credit: number;
+      free_credits_per_month: number;
+      credits_source_url: string;
+      pricing_source_url: string;
+    };
+    vercel: {
+      pricing_source_url: string;
+      blob_pricing_source_url: string;
+    };
+  };
+}
+
+export interface PdfArtifact {
+  available: boolean;
+  url: string | null;
+  uploaded_at: string | null;
+  content_hash: string | null;
+  canonical_hash: string;
+  unavailable_reason: string | null;
 }
 
 export interface MonthlyRollup {
@@ -462,6 +619,14 @@ function isStringArrayRecord(value: unknown): value is Record<string, string[]> 
     && Object.values(value).every((candidate) => isStringArray(candidate));
 }
 
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every(isString);
+}
+
+function isSha256(value: unknown): value is string {
+  return isString(value) && /^[a-f0-9]{64}$/u.test(value);
+}
+
 function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
@@ -521,7 +686,14 @@ function isWeeklyBrief(value: unknown): value is WeeklyBrief {
 
 function isReportRun(value: unknown): boolean {
   return isRecord(value)
-    && hasStrings(value, ["run_id", "status", "as_of"])
+    && hasStrings(value, [
+      "run_id",
+      "status",
+      "as_of",
+      "run_kind",
+      "context_version",
+      "research_timezone",
+    ])
     && isOptional(value, "error", isNullableString)
     && isOptional(value, "error_code", isNullableString)
     && isNullableString(value.neon_branch_id)
@@ -529,7 +701,9 @@ function isReportRun(value: unknown): boolean {
     && isOptional(value, "validation_profile", isString)
     && isOptional(value, "archived", (candidate) => typeof candidate === "boolean")
     && isOptional(value, "archived_at", isNullableString)
-    && isOptional(value, "archive_reason", isNullableString);
+    && isOptional(value, "archive_reason", isNullableString)
+    && isNullableString(value.parent_run_id)
+    && isNullableNumber(value.repair_round);
 }
 
 function isValidationCheck(value: unknown): boolean {
@@ -620,7 +794,17 @@ function isResearchSource(value: unknown): value is ResearchSource {
     && isOptional(value, "extraction_status", isString)
     && isOptional(value, "extraction_error_code", isNullableString)
     && isOptional(value, "normalized_title_en", isNullableString)
-    && isOptional(value, "normalized_snippet_en", isNullableString);
+    && isOptional(value, "normalized_snippet_en", isNullableString)
+    && isOptional(value, "period_status", isString)
+    && isOptional(value, "period_basis", isString)
+    && isOptional(value, "eligible_for_weekly", isBoolean)
+    && isOptional(value, "page_type", isString)
+    && isOptional(value, "direct_content", isBoolean)
+    && isOptional(value, "search_published_at", isNullableString)
+    && isOptional(value, "page_published_at", isNullableString)
+    && isOptional(value, "publication_date_basis", isString)
+    && isOptional(value, "publication_date_locator", isNullableString)
+    && isOptional(value, "parent_navigation_url", isNullableString);
 }
 
 function isResearchClaim(value: unknown): value is ResearchClaim {
@@ -639,12 +823,33 @@ function isResearchClaim(value: unknown): value is ResearchClaim {
 
 function isResearchSignal(value: unknown): value is ResearchSignal {
   return isRecord(value)
-    && hasStrings(value, ["event_id", "run_id", "event_type", "summary", "evidence_status"])
+    && hasStrings(value, [
+      "event_id",
+      "run_id",
+      "event_type",
+      "summary",
+      "headline",
+      "what_changed",
+      "region",
+      "lane",
+      "impact",
+      "risk",
+      "opportunity",
+      "next_step",
+      "evidence_status",
+    ])
     && isStringArray(value.geographies)
     && isStringArray(value.ports)
     && isStringArray(value.carriers)
     && isNullableString(value.event_at)
-    && isStringArray(value.source_urls);
+    && isNullableString(value.published_at)
+    && isNullableString(value.retrieved_at)
+    && isNullableString(value.period_status)
+    && isNullableString(value.period_basis)
+    && isBoolean(value.eligible_for_weekly)
+    && isStringArray(value.source_urls)
+    && isNullableString(value.evidence_locator)
+    && isStringArray(value.limitations);
 }
 
 function isArticleInsight(value: unknown): value is ArticleInsight {
@@ -664,6 +869,87 @@ function isArticleInsight(value: unknown): value is ArticleInsight {
   );
 }
 
+function isDecisionScore(value: unknown): value is DecisionScore {
+  if (!isRecord(value) || !isString(value.priority) || !isStringRecord(value.rationale)) {
+    return false;
+  }
+  const components = [
+    value.sheperd_relevance,
+    value.operational_impact,
+    value.actionability,
+    value.recency,
+    value.source_authority,
+  ];
+  return components.every(isNonNegativeInteger)
+    && isNonNegativeInteger(value.total)
+    && components.reduce((sum, component) => sum + component, 0) === value.total;
+}
+
+function isReaderArticle(value: unknown): value is ReaderArticle {
+  return isRecord(value)
+    && hasStrings(value, [
+      "source_url",
+      "headline",
+      "publisher",
+      "date_basis",
+      "retrieved_at",
+      "page_type",
+      "what_changed",
+      "why_sheperd_cares",
+      "recommended_action",
+      "lane",
+      "region",
+      "validation_status",
+    ])
+    && isNullableString(value.published_at)
+    && isNullableString(value.event_at)
+    && isNullableString(value.date_locator)
+    && (value.score === null || isDecisionScore(value.score))
+    && isStringArray(value.key_points)
+    && isNullableString(value.risk)
+    && isNullableString(value.opportunity)
+    && isStringArray(value.limitations)
+    && isBoolean(value.eligible_for_weekly);
+}
+
+function isReaderSourceIndexEntry(value: unknown): value is ReaderSourceIndexEntry {
+  return isRecord(value)
+    && hasStrings(value, [
+      "url",
+      "title",
+      "publisher",
+      "date_basis",
+      "page_type",
+      "validation_status",
+    ])
+    && isNullableString(value.published_at)
+    && isBoolean(value.eligible_for_weekly);
+}
+
+function isReaderReport(value: unknown): value is ReaderReport {
+  return isRecord(value)
+    && hasStrings(value, [
+      "run_id",
+      "title",
+      "covered_from",
+      "covered_until",
+      "report_status",
+      "validation_status",
+      "readiness_status",
+      "top_action",
+    ])
+    && isSha256(value.canonical_hash)
+    && isStringArray(value.three_things)
+    && Array.isArray(value.ranked_articles)
+    && value.ranked_articles.every(isReaderArticle)
+    && Array.isArray(value.watchlist)
+    && value.watchlist.every(isReaderArticle)
+    && Array.isArray(value.background_articles)
+    && value.background_articles.every(isReaderArticle)
+    && Array.isArray(value.source_index)
+    && value.source_index.every(isReaderSourceIndexEntry);
+}
+
 function isArticleDistillation(value: unknown): value is ArticleDistillation {
   return isRecord(value)
     && hasStrings(value, ["source_url", "summary", "model_id", "prompt_version", "evidence_status"])
@@ -675,6 +961,10 @@ function isArticleDistillation(value: unknown): value is ArticleDistillation {
     && isStringArray(value.limitations)
     && isNullableString(value.published_at)
     && isNullableString(value.content_hash)
+    && isOptional(value, "headline", isString)
+    && isOptional(value, "event_type", isString)
+    && isOptional(value, "event_at", isNullableString)
+    && isOptional(value, "event_at_locator", isNullableString)
     && isOptional(value, "source_language", isString)
     && isOptional(value, "summary_original", isString)
     && isOptional(value, "key_points_original", isStringArray)
@@ -693,6 +983,9 @@ function isArticleDistillation(value: unknown): value is ArticleDistillation {
     && isOptional(value, "next_steps", isStringArray)
     && isOptional(value, "quality_status", isString)
     && isOptional(value, "quality_issues", isStringArray)
+    && isOptional(value, "decision_score", (candidate) =>
+      candidate === null || isDecisionScore(candidate)
+    )
     && isOptional(value, "insight_packet", isRecord);
 }
 
@@ -747,6 +1040,7 @@ function isReportPayload(value: unknown): value is ReportPayload {
     && Array.isArray(value.sources)
     && value.sources.every(isResearchSource)
     && isStringArray(value.source_hashes)
+    && isStringRecord(value.source_hash_by_url)
     && Array.isArray(value.distillations)
     && value.distillations.every(isArticleDistillation)
     && Array.isArray(value.claims)
@@ -757,7 +1051,62 @@ function isReportPayload(value: unknown): value is ReportPayload {
     && isOptional(value, "quality", isQualitySnapshot)
     && isOptional(value, "ready", isBoolean)
     && isOptional(value, "readiness_status", isString)
-    && isOptional(value, "blocking_reasons", isStringArray);
+    && isOptional(value, "blocking_reasons", isStringArray)
+    && isOptional(value, "period_counts", (candidate) =>
+      isRecord(candidate) && Object.values(candidate).every(isNonNegativeInteger)
+    )
+    && isOptional(value, "source_periods", isRecord)
+    && isOptional(value, "cost_estimate", isCostEstimate)
+    && isPdfArtifact(value.pdf)
+    && isSha256(value.canonical_hash)
+    && isReaderReport(value.reader_report)
+    && value.reader_report.run_id === value.brief.run_id
+    && value.reader_report.canonical_hash === value.canonical_hash
+    && value.pdf.canonical_hash === value.canonical_hash;
+}
+
+function isPdfArtifact(value: unknown): value is PdfArtifact {
+  return isRecord(value)
+    && isBoolean(value.available)
+    && isNullableString(value.url)
+    && isNullableString(value.uploaded_at)
+    && isNullableString(value.content_hash)
+    && isSha256(value.canonical_hash)
+    && isNullableString(value.unavailable_reason);
+}
+
+function isCostEstimate(value: unknown): value is CostEstimate {
+  if (!isRecord(value) || !isString(value.model)) return false;
+  if (!isNonNegativeInteger(value.input_tokens)
+    || !isNonNegativeInteger(value.output_tokens)
+    || !isNumber(value.llm_estimated_usd)
+    || !isNumber(value.estimated_provider_usd)
+    || !isRecord(value.tavily)
+    || !isRecord(value.rate_card)
+    || !isString(value.rate_card.retrieved_at)
+    || !isRecord(value.rate_card.openai)
+    || !isRecord(value.rate_card.tavily)
+    || !isRecord(value.rate_card.vercel)) return false;
+  return isNonNegativeInteger(value.tavily.search_calls)
+    && isNonNegativeInteger(value.tavily.extracted_urls)
+    && isNonNegativeInteger(value.tavily.search_credits)
+    && isNonNegativeInteger(value.tavily.extract_credits)
+    && isNonNegativeInteger(value.tavily.credits)
+    && isNumber(value.tavily.estimated_usd)
+    && isNonNegativeInteger(value.tavily.free_allowance_credits)
+    && isString(value.rate_card.openai.model)
+    && isNumber(value.rate_card.openai.input_usd_per_million_tokens)
+    && isNumber(value.rate_card.openai.output_usd_per_million_tokens)
+    && isString(value.rate_card.openai.source_url)
+    && isString(value.rate_card.openai.basis)
+    && isNumber(value.rate_card.tavily.search_credits_per_call)
+    && isNumber(value.rate_card.tavily.extract_urls_per_credit)
+    && isNumber(value.rate_card.tavily.usd_per_credit)
+    && isNonNegativeInteger(value.rate_card.tavily.free_credits_per_month)
+    && isString(value.rate_card.tavily.credits_source_url)
+    && isString(value.rate_card.tavily.pricing_source_url)
+    && isString(value.rate_card.vercel.pricing_source_url)
+    && isString(value.rate_card.vercel.blob_pricing_source_url);
 }
 
 function hasConsistentReportIdentities(value: ReportPayload): boolean {

@@ -4,10 +4,18 @@ from datetime import UTC, datetime
 
 from sheperd_research.contracts import (
     ArticleDistillation,
+    ArticleInsight,
     ClaimDraft,
+    DecisionScore,
     EvidenceStatus,
     ExtractionStatus,
+    InsightStatus,
+    PageType,
+    PeriodBasis,
+    PeriodStatus,
+    PublicationDateBasis,
     ReportBullet,
+    SignalEvent,
     SourceCandidate,
     ValidationCheck,
     ValidationReport,
@@ -178,6 +186,58 @@ def test_validation_requires_europe_geography() -> None:
     )
 
 
+def test_strict_coverage_ignores_background_sources() -> None:
+    eligible = SourceCandidate(
+        url="https://example.com/current-us",
+        published_at=datetime(2026, 8, 25, tzinfo=UTC),
+        extraction_status=ExtractionStatus.SUCCEEDED,
+        period_status=PeriodStatus.IN_PERIOD,
+        eligible_for_weekly=True,
+        lane="regulatory",
+        region="us",
+        geographies=["Regulatory"],
+    )
+    background = SourceCandidate(
+        url="https://example.com/background-europe",
+        published_at=datetime(2026, 7, 1, tzinfo=UTC),
+        extraction_status=ExtractionStatus.SUCCEEDED,
+        period_status=PeriodStatus.BACKGROUND,
+        eligible_for_weekly=False,
+        lane="us-ports",
+        region="europe",
+        geographies=["Europe"],
+    )
+    report = build_validation_report(
+        "strict-current-coverage",
+        [eligible, background],
+        [
+            ClaimDraft(claim="Current claim", source_urls=[eligible.url]),
+            ClaimDraft(claim="Background claim", source_urls=[background.url]),
+        ],
+        datetime(2026, 8, 26, tzinfo=UTC),
+        STRICT_OPENROUTER_MODEL,
+        {"regulatory": "succeeded", "us-ports": "succeeded"},
+        ["hash-current", "hash-background"],
+        minimum_sources=2,
+        minimum_claims=2,
+        required_geographies={"Regulatory", "Europe"},
+        required_regions={"us", "europe"},
+        required_lanes={"regulatory", "us-ports"},
+        eligible_weekly_source_count=1,
+        minimum_eligible_sources=1,
+    )
+
+    failed_checks = {
+        check.name
+        for check in report.checks
+        if check.status is ValidationStatus.FAILED
+    }
+    assert {"geography_coverage", "regional_coverage", "lane_coverage"}.issubset(
+        failed_checks
+    )
+    assert "missing_evidence_locator" not in report.blocking_reasons
+
+
 def test_validation_blocking_reasons_cover_strict_gate_failures() -> None:
     source = SourceCandidate(
         url="https://example.com/failed-source",
@@ -284,6 +344,33 @@ def test_validation_uses_provider_error_shaped_run_evidence() -> None:
     }.issubset(report.blocking_reasons)
 
 
+def test_validation_preserves_source_access_failure() -> None:
+    source = SourceCandidate(
+        url="https://example.com/source-access-failed",
+        extraction_status=ExtractionStatus.FAILED,
+        extraction_error_code="source_access",
+    )
+
+    report = build_validation_report(
+        "source-access-shaped",
+        [source],
+        [],
+        datetime(2026, 8, 19, tzinfo=UTC),
+        STRICT_OPENROUTER_MODEL,
+        {"regulatory": "failed"},
+        ["hash-1"],
+        minimum_sources=1,
+        minimum_claims=0,
+        provider_error_codes=provider_error_codes_from_run(
+            sources=[source],
+            steps=[],
+            tool_calls=[],
+        ),
+    )
+
+    assert "source_access_failed" in report.blocking_reasons
+
+
 def test_validation_step_error_is_not_provider_error() -> None:
     assert provider_error_codes_from_run(
         sources=[],
@@ -309,6 +396,41 @@ def test_recovered_provider_retry_is_not_a_run_blocker() -> None:
                         {
                             "operation": "critic",
                             "attempt": 2,
+                            "error_code": None,
+                        },
+                    ]
+                },
+            }
+        ],
+        tool_calls=[],
+    ) == []
+
+
+def test_recovered_repeated_critic_call_is_not_a_run_blocker() -> None:
+    assert provider_error_codes_from_run(
+        sources=[],
+        steps=[
+            {
+                "agent_name": "critic",
+                "status": "succeeded",
+                "metadata": {
+                    "attempts": [
+                        {
+                            "operation": "critic",
+                            "attempt": 1,
+                            "input_hash": "claim-batch",
+                            "error_code": "malformed_output",
+                        },
+                        {
+                            "operation": "critic",
+                            "attempt": 2,
+                            "input_hash": "claim-batch",
+                            "error_code": "malformed_output",
+                        },
+                        {
+                            "operation": "critic",
+                            "attempt": 1,
+                            "input_hash": "claim-batch",
                             "error_code": None,
                         },
                     ]
@@ -349,6 +471,41 @@ def test_recovered_lane_retry_clears_outer_step_error() -> None:
             }
         ],
         tool_calls=[],
+    ) == []
+
+
+def test_captured_tool_evidence_fallback_resolves_malformed_selection() -> None:
+    assert provider_error_codes_from_run(
+        sources=[],
+        steps=[
+            {
+                "agent_name": "discovery:regulatory",
+                "status": "failed",
+                "error_code": "malformed_output",
+                "metadata": {
+                    "selection_basis": "captured_tool_evidence_fallback",
+                    "attempts": [
+                        {
+                            "operation": "discovery:regulatory",
+                            "attempt": 1,
+                            "error_code": "malformed_output",
+                        },
+                        {
+                            "operation": "discovery:regulatory",
+                            "attempt": 2,
+                            "error_code": "malformed_output",
+                        },
+                    ],
+                },
+            }
+        ],
+        tool_calls=[
+            {
+                "tool_name": "tavily_extract",
+                "status": "failed",
+                "error_code": "source_access_skipped",
+            }
+        ],
     ) == []
 
 
@@ -414,7 +571,7 @@ def test_validation_requires_exactly_one_distillation_per_extracted_source() -> 
     complete_distillation = ArticleDistillation(
         source_url=sources[0].url,
         summary="Complete summary.",
-        key_points=["Point one.", "Point two."],
+        key_points=["Point one.", "Point two.", "Point three."],
         what_happened="The source reports a development.",
         why_it_matters="It changes the operating picture.",
         risk_assessment={
@@ -453,6 +610,205 @@ def test_validation_requires_exactly_one_distillation_per_extracted_source() -> 
     assert report.status is ValidationStatus.FAILED
     assert check.status is ValidationStatus.FAILED
     assert check.observed == 10
+
+
+def test_repair_validation_requires_hash_and_complete_event_for_every_source() -> None:
+    source = SourceCandidate(
+        url="https://example.com/repair-source",
+        extraction_status=ExtractionStatus.SUCCEEDED,
+        published_at=datetime(2026, 8, 18, tzinfo=UTC),
+        retrieved_at=datetime(2026, 8, 19, tzinfo=UTC),
+        period_status=PeriodStatus.IN_PERIOD,
+        period_basis=PeriodBasis.PUBLISHED_AT,
+        eligible_for_weekly=True,
+        lane="us-ports",
+        region="us",
+        page_type=PageType.ARTICLE,
+        direct_content=True,
+        search_published_at=datetime(2026, 8, 18, tzinfo=UTC),
+        publication_date_basis=PublicationDateBasis.SEARCH,
+        publication_date_locator="tavily.search.published_date",
+    )
+    claim = ClaimDraft(claim="A cited development.", source_urls=[source.url])
+    insight = ArticleInsight(
+        status=InsightStatus.NOT_OBSERVED,
+        statement="No supported material risk was observed.",
+        why_it_matters="The source does not establish a risk.",
+        next_step="Review an independent source.",
+    )
+    distillation = ArticleDistillation(
+        source_url=source.url,
+        headline="A cited development",
+        event_type="port",
+        summary="A complete source summary.",
+        key_points=["Point one.", "Point two.", "Point three."],
+        claims=[claim],
+        what_happened="The source reports a development.",
+        why_it_matters="It changes the operating picture.",
+        risk_assessment=insight,
+        opportunity_assessment=insight,
+        uncertainties=["One public source."],
+        next_steps=["Monitor the cited source."],
+        limitations=["One public source."],
+        evidence_locators=["paragraph 2"],
+        quality_status="complete",
+        prompt_version="distill-v7-reader",
+        decision_score=DecisionScore(
+            sheperd_relevance=30,
+            operational_impact=25,
+            actionability=20,
+            recency=15,
+            source_authority=10,
+            total=100,
+            rationale={"recency": "Published one day before as-of."},
+        ),
+    )
+    event = SignalEvent(
+        event_id="event-1",
+        run_id="repair-run",
+        event_type="port",
+        summary=distillation.summary,
+        headline=distillation.headline,
+        what_changed=distillation.what_happened,
+        published_at=source.published_at,
+        retrieved_at=source.retrieved_at,
+        period_status=source.period_status,
+        period_basis=source.period_basis,
+        eligible_for_weekly=True,
+        region=source.region,
+        lane=source.lane,
+        source_urls=[source.url],
+        evidence_locator="paragraph 2",
+        impact=distillation.why_it_matters,
+        risk="Not observed: no supported material risk was observed.",
+        opportunity="Not observed: no supported opportunity was observed.",
+        next_step=distillation.next_steps[0],
+        limitations=distillation.limitations,
+    )
+
+    valid = build_validation_report(
+        "repair-run",
+        [source],
+        [claim],
+        datetime(2026, 8, 19, tzinfo=UTC),
+        STRICT_OPENROUTER_MODEL,
+        {},
+        ["hash-1"],
+        minimum_sources=1,
+        minimum_claims=1,
+        required_source_hash_count=1,
+        distillations=[distillation],
+        signal_events=[event],
+        required_geographies=set(),
+        required_regions=set(),
+        required_lanes=set(),
+        brief=_complete_brief(source.url),
+        require_reader_contract=True,
+    )
+    missing_event = build_validation_report(
+        "repair-run",
+        [source],
+        [claim],
+        datetime(2026, 8, 19, tzinfo=UTC),
+        STRICT_OPENROUTER_MODEL,
+        {},
+        [],
+        minimum_sources=1,
+        minimum_claims=1,
+        required_source_hash_count=1,
+        distillations=[distillation],
+        signal_events=[],
+        required_geographies=set(),
+        required_regions=set(),
+        required_lanes=set(),
+        brief=_complete_brief(source.url),
+        require_reader_contract=True,
+    )
+
+    assert valid.status is ValidationStatus.PASS
+    assert missing_event.status is ValidationStatus.FAILED
+    failed_checks = {
+        check.name
+        for check in missing_event.checks
+        if check.status is ValidationStatus.FAILED
+    }
+    assert failed_checks >= {
+        "extract_receipts",
+        "signal_event_completeness",
+    }
+
+
+def test_reader_contract_rejects_navigation_pages_even_with_complete_packets() -> None:
+    source = SourceCandidate(
+        url="https://example.com/news",
+        published_at=datetime(2026, 8, 18, tzinfo=UTC),
+        retrieved_at=datetime(2026, 8, 19, tzinfo=UTC),
+        extraction_status=ExtractionStatus.SUCCEEDED,
+        page_type=PageType.ARCHIVE,
+        direct_content=False,
+        search_published_at=datetime(2026, 8, 18, tzinfo=UTC),
+        publication_date_basis=PublicationDateBasis.SEARCH,
+        publication_date_locator="tavily.search.published_date",
+        lane="us-ports",
+        region="us",
+    )
+    claim = ClaimDraft(claim="A cited development.", source_urls=[source.url])
+    insight = ArticleInsight(
+        status=InsightStatus.NOT_OBSERVED,
+        statement="No supported material risk was observed.",
+        why_it_matters="The source does not establish a risk.",
+        next_step="Review an independent source.",
+    )
+    distillation = ArticleDistillation(
+        source_url=source.url,
+        headline="A cited development",
+        event_type="port",
+        summary="A complete source summary.",
+        key_points=["One.", "Two.", "Three."],
+        claims=[claim],
+        what_happened="The source reports a development.",
+        why_it_matters="It changes the operating picture.",
+        risk_assessment=insight,
+        opportunity_assessment=insight,
+        uncertainties=["One public source."],
+        next_steps=["Monitor the cited source."],
+        limitations=["One public source."],
+        evidence_locators=["paragraph 2"],
+        quality_status="complete",
+        prompt_version="distill-v7-reader",
+        decision_score=DecisionScore(
+            sheperd_relevance=30,
+            operational_impact=25,
+            actionability=20,
+            recency=15,
+            source_authority=10,
+            total=100,
+        ),
+    )
+
+    report = build_validation_report(
+        "repair-run",
+        [source],
+        [claim],
+        datetime(2026, 8, 19, tzinfo=UTC),
+        STRICT_OPENROUTER_MODEL,
+        {},
+        ["hash-1"],
+        minimum_sources=1,
+        minimum_claims=1,
+        required_source_hash_count=1,
+        distillations=[distillation],
+        required_geographies=set(),
+        required_regions=set(),
+        required_lanes=set(),
+        brief=_complete_brief(source.url),
+        require_reader_contract=True,
+    )
+
+    contract_check = next(
+        check for check in report.checks if check.name == "reader_source_contract"
+    )
+    assert contract_check.status is ValidationStatus.FAILED
 
 
 def test_provider_partial_is_not_silently_promoted_to_pass() -> None:

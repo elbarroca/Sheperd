@@ -37,6 +37,11 @@ const validReport: ReportPayload = {
     error: null,
     neon_branch_id: null,
     migration_version: "0008_audit_surfaces",
+    run_kind: "research",
+    parent_run_id: null,
+    repair_round: null,
+    context_version: "commit:manifest",
+    research_timezone: "Europe/Lisbon",
   },
   validation: { run_id: "run-1", status: "pass", citation_coverage: 1, lane_coverage: [], checks: [] },
   lane_coverage: [],
@@ -45,12 +50,38 @@ const validReport: ReportPayload = {
   tool_calls: [],
   sources: [],
   source_hashes: [],
+  source_hash_by_url: {},
   distillations: [],
   claims: [],
   signals: [],
   as_of: "2026-08-19T00:00:00Z",
   covered_from: "2026-08-12T00:00:00Z",
   covered_until: "2026-08-19T00:00:00Z",
+  canonical_hash: "a".repeat(64),
+  reader_report: {
+    run_id: "run-1",
+    title: "Weekly brief",
+    covered_from: "2026-08-12T00:00:00Z",
+    covered_until: "2026-08-19T00:00:00Z",
+    report_status: "draft",
+    validation_status: "pass",
+    readiness_status: "review_required",
+    canonical_hash: "a".repeat(64),
+    three_things: [],
+    top_action: "No source-supported action recorded.",
+    ranked_articles: [],
+    watchlist: [],
+    background_articles: [],
+    source_index: [],
+  },
+  pdf: {
+    available: false,
+    url: null,
+    uploaded_at: null,
+    content_hash: null,
+    canonical_hash: "a".repeat(64),
+    unavailable_reason: "pdf_delivery_not_configured",
+  },
 };
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -126,6 +157,70 @@ describe("research API runtime validation", () => {
     await expect(getWeeklyReport("run-1")).resolves.toMatchObject({ status: "ok" });
   });
 
+  it("accepts complete signal lineage and canonical hash metadata", async () => {
+    const signal = {
+      event_id: "event-1",
+      run_id: "run-1",
+      event_type: "port-update",
+      summary: "A port changed its published guidance.",
+      headline: "Port guidance changed",
+      what_changed: "The operating window changed.",
+      geographies: ["US"],
+      ports: ["LAX"],
+      carriers: [],
+      event_at: "2026-08-18T10:00:00Z",
+      published_at: "2026-08-18T12:00:00Z",
+      retrieved_at: "2026-08-19T00:00:00Z",
+      period_status: "in_period",
+      period_basis: "event_at",
+      eligible_for_weekly: true,
+      region: "us",
+      lane: "us-ports",
+      source_urls: ["https://example.com/source"],
+      evidence_locator: "paragraph 4",
+      impact: "Operators may need to adjust schedules.",
+      risk: "Late changes can cause missed windows.",
+      opportunity: "Earlier notice can improve planning.",
+      next_step: "Confirm the operating window.",
+      limitations: ["One public source."],
+      evidence_status: "verified",
+    };
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ...validReport, signals: [signal] }));
+
+    await expect(getWeeklyReport("run-1")).resolves.toMatchObject({
+      status: "ok",
+      data: { signals: [signal] },
+    });
+  });
+
+  it("rejects report payloads missing canonical or signal contract fields", async () => {
+    const withoutHash = { ...validReport } as Record<string, unknown>;
+    delete withoutHash.canonical_hash;
+    fetchMock.mockResolvedValueOnce(jsonResponse(withoutHash));
+    await expect(getWeeklyReport("run-1")).resolves.toMatchObject({
+      status: "unavailable",
+    });
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      ...validReport,
+      signals: [{
+        event_id: "event-1",
+        run_id: "run-1",
+        event_type: "port-update",
+        summary: "Incomplete event.",
+        geographies: [],
+        ports: [],
+        carriers: [],
+        event_at: null,
+        source_urls: ["https://example.com/source"],
+        evidence_status: "unverified",
+      }],
+    }));
+    await expect(getWeeklyReport("run-1")).resolves.toMatchObject({
+      status: "unavailable",
+    });
+  });
+
   it("rejects report details whose brief, run, or validation belongs to another run", async () => {
     const mismatchedReports: ReportPayload[] = [
       { ...validReport, brief: { ...validReport.brief, run_id: "run-2" } },
@@ -135,6 +230,14 @@ describe("research API runtime validation", () => {
         validation: validReport.validation
           ? { ...validReport.validation, run_id: "run-2" }
           : null,
+      },
+      {
+        ...validReport,
+        reader_report: { ...validReport.reader_report, run_id: "run-2" },
+      },
+      {
+        ...validReport,
+        reader_report: { ...validReport.reader_report, canonical_hash: "b".repeat(64) },
       },
       { ...validReport, validation: null },
     ];

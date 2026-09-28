@@ -1,0 +1,84 @@
+%% Compact Mermaid module map used in the landscape engineering explainer.
+flowchart LR
+    subgraph INPUT["INPUT + CONTROL"]
+        direction TB
+        T["TRIGGER<br/>CLI or deployed scheduler<br/>daily | weekly · run_id · UTC as_of"]:::trigger
+        C["LANGGRAPH<br/>workflow orchestrator<br/>state · checkpoints · budgets · gates"]:::control
+        CTX["REQUEST CONTRACT<br/>topics · catalog · scope · UTC window<br/>RUN_MODE · new-only · max sources"]:::control
+        T --> C --> CTX
+    end
+
+    subgraph DISC["DISCOVERY + ACQUISITION"]
+        direction TB
+        ROUTE["LANE ROUTER<br/>scope · geography · domain filters"]:::control
+        subgraph LANES["PARALLEL LANE AGENTS"]
+            direction LR
+            REG["REGULATORY<br/>FMC · eCFR · Federal Register<br/>D&D · courts · enforcement"]:::agent
+            PORT["U.S. PORTS<br/>West · East · Gulf<br/>ports · terminals · carriers"]:::agent
+            MEX["MEXICO<br/>official port/customs routes<br/>Manzanillo · Lázaro · Veracruz · Altamira"]:::agent
+        end
+        SEARCH["TAVILY SEARCH<br/>web research discovery tool<br/>candidate pages · dates · receipts"]:::tool
+        EXTRACT["TAVILY EXTRACT<br/>page-reading tool<br/>direct full content · no paywall bypass"]:::tool
+        SOURCE["SOURCE CONTRACT<br/>page type · URL · date · hash<br/>period status · direct-page check"]:::gate
+        ROUTE --> REG & PORT & MEX
+        REG & PORT & MEX --> SEARCH --> EXTRACT --> SOURCE
+    end
+
+    subgraph ANALYSIS["STRUCTURED ANALYSIS"]
+        direction TB
+        DIST["PER-SOURCE SUB-AGENTS<br/>LangChain workers · one packet/source<br/>summary · claims · impact · risk · action · limits"]:::agent
+        CRIT["CRITIC AGENT<br/>contradictions · unsupported claims<br/>freshness · citation gaps"]:::agent
+        SYN["SYNTHESIS AGENT<br/>daily or weekly cited brief<br/>follow-up questions"]:::agent
+        VALID["DETERMINISTIC VALIDATION<br/>period · completeness · citations<br/>coverage · hashes · readback<br/>weekly gate: ≥10 eligible sources"]:::gate
+        DIST --> CRIT --> SYN --> VALID
+    end
+
+    subgraph DELIVERY["PERSIST + DELIVER"]
+        direction TB
+        DB[("NEON POSTGRESQL<br/>canonical append-only evidence store<br/>metadata · hashes · packets · claims<br/>database cost = $0 for now<br/>no blockchain in current design")]:::data
+        API["FASTAPI<br/>read-only counts · statuses · evidence"]:::delivery
+        UI["NEXT.JS / VERCEL<br/>read-only dashboard<br/>explicit partial / blocked states"]:::delivery
+        MD["MARKDOWN<br/>source-forward human report"]:::delivery
+        PDF["CUSTOM HTML/CSS PDF<br/>Chrome/Chromium render<br/>16-page cited decision brief · source links"]:::delivery
+        REVIEW["HUMAN REVIEW GATE<br/>draft → approved"]:::review
+        PRIVATE["OPTIONAL PRIVATE ARTIFACT<br/>Vercel Blob + signed access"]:::review
+        DB --> API --> UI
+        DB --> MD --> REVIEW
+        DB --> PDF --> REVIEW
+        REVIEW -- "approval only" --> PRIVATE
+    end
+
+    CTX --> ROUTE
+    SOURCE -- "fail: blocked / excluded" --> STOP["STOP<br/>no weak output"]:::stop
+    SOURCE -- "pass" --> DIST
+    VALID -- "fail" --> STOP
+    VALID -- "pass" --> DB
+
+    subgraph SAFETY["CROSS-CUTTING SAFETY + DEPLOYMENT"]
+        direction LR
+        LIMITS["NO secrets · raw bodies · prompts<br/>No hidden reasoning persisted<br/>No auto-publish · CRM writes · outreach<br/>No paywall bypass"]:::boundary
+        RETRY["BOUNDED RECOVERY<br/>same-model retry only where allowed<br/>no silent provider/key fallback<br/>missing evidence remains blocked"]:::boundary
+        HOST["AUTONOMOUS MODE REQUIRES<br/>deployed server · scheduler · secrets · Chrome/PDF runtime<br/>hosting cost is additional"]:::boundary
+    end
+    LIMITS -.-> C
+    RETRY -.-> SEARCH
+    RETRY -.-> DIST
+    HOST -. "required for unattended runs" .-> T
+
+    classDef trigger fill:#fff3c4,stroke:#d89b00,color:#17324d,stroke-width:2px;
+    classDef control fill:#dff5f1,stroke:#0f8f86,color:#102a43,stroke-width:2px;
+    classDef agent fill:#e7eef4,stroke:#4e7088,color:#102a43,stroke-width:2px;
+    classDef tool fill:#d9f0ff,stroke:#1976a8,color:#102a43,stroke-width:2px;
+    classDef gate fill:#fce6d9,stroke:#d76a45,color:#102a43,stroke-width:2px;
+    classDef data fill:#17324d,stroke:#0f766e,color:#ffffff,stroke-width:2px;
+    classDef delivery fill:#e8f6f4,stroke:#0f8f86,color:#102a43,stroke-width:2px;
+    classDef review fill:#fff5cf,stroke:#d89b00,color:#17324d,stroke-width:2px;
+    classDef boundary fill:#f1f4f6,stroke:#7890a0,color:#314b5c,stroke-dasharray: 5 4;
+    classDef stop fill:#ffe0dd,stroke:#c94f4f,color:#7b2424,stroke-width:2px;
+    style INPUT fill:#f7fbfc,stroke:#9fc5d0,stroke-width:2px
+    style DISC fill:#f5f9fb,stroke:#a9c1ce,stroke-width:2px
+    style LANES fill:#eef4f7,stroke:#b9cbd5,stroke-width:1px
+    style ANALYSIS fill:#f7fafb,stroke:#b9cbd5,stroke-width:2px
+    style DELIVERY fill:#f0f8f7,stroke:#8cc8c0,stroke-width:2px
+    style SAFETY fill:#faf8f0,stroke:#d8c995,stroke-width:1px
+    linkStyle default stroke:#0f8f86,stroke-width:2px

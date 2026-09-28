@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -53,6 +53,11 @@ class RunStatus(StrEnum):
     FAILED = "failed"
 
 
+class RunKind(StrEnum):
+    RESEARCH = "research"
+    REPAIR = "repair"
+
+
 class ValidationStatus(StrEnum):
     PASS = "pass"
     PARTIAL = "partial"
@@ -70,6 +75,40 @@ class FreshnessStatus(StrEnum):
     STALE = "stale"
     UNDATED = "undated"
     FUTURE = "future"
+    UNKNOWN = "unknown"
+
+
+class PeriodStatus(StrEnum):
+    IN_PERIOD = "in_period"
+    BACKGROUND = "background"
+    UNDATED = "undated"
+    FUTURE = "future"
+    EXCLUDED = "excluded"
+
+
+class PeriodBasis(StrEnum):
+    PUBLISHED_AT = "published_at"
+    EVENT_AT = "event_at"
+    RETRIEVED_AT = "retrieved_at"
+    RUN_AS_OF = "run_as_of"
+    UNKNOWN = "unknown"
+
+
+class PageType(StrEnum):
+    ARTICLE = "article"
+    OFFICIAL_DOCUMENT = "official_document"
+    ARCHIVE = "archive"
+    INDEX = "index"
+    CATEGORY = "category"
+    LANDING = "landing"
+    UNKNOWN = "unknown"
+
+
+class PublicationDateBasis(StrEnum):
+    MATCHED = "matched"
+    PAGE = "page"
+    SEARCH = "search"
+    CONFLICT = "conflict"
     UNKNOWN = "unknown"
 
 
@@ -101,6 +140,83 @@ class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
+class DecisionScore(ContractModel):
+    sheperd_relevance: int = Field(ge=0, le=30)
+    operational_impact: int = Field(ge=0, le=25)
+    actionability: int = Field(ge=0, le=20)
+    recency: int = Field(ge=0, le=15)
+    source_authority: int = Field(ge=0, le=10)
+    total: int = Field(ge=0, le=100)
+    priority: str = "watch"
+    rationale: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_total(self) -> Self:
+        expected = (
+            self.sheperd_relevance
+            + self.operational_impact
+            + self.actionability
+            + self.recency
+            + self.source_authority
+        )
+        if self.total != expected:
+            raise ValueError("decision score total must equal the sum of its components")
+        self.priority = "high" if self.total >= 75 else "medium" if self.total >= 50 else "watch"
+        return self
+
+
+class ReaderArticle(ContractModel):
+    source_url: str
+    headline: str
+    publisher: str
+    published_at: datetime | None = None
+    event_at: datetime | None = None
+    date_basis: PublicationDateBasis = PublicationDateBasis.UNKNOWN
+    date_locator: str | None = None
+    retrieved_at: datetime
+    page_type: PageType
+    score: DecisionScore | None = None
+    key_points: list[str] = Field(default_factory=list, max_length=3)
+    what_changed: str
+    why_sheperd_cares: str
+    recommended_action: str
+    risk: str | None = None
+    opportunity: str | None = None
+    limitations: list[str] = Field(default_factory=list, max_length=8)
+    lane: str
+    region: str
+    eligible_for_weekly: bool
+    validation_status: str
+
+
+class ReaderSourceIndexEntry(ContractModel):
+    url: str
+    title: str
+    publisher: str
+    published_at: datetime | None = None
+    date_basis: PublicationDateBasis = PublicationDateBasis.UNKNOWN
+    page_type: PageType = PageType.UNKNOWN
+    eligible_for_weekly: bool = False
+    validation_status: str
+
+
+class ReaderReport(ContractModel):
+    run_id: str
+    title: str
+    covered_from: datetime
+    covered_until: datetime
+    report_status: str
+    validation_status: str
+    readiness_status: str
+    canonical_hash: str
+    three_things: list[str] = Field(default_factory=list, max_length=3)
+    top_action: str
+    ranked_articles: list[ReaderArticle] = Field(default_factory=list, max_length=8)
+    watchlist: list[ReaderArticle] = Field(default_factory=list)
+    background_articles: list[ReaderArticle] = Field(default_factory=list)
+    source_index: list[ReaderSourceIndexEntry] = Field(default_factory=list)
+
+
 class SourceCandidate(ContractModel):
     url: str
     title: str = "Untitled source"
@@ -126,6 +242,16 @@ class SourceCandidate(ContractModel):
     extraction_error_code: str | None = None
     normalized_title_en: str | None = None
     normalized_snippet_en: str | None = None
+    period_status: PeriodStatus = PeriodStatus.UNDATED
+    period_basis: PeriodBasis = PeriodBasis.UNKNOWN
+    eligible_for_weekly: bool = False
+    page_type: PageType = PageType.UNKNOWN
+    direct_content: bool = False
+    search_published_at: datetime | None = None
+    page_published_at: datetime | None = None
+    publication_date_basis: PublicationDateBasis = PublicationDateBasis.UNKNOWN
+    publication_date_locator: str | None = Field(default=None, max_length=300)
+    parent_navigation_url: str | None = None
 
     @field_validator("url")
     @classmethod
@@ -134,7 +260,12 @@ class SourceCandidate(ContractModel):
             raise ValueError("source URL must use http or https")
         return value
 
-    @field_validator("published_at", "retrieved_at")
+    @field_validator(
+        "published_at",
+        "retrieved_at",
+        "search_published_at",
+        "page_published_at",
+    )
     @classmethod
     def require_date_timezone(cls, value: datetime | None) -> datetime | None:
         if value is not None and value.tzinfo is None:
@@ -216,6 +347,10 @@ class ArticleInsight(ContractModel):
 
 class ArticleDistillation(ContractModel):
     source_url: str
+    headline: str = ""
+    event_type: str = "other"
+    event_at: datetime | None = None
+    event_at_locator: str | None = None
     summary: str = Field(min_length=1)
     key_points: list[str] = Field(default_factory=list)
     entities: list[str] = Field(default_factory=list)
@@ -243,6 +378,7 @@ class ArticleDistillation(ContractModel):
     next_steps: list[str] = Field(default_factory=list, max_length=8)
     quality_status: DistillationQualityStatus = DistillationQualityStatus.INCOMPLETE
     quality_issues: list[str] = Field(default_factory=list, max_length=20)
+    decision_score: DecisionScore | None = None
     insight_packet: dict[str, object] = Field(default_factory=dict)
 
     @field_validator("source_language")
@@ -253,10 +389,21 @@ class ArticleDistillation(ContractModel):
             raise ValueError("source_language must be ISO-639-1/2 or und")
         return normalized
 
+    @field_validator("published_at", "event_at")
+    @classmethod
+    def require_date_timezone(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            raise ValueError("distillation timestamps must include a timezone")
+        return value
+
     @model_validator(mode="after")
     def populate_insight_packet(self) -> Self:
         if not self.insight_packet:
             self.insight_packet = {
+                "headline": self.headline,
+                "event_type": self.event_type,
+                "event_at": self.event_at.isoformat() if self.event_at else None,
+                "event_at_locator": self.event_at_locator,
                 "what_happened": self.what_happened,
                 "why_it_matters": self.why_it_matters,
                 "risk_assessment": (
@@ -271,6 +418,11 @@ class ArticleDistillation(ContractModel):
                 ),
                 "uncertainties": self.uncertainties,
                 "next_steps": self.next_steps,
+                "decision_score": (
+                    self.decision_score.model_dump(mode="json")
+                    if self.decision_score is not None
+                    else None
+                ),
             }
         return self
 
@@ -280,12 +432,34 @@ class SignalEvent(ContractModel):
     run_id: str
     event_type: str
     summary: str = Field(min_length=1)
+    headline: str = ""
+    what_changed: str = ""
     geographies: list[str] = Field(default_factory=list)
     ports: list[str] = Field(default_factory=list)
     carriers: list[str] = Field(default_factory=list)
     event_at: datetime | None = None
+    published_at: datetime | None = None
+    retrieved_at: datetime | None = None
+    period_status: PeriodStatus | None = None
+    period_basis: PeriodBasis | None = None
+    eligible_for_weekly: bool = False
+    region: str = ""
+    lane: str = ""
     source_urls: list[str] = Field(min_length=1)
+    evidence_locator: str | None = None
+    impact: str = ""
+    risk: str = ""
+    opportunity: str = ""
+    next_step: str = ""
+    limitations: list[str] = Field(default_factory=list, max_length=8)
     evidence_status: EvidenceStatus = EvidenceStatus.UNVERIFIED
+
+    @field_validator("event_at", "published_at", "retrieved_at")
+    @classmethod
+    def require_date_timezone(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            raise ValueError("signal event timestamps must include a timezone")
+        return value
 
 
 class ReportBullet(ContractModel):
@@ -351,6 +525,8 @@ class TopicConfig(ContractModel):
 
 class ResearchRunRequest(ContractModel):
     topic_set: str
+    research_scope: Literal["global", "us-mexico"] = "global"
+    new_findings_only: bool = False
     cadence: ResearchCadence = ResearchCadence.WEEKLY
     as_of: datetime = Field(default_factory=utc_now)
     since: datetime | None = None
@@ -359,6 +535,11 @@ class ResearchRunRequest(ContractModel):
     seed_urls: list[str] = Field(default_factory=list)
     include_topic_seeds: bool = True
     validation_profile: str = "full"
+    context_version: str = Field(default="legacy-unknown", min_length=1)
+    research_timezone: str = Field(default="Europe/Lisbon", min_length=1)
+    run_kind: RunKind = RunKind.RESEARCH
+    parent_run_id: str | None = Field(default=None, min_length=1)
+    repair_round: int | None = Field(default=None, ge=1, le=3)
     review_state: ReviewState = ReviewState.DRAFT
     allow_external_actions: bool = False
 
@@ -382,8 +563,10 @@ class ResearchRunRequest(ContractModel):
     @field_validator("validation_profile")
     @classmethod
     def require_known_validation_profile(cls, value: str) -> str:
-        if value not in {"full", "canary", "global-canary"}:
-            raise ValueError("validation_profile must be full, canary, or global-canary")
+        if value not in {"full", "canary", "global-canary", "repair"}:
+            raise ValueError(
+                "validation_profile must be full, canary, global-canary, or repair"
+            )
         return value
 
     @model_validator(mode="after")
@@ -392,6 +575,17 @@ class ResearchRunRequest(ContractModel):
             raise ValueError("since must not be after as_of")
         if self.allow_external_actions:
             raise ValueError("external actions are disabled for research runs")
+        if self.run_kind is RunKind.REPAIR:
+            if self.parent_run_id is None:
+                raise ValueError("repair runs require parent_run_id")
+            if self.repair_round is None:
+                raise ValueError("repair runs require repair_round")
+            if self.validation_profile != "repair":
+                raise ValueError("repair runs require the repair validation profile")
+        elif self.parent_run_id is not None or self.repair_round is not None:
+            raise ValueError("research runs cannot declare repair lineage")
+        elif self.validation_profile == "repair":
+            raise ValueError("the repair validation profile requires a repair run")
         return self
 
 
@@ -404,6 +598,7 @@ class RunResult(ContractModel):
     claim_count: int = 0
     brief_id: str | None = None
     error: str | None = None
+    error_code: str | None = None
     citation_coverage: float = 0.0
     validation_status: ValidationStatus = ValidationStatus.BLOCKED
     lane_statuses: dict[str, str] = Field(default_factory=dict)

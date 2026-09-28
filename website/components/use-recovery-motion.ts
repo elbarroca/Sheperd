@@ -10,7 +10,7 @@ export function useRecoveryMotion(root: RefObject<HTMLElement | null>): void {
 
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
     const targets = Array.from(element.querySelectorAll<HTMLElement>(
-      "h1, h2, .hero-headline, .section-description, .hero-description, .responsibility-flow, .recovery-process li, .industry, .market-visual, .market-opportunity-node, .market-proof, .recovery-faq .section-label, .recovery-faq h3, .recovery-faq details",
+      "h1, h2, .hero-headline, .hero-description, .recovery-action, .section-description, .responsibility-flow, .recovery-process li, .industry, .invoice-history-visual, .recovery-faq .section-label, .recovery-faq h3, .recovery-faq details",
     ));
     const sections = Array.from(element.querySelectorAll<HTMLElement>(":scope > section"));
     let observer: IntersectionObserver | undefined;

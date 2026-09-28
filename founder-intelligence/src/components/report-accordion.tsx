@@ -3,10 +3,12 @@ import { isDecisionReadySummary, readinessSummaryFromReport } from "../lib/readi
 import type {
   AgentStep,
   ArticleInsight,
+  ReaderArticle,
   ReportBullet,
   ReportPayload,
   ResearchClaim,
   ResearchSignal,
+  ResearchSource,
   ToolCallReceipt,
   WeeklyBrief,
   WeeklyReportSummary,
@@ -48,6 +50,10 @@ function recorded(value: string | null | undefined): string {
   return value?.trim() ? value : "Not recorded in this run.";
 }
 
+function codeLabel(value: string | null | undefined): string {
+  return value?.replaceAll("_", " ") ?? "not recorded";
+}
+
 function InsightBlock({ label, insight }: { label: string; insight?: ArticleInsight | null }) {
   if (!insight) {
     return <div className="insight-block"><strong>{label}</strong><p className="muted">Not recorded in this run.</p></div>;
@@ -83,68 +89,6 @@ function BulletList({ bullets, emptyLabel = "Not recorded in this run." }: { bul
   );
 }
 
-type DecisionItem = {
-  text: string;
-  sourceUrls: string[];
-  evidenceStatus: string;
-};
-
-function nextStepItems(brief: WeeklyBrief): DecisionItem[] {
-  const seen = new Set<string>();
-  return [...brief.risks, ...brief.opportunities, ...brief.uncertainties].flatMap((bullet) => {
-    if (!bullet.next_step || seen.has(bullet.next_step)) return [];
-    seen.add(bullet.next_step);
-    return [{ text: bullet.next_step, sourceUrls: bullet.source_urls, evidenceStatus: bullet.evidence_status }];
-  });
-}
-
-function DecisionList({ items, emptyLabel }: { items: DecisionItem[]; emptyLabel: string }) {
-  if (items.length === 0) return <p className="muted">{emptyLabel}</p>;
-  return (
-    <ol className="decision-list">
-      {items.slice(0, 4).map((item, index) => (
-        <li key={`${item.text}-${index}`}>
-          <span>{item.text}</span>
-          <span className="bullet-meta">
-            <span className={`evidence-badge evidence-${item.evidenceStatus}`}>{item.evidenceStatus}</span>
-            <CitationLinks urls={item.sourceUrls} />
-          </span>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-function DecisionReadout({ brief }: { brief: WeeklyBrief }) {
-  const nextSteps = nextStepItems(brief);
-  const openQuestions = brief.follow_up_questions.slice(0, 4);
-  return (
-    <section className="decision-readout" aria-labelledby="decision-readout-heading">
-      <div className="decision-intro">
-        <p className="eyebrow">Decision readout</p>
-        <h2 id="decision-readout-heading">What this run tells us</h2>
-        <p className="report-summary">{brief.summary}</p>
-      </div>
-      <div className="decision-grid">
-        <article className="decision-block">
-          <p className="decision-label">Next steps</p>
-          <h3>What to do next</h3>
-          <DecisionList items={nextSteps} emptyLabel="No next step was recorded." />
-        </article>
-        <article className="decision-block">
-          <p className="decision-label">Open questions</p>
-          <h3>What still needs checking</h3>
-          {openQuestions.length > 0 ? (
-            <ol className="decision-list">
-              {openQuestions.map((question, index) => <li key={`${question}-${index}`}><span>{question}</span></li>)}
-            </ol>
-          ) : <p className="muted">No follow-up question was recorded.</p>}
-        </article>
-      </div>
-    </section>
-  );
-}
-
 function Section({ title, children, open = false }: { title: string; children: ReactNode; open?: boolean }) {
   return (
     <details className="report-section" open={open}>
@@ -172,29 +116,62 @@ function ToolCallList({ calls }: { calls: ToolCallReceipt[] }) {
   );
 }
 
+function EvidenceTable({
+  sources,
+  hashes,
+}: {
+  sources: ResearchSource[];
+  hashes: Record<string, string>;
+}) {
+  if (sources.length === 0) return <p className="muted">No sources recorded.</p>;
+  return (
+    <div className="evidence-table-wrap">
+      <table className="evidence-table">
+        <thead><tr><th>Source</th><th>Published</th><th>Period</th><th>Eligible</th><th>Snapshot hash</th></tr></thead>
+        <tbody>
+          {sources.map((source) => (
+            <tr key={source.url}>
+              <td><a href={source.url} target="_blank" rel="noreferrer">{source.title.trim() || "Untitled source"}</a><small>{source.publisher || "Unknown publisher"} / {source.region ?? "global"} / {source.lane}</small></td>
+              <td>{source.published_at ? dateLabel(source.published_at) : "Undated"}</td>
+              <td>{codeLabel(source.period_status)}</td>
+              <td>{source.eligible_for_weekly ? "Yes" : "No"}</td>
+              <td><code>{hashes[source.url] ?? "not recorded"}</code></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function EventTimeline({ title, signals }: { title: string; signals: ResearchSignal[] }) {
+  return (
+    <div className="event-timeline">
+      <h3>{title}</h3>
+      {signals.length > 0
+        ? <ol className="source-list">{signals.map((signal) => <SignalRow key={signal.event_id} signal={signal} />)}</ol>
+        : <p className="muted">No events recorded.</p>}
+    </div>
+  );
+}
+
 function SourceEvidence({ report }: { report: ReportPayload }) {
-  const distillationByUrl = new Map(report.distillations.map((item) => [item.source_url, item]));
+  const currentSources = report.sources.filter((source) => source.eligible_for_weekly && source.period_status === "in_period");
+  const backgroundSources = report.sources.filter((source) => !source.eligible_for_weekly || source.period_status !== "in_period");
+  const currentSignals = report.signals.filter((signal) => signal.eligible_for_weekly && signal.period_status === "in_period");
+  const backgroundSignals = report.signals.filter((signal) => !signal.eligible_for_weekly || signal.period_status !== "in_period");
   return (
     <>
       <p>
         {report.sources.length} persisted sources, {report.distillations.length} distillations, {report.claims.length} claims, {report.signals.length} signals.
         Citation coverage: {Math.round((report.validation?.citation_coverage ?? 0) * 100)}%.
       </p>
-      {report.sources.length > 0 && (
-        <>
-          <h3>Sources</h3>
-          <ul className="source-list">
-            {report.sources.map((source) => (
-              <li key={source.url}>
-                <a href={source.url} target="_blank" rel="noreferrer">{source.title.trim() || "Untitled source"}</a>
-                <span className="bullet-meta">{source.publisher || "Unknown publisher"} / {source.region ?? "global"} / {source.language_code ?? "und"} / {source.lane} / {source.source_type ?? "unknown type"} / {source.evidence_status} / {source.extraction_status ?? "unknown"}</span>
-                <span className="bullet-meta">Published {source.published_at ? dateLabel(source.published_at) : "undated"} / freshness {source.freshness_status ?? "not recorded"} / {source.is_seed ? "seed" : "discovered"}</span>
-                {distillationByUrl.get(source.url)?.content_hash ? <code>Hash: {distillationByUrl.get(source.url)?.content_hash}</code> : null}
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
+      <EventTimeline title="Current event timeline" signals={currentSignals} />
+      <EventTimeline title="Background event timeline" signals={backgroundSignals} />
+      <h3>Current-week evidence</h3>
+      <EvidenceTable sources={currentSources} hashes={report.source_hash_by_url} />
+      <h3>Background context</h3>
+      <EvidenceTable sources={backgroundSources} hashes={report.source_hash_by_url} />
       {report.distillations.length > 0 && (
         <>
           <h3>Distillations</h3>
@@ -239,18 +216,148 @@ function SourceEvidence({ report }: { report: ReportPayload }) {
           <ul className="source-list">{report.claims.map((claim) => <ClaimRow key={claim.claim} claim={claim} />)}</ul>
         </>
       ) : <p className="muted">Claims and citations: Not recorded in this run.</p>}
-      {report.signals.length > 0 && (
-        <>
-          <h3>Signals</h3>
-          <ul className="source-list">{report.signals.map((signal) => <SignalRow key={signal.event_id} signal={signal} />)}</ul>
-        </>
-      )}
       <p className="muted">Source snapshot hashes: {report.source_hashes.length ? report.source_hashes.join(", ") : "none recorded"}</p>
       <ul className="source-list">
         {briefSourceUrls(report.brief).map((url) => <li key={url}><a href={url} target="_blank" rel="noreferrer">{url}</a></li>)}
       </ul>
       {report.brief.limitations.length > 0 && <><h3>Limitations</h3><ul>{report.brief.limitations.map((item) => <li key={item}>{item}</li>)}</ul></>}
     </>
+  );
+}
+
+type ScoreComponent = "sheperd_relevance" | "operational_impact" | "actionability" | "recency" | "source_authority";
+
+const SCORE_COMPONENTS: Array<[ScoreComponent, string, number]> = [
+  ["sheperd_relevance", "SheperD relevance", 30],
+  ["operational_impact", "Operational impact", 25],
+  ["actionability", "Actionability", 20],
+  ["recency", "Recency", 15],
+  ["source_authority", "Source authority", 10],
+];
+
+function ScoreBreakdown({ article }: { article: ReaderArticle }) {
+  if (!article.score) return <p className="muted">Priority score not recorded.</p>;
+  return (
+    <dl className="reader-score-breakdown" aria-label="Priority score breakdown">
+      {SCORE_COMPONENTS.map(([field, label, maximum]) => (
+        <div key={field}>
+          <dt>{label}</dt>
+          <dd>{article.score?.[field]}/{maximum}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function ReaderArticleCard({ article, rank }: { article: ReaderArticle; rank: number }) {
+  return (
+    <article className="reader-article">
+      <header className="reader-article-heading">
+        <div>
+          <p className="eyebrow">#{rank} · {article.publisher}</p>
+          <h3>{article.headline}</h3>
+          <p className="reader-meta">
+            Published {article.published_at ? dateLabel(article.published_at) : "undated"}
+            {article.event_at ? ` · Event ${dateLabel(article.event_at)}` : ""}
+            {` · ${codeLabel(article.date_basis)} · ${codeLabel(article.lane)} · ${codeLabel(article.region)}`}
+          </p>
+        </div>
+        <strong className="reader-priority">
+          Priority {article.score ? `${article.score.total}/100` : "not scored"}
+        </strong>
+      </header>
+      <ScoreBreakdown article={article} />
+      <section className="reader-card-section">
+        <h4>Three key points</h4>
+        <ul>{article.key_points.map((point) => <li key={point}>{point}</li>)}</ul>
+      </section>
+      <div className="reader-card-grid">
+        <section className="reader-card-section"><h4>What changed</h4><p>{article.what_changed}</p></section>
+        <section className="reader-card-section"><h4>Why SheperD cares</h4><p>{article.why_sheperd_cares}</p></section>
+      </div>
+      <section className="reader-card-section reader-action">
+        <h4>Recommended action</h4>
+        <p>{article.recommended_action}</p>
+      </section>
+      {article.risk || article.opportunity ? (
+        <div className="reader-card-grid">
+          {article.risk ? <section className="reader-card-section"><h4>Supported risk</h4><p>{article.risk}</p></section> : null}
+          {article.opportunity ? <section className="reader-card-section"><h4>Supported opportunity</h4><p>{article.opportunity}</p></section> : null}
+        </div>
+      ) : null}
+      {article.limitations.length > 0 ? <p className="reader-limitations"><strong>Limitations:</strong> {article.limitations.join(" ")}</p> : null}
+      <a href={article.source_url} target="_blank" rel="noreferrer">Read source</a>
+    </article>
+  );
+}
+
+function ReaderCompactList({ title, articles }: { title: string; articles: ReaderArticle[] }) {
+  return (
+    <section className="reader-compact-list">
+      <h2>{title}</h2>
+      {articles.length > 0 ? (
+        <ul>
+          {articles.map((article) => (
+            <li key={article.source_url}>
+              <a href={article.source_url} target="_blank" rel="noreferrer">{article.headline}</a>
+              <span>{article.publisher} · {article.published_at ? dateLabel(article.published_at) : "Undated"} · {codeLabel(article.validation_status)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="muted">None recorded.</p>}
+    </section>
+  );
+}
+
+function ReaderReportView({ report }: { report: ReportPayload }) {
+  const reader = report.reader_report;
+  return (
+    <section className="reader-report" aria-labelledby="reader-report-title">
+      <div className="reader-overview">
+        <div>
+          <p className="eyebrow">Reader brief</p>
+          <h2 id="reader-report-title">Three things to know</h2>
+          {reader.three_things.length > 0
+            ? <ol>{reader.three_things.map((item) => <li key={item}>{item}</li>)}</ol>
+            : <p className="muted">No validated current-week findings.</p>}
+        </div>
+        <aside className="reader-top-action">
+          <p className="eyebrow">Top action</p>
+          <p>{reader.top_action}</p>
+          <span className={`status-badge status-${reader.validation_status}`}>{codeLabel(reader.validation_status)}</span>
+        </aside>
+      </div>
+      <div className="reader-ranked-articles">
+        {reader.ranked_articles.map((article, index) => (
+          <ReaderArticleCard key={article.source_url} article={article} rank={index + 1} />
+        ))}
+      </div>
+      {reader.ranked_articles.length === 0 ? <p className="muted">No validated current-week articles.</p> : null}
+      <div className="reader-secondary-grid">
+        <ReaderCompactList title="Watchlist" articles={reader.watchlist} />
+        <ReaderCompactList title="Background context" articles={reader.background_articles} />
+      </div>
+      <section className="reader-source-index">
+        <h2>Source index and validation</h2>
+        {reader.source_index.length > 0 ? (
+          <div className="evidence-table-wrap">
+            <table className="evidence-table">
+              <thead><tr><th>Source</th><th>Published</th><th>Date basis</th><th>Page</th><th>Use</th><th>Validation</th></tr></thead>
+              <tbody>{reader.source_index.map((source) => (
+                <tr key={source.url}>
+                  <td><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a><small>{source.publisher}</small></td>
+                  <td>{source.published_at ? dateLabel(source.published_at) : "Undated"}</td>
+                  <td>{codeLabel(source.date_basis)}</td>
+                  <td>{codeLabel(source.page_type)}</td>
+                  <td>{source.eligible_for_weekly ? "Current" : "Background"}</td>
+                  <td>{codeLabel(source.validation_status)}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        ) : <p className="muted">No sources recorded.</p>}
+      </section>
+    </section>
   );
 }
 
@@ -309,10 +416,18 @@ function ClaimRow({ claim }: { claim: ResearchClaim }) {
 function SignalRow({ signal }: { signal: ResearchSignal }) {
   return (
     <li>
-      <span>{signal.event_type}: {signal.summary}</span>
-      <span className="bullet-meta"><span className={`evidence-badge evidence-${signal.evidence_status}`}>{signal.evidence_status}</span><span>Event: {signal.event_at ? timestampLabel(signal.event_at) : "not recorded"}</span><span>{signal.geographies.join(", ") || "geography not recorded"}</span><CitationLinks urls={signal.source_urls} /></span>
+      <strong>{recorded(signal.headline)}</strong>
+      <span>{signal.what_changed || signal.summary}</span>
+      {signal.summary !== signal.what_changed ? <small className="muted">{signal.summary}</small> : null}
+      <span className="bullet-meta"><span className={`evidence-badge evidence-${signal.evidence_status}`}>{signal.evidence_status}</span><span>Event: {timestampLabel(signal.event_at ?? signal.published_at)}</span><span>{signal.region || "region not recorded"} / {signal.lane || "lane not recorded"}</span><span>{codeLabel(signal.period_status)} / {signal.eligible_for_weekly ? "eligible" : "background"}</span><CitationLinks urls={signal.source_urls} /></span>
+      <small><strong>Impact:</strong> {recorded(signal.impact)}</small>
+      <small><strong>Risk:</strong> {recorded(signal.risk)}</small>
+      <small><strong>Opportunity:</strong> {recorded(signal.opportunity)}</small>
+      <small><strong>Next step:</strong> {recorded(signal.next_step)}</small>
+      <small className="muted">Locator: {recorded(signal.evidence_locator)}</small>
       {signal.ports.length > 0 ? <small className="muted">Ports: {signal.ports.join(", ")}</small> : null}
       {signal.carriers.length > 0 ? <small className="muted">Carriers: {signal.carriers.join(", ")}</small> : null}
+      {signal.limitations.length > 0 ? <small className="muted">Limitations: {signal.limitations.join("; ")}</small> : null}
     </li>
   );
 }
@@ -382,7 +497,9 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
   const brief: WeeklyBrief = report.brief;
   const checks = report.validation?.checks ?? [];
   const runStatus = report.run?.status ?? "missing";
-  const validationStatus = report.validation?.status ?? "missing";
+  const storedValidationStatus = report.validation?.status ?? "missing";
+  const validationStatus = report.reader_report?.validation_status
+    ?? storedValidationStatus;
   const blocked = !isDecisionReadySummary(readinessSummaryFromReport(report));
   const headingLabel = report.run?.archived
     ? "Archived report"
@@ -405,10 +522,15 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
         <div className="status-cluster">
           {report.run?.archived ? <span className="status-badge status-archived">Archived</span> : null}
           <span className={`status-badge status-${report.run?.status ?? "unknown"}`}>{report.run?.status ?? "unknown"}</span>
-          <span className={`status-badge status-${report.validation?.status ?? "blocked"}`}>{report.validation?.status ?? "blocked"}</span>
+          <span className={`status-badge status-${validationStatus}`}>{validationStatus}</span>
           <a className="secondary-action" href={`/reports/${encodeURIComponent(brief.run_id)}/markdown${report.run?.archived ? "?archive_scope=archived" : ""}`}>
             Download Markdown
           </a>
+          {report.pdf?.available ? (
+            <a className="secondary-action" href={`/reports/${encodeURIComponent(brief.run_id)}/pdf${report.run?.archived ? "?archive_scope=archived" : ""}`}>
+              Download PDF
+            </a>
+          ) : <span className="status-badge status-blocked">PDF unavailable: {codeLabel(report.pdf.unavailable_reason)}</span>}
         </div>
       </div>
 
@@ -425,7 +547,7 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
         </div>
       )}
 
-      <DecisionReadout brief={brief} />
+      <ReaderReportView report={report} />
       <Section title="1. Executive findings" open><BulletList bullets={brief.executive_bullets} /></Section>
       <Section title="2. Developments by lane and geography">
         <BulletList bullets={brief.developments} />
@@ -449,14 +571,28 @@ export function ReportAccordion({ report }: { report: ReportPayload }) {
         <RunActivity steps={report.steps} calls={report.tool_calls ?? []} />
         <dl className="audit-grid">
           <div><dt>Run</dt><dd><code>{brief.run_id}</code></dd></div>
+          <div><dt>Stored validation</dt><dd>{storedValidationStatus}</dd></div>
+          <div><dt>Current reader validation</dt><dd>{validationStatus}</dd></div>
           <div><dt>Requested model(s)</dt><dd>{report.requested_models?.join(", ") || brief.model_id}</dd></div>
           <div><dt>Resolved model(s)</dt><dd>{report.resolved_models?.join(", ") || report.models.join(", ") || brief.model_id}</dd></div>
           <div><dt>Prompt</dt><dd>{brief.prompt_version}</dd></div>
           <div><dt>As of</dt><dd>{timestampLabel(report.as_of)}</dd></div>
           <div><dt>Branch</dt><dd>{report.run?.neon_branch_id ?? "unknown"}</dd></div>
           <div><dt>Migration</dt><dd>{report.run?.migration_version ?? "unknown"}</dd></div>
+          <div><dt>Context version</dt><dd><code>{report.run?.context_version ?? "unknown"}</code></dd></div>
+          <div><dt>Research timezone</dt><dd>{report.run?.research_timezone ?? "unknown"}</dd></div>
+          <div><dt>Canonical hash</dt><dd><code>{report.canonical_hash}</code></dd></div>
           <div><dt>Source hashes</dt><dd>{report.source_hashes.length}</dd></div>
         </dl>
+        {report.run?.run_kind === "repair" ? (
+          <>
+            <h3>Repair lineage</h3>
+            <dl className="audit-grid">
+              <div><dt>Parent run</dt><dd><code>{report.run.parent_run_id ?? "not recorded"}</code></dd></div>
+              <div><dt>Repair round</dt><dd>Round {report.run.repair_round ?? "not recorded"}</dd></div>
+            </dl>
+          </>
+        ) : null}
         <h3>Workflow states</h3>
         <ul className="check-list">{workflowStates.map(({ agentName, step }) => <li key={agentName}><span>{agentName}</span><span>{step?.status ?? "not recorded"}</span></li>)}</ul>
         <AgentStepList steps={report.steps} />
@@ -475,11 +611,17 @@ export function UnavailableState({ error }: { error: string }) {
 export function ReportLink({ runId, summary }: { runId: string; summary: WeeklyReportSummary }) {
   const ready = isDecisionReadySummary(summary);
   const archived = summary.archived === true || summary.archived_at != null;
+  const qualityBlocked = summary.quality_ready === false;
+  const completeArticles = summary.complete_article_count;
+  const articleCount = summary.article_count ?? summary.source_count;
+  const qualityState = completeArticles === undefined
+    ? "quality blocked"
+    : `${completeArticles}/${articleCount} complete`;
   const href = `/reports/${encodeURIComponent(runId)}${archived ? "?archive_scope=archived" : ""}`;
   return (
     <Link className="report-row" href={href}>
       <span className="report-row-title">
-        <span className="eyebrow">{archived ? "Archived" : ready ? "Decision-ready" : `${summary.run_status} / ${summary.validation_status}`}</span>
+        <span className="eyebrow">{archived ? "Archived" : ready ? "Decision-ready" : `${summary.run_status} / ${qualityBlocked ? "quality blocked" : "review required"}`}</span>
         <strong>{summary.title}</strong>
       </span>
       <span className="report-row-period">{periodLabel(summary.covered_from, summary.covered_until)}</span>
@@ -489,7 +631,7 @@ export function ReportLink({ runId, summary }: { runId: string; summary: WeeklyR
         <span>{summary.claim_count} claims</span>
       </span>
       <span className="report-row-state">
-        {archived ? summary.archive_reason ?? "archived" : `${summary.validation_status} / ${summary.review_state}`}
+        {archived ? summary.archive_reason ?? "archived" : `${qualityBlocked ? qualityState : "review required"} / ${summary.review_state}`}
       </span>
       <span className="card-arrow">Open report</span>
     </Link>
