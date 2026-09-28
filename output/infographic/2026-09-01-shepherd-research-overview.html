@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SheperD Research Intelligence — CEO overview</title>
+    <style>
+      :root {
+        --navy: #081d31;
+        --navy-2: #102f4a;
+        --ink: #10263a;
+        --muted: #557086;
+        --paper: #f4f7f9;
+        --white: #ffffff;
+        --teal: #11b5a4;
+        --teal-dark: #087e78;
+        --yellow: #f4c95d;
+        --yellow-soft: #fff5cf;
+        --line: #d8e2e9;
+        --coral: #f07b62;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: Arial, Helvetica, sans-serif;
+      }
+
+      .canvas {
+        width: 2400px;
+        height: 1350px;
+        position: relative;
+        overflow: hidden;
+        padding: 58px 68px 52px;
+        background:
+          radial-gradient(circle at 88% 8%, rgba(17,181,164,.16), transparent 25%),
+          linear-gradient(135deg, #f8fafb 0%, #edf3f6 100%);
+      }
+
+      .topbar {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        height: 168px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        color: var(--teal-dark);
+        font-size: 20px;
+        font-weight: 800;
+        letter-spacing: 4px;
+      }
+
+      .mark {
+        display: flex;
+        gap: 4px;
+        align-items: end;
+        height: 34px;
+      }
+
+      .mark span { width: 8px; border-radius: 4px 4px 1px 1px; background: var(--teal); }
+      .mark span:nth-child(1) { height: 17px; opacity: .55; }
+      .mark span:nth-child(2) { height: 25px; opacity: .78; }
+      .mark span:nth-child(3) { height: 34px; }
+
+      h1 {
+        max-width: 1420px;
+        margin: 18px 0 9px;
+        color: var(--navy);
+        font-size: 57px;
+        line-height: 1.02;
+        letter-spacing: -2px;
+      }
+
+      .subtitle {
+        margin: 0;
+        color: var(--muted);
+        font-size: 24px;
+        letter-spacing: .1px;
+      }
+
+      .header-badges {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 12px;
+        padding-top: 8px;
+      }
+
+      .badge {
+        border: 1px solid rgba(8,29,49,.14);
+        border-radius: 999px;
+        padding: 13px 19px 12px;
+        background: rgba(255,255,255,.78);
+        color: var(--navy-2);
+        font-size: 15px;
+        font-weight: 800;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+      }
+
+      .badge.teal { border-color: var(--teal); color: var(--teal-dark); }
+
+      .main {
+        display: grid;
+        grid-template-columns: 1628px 1fr;
+        gap: 42px;
+        height: 760px;
+    }
+
+      .section-label {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        margin: 0 0 15px;
+        color: var(--teal-dark);
+        font-size: 17px;
+        font-weight: 800;
+        letter-spacing: 2.2px;
+        text-transform: uppercase;
+      }
+
+      .section-label::before {
+        width: 29px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--yellow);
+        content: "";
+      }
+
+      .loop {
+        height: 100%;
+        min-height: 0;
+        border: 1px solid var(--line);
+        border-radius: 17px;
+        padding: 27px 28px 24px;
+        background: rgba(255,255,255,.63);
+        box-shadow: 0 18px 42px rgba(16,42,67,.07);
+      }
+
+      .loop-head {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        margin-bottom: 22px;
+      }
+
+      .loop-title {
+        margin: 0;
+        color: var(--navy);
+        font-size: 31px;
+        letter-spacing: -.8px;
+      }
+
+      .loop-note {
+        color: var(--muted);
+        font-size: 16px;
+        font-weight: 700;
+      }
+
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 22px;
+      }
+
+      .step {
+        min-height: 245px;
+        position: relative;
+        border: 1px solid #cddbe3;
+        border-top: 5px solid var(--teal);
+        border-radius: 11px;
+        padding: 20px 22px 18px;
+        background: var(--white);
+      }
+
+      .step:nth-child(3n+1) { border-top-color: var(--yellow); }
+      .step:nth-child(3n+2) { border-top-color: var(--teal); }
+      .step:nth-child(3n) { border-top-color: var(--coral); }
+
+      .step::after {
+        position: absolute;
+        top: 110px;
+        right: -20px;
+        z-index: 2;
+        color: var(--teal);
+        content: "›";
+        font-size: 40px;
+        font-weight: 300;
+      }
+
+      .step:nth-child(3n)::after { content: "↓"; top: 244px; right: 50%; }
+      .step:nth-last-child(-n+3)::after { display: none; }
+
+      .step-id {
+        color: var(--muted);
+        font-size: 15px;
+        font-weight: 800;
+        letter-spacing: 1.8px;
+      }
+
+      .step h3 {
+        margin: 10px 0 12px;
+        color: var(--navy);
+        font-size: 26px;
+        letter-spacing: -.6px;
+      }
+
+      .step p {
+        margin: 0 0 11px;
+        color: #2e4a60;
+        font-size: 18px;
+        line-height: 1.35;
+      }
+
+      .tool {
+        display: inline-block;
+        border-radius: 5px;
+        padding: 5px 8px 4px;
+        background: #e8f6f4;
+        color: var(--teal-dark);
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: .6px;
+      }
+
+      .side {
+        display: grid;
+        height: 100%;
+        min-height: 0;
+        grid-template-rows: 1fr 1fr;
+        gap: 20px;
+      }
+
+      .panel {
+        border-radius: 17px;
+        padding: 26px 27px;
+        background: var(--navy);
+        color: var(--white);
+        box-shadow: 0 18px 42px rgba(16,42,67,.12);
+      }
+
+      .panel .section-label { color: #88e2d8; }
+      .panel h2 { margin: 0 0 17px; font-size: 29px; letter-spacing: -.6px; }
+
+      .agent-row {
+        display: grid;
+        grid-template-columns: 176px 1fr;
+        gap: 14px;
+        border-top: 1px solid rgba(255,255,255,.15);
+        padding: 13px 0;
+      }
+
+      .agent-row:first-of-type { border-top: 0; padding-top: 0; }
+      .agent-name { color: var(--yellow); font-size: 15px; font-weight: 800; line-height: 1.22; }
+      .agent-desc { color: #d9e8ef; font-size: 16px; line-height: 1.28; }
+
+      .cost-panel { padding: 21px 23px; background: #fffdf2; color: var(--ink); border: 1px solid #e8d992; }
+      .cost-panel .section-label { color: #8a6200; }
+      .cost-panel h2 { margin-bottom: 11px; color: var(--navy); font-size: 26px; }
+
+      .cost-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .cost-card { border: 1px solid #ecd98b; border-radius: 9px; padding: 9px 10px; background: var(--yellow-soft); }
+      .cost-card strong { display: block; color: #785400; font-size: 19px; letter-spacing: -.5px; }
+      .cost-card span { display: block; margin-top: 3px; color: #6d634b; font-size: 11px; line-height: 1.18; }
+      .cost-foot { margin: 10px 0 0; color: #6d634b; font-size: 12px; line-height: 1.22; }
+
+      .stack {
+        margin-top: 25px;
+        border: 1px solid var(--line);
+        border-radius: 15px;
+        padding: 18px 24px 20px;
+        background: rgba(255,255,255,.78);
+      }
+
+      .stack-row { display: flex; flex-wrap: wrap; gap: 10px; }
+      .stack-pill { border: 1px solid #cbdbe3; border-radius: 999px; padding: 9px 13px 8px; background: var(--white); color: var(--navy-2); font-size: 16px; font-weight: 700; }
+      .stack-pill.primary { border-color: var(--teal); background: #e8f6f4; color: var(--teal-dark); }
+
+      .bottom {
+        display: grid;
+        grid-template-columns: 1.22fr .95fr;
+        gap: 42px;
+        margin-top: 24px;
+      }
+
+      .outcome {
+        border-radius: 17px;
+        padding: 22px 26px 20px;
+        background: var(--navy-2);
+        color: var(--white);
+      }
+
+      .outcome-title { margin: 0 0 13px; font-size: 23px; font-weight: 800; letter-spacing: -.3px; }
+      .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 11px; }
+      .metric { border-left: 3px solid var(--teal); padding-left: 11px; }
+      .metric strong { display: block; color: var(--yellow); font-size: 27px; letter-spacing: -.6px; }
+      .metric span { display: block; color: #cfdee6; font-size: 13px; line-height: 1.2; }
+
+      .purpose {
+        border-radius: 17px;
+        padding: 21px 25px;
+        background: var(--teal);
+        color: var(--navy);
+      }
+
+      .purpose h2 { margin: 0 0 8px; font-size: 23px; letter-spacing: -.4px; }
+      .purpose p { margin: 0; font-size: 18px; line-height: 1.3; }
+      .purpose .small { margin-top: 10px; color: #075d5a; font-size: 14px; font-weight: 800; }
+
+      .footnote {
+        position: absolute;
+        right: 68px;
+        bottom: 18px;
+        left: 68px;
+        display: flex;
+        justify-content: space-between;
+        color: #6b8190;
+        font-size: 13px;
+        letter-spacing: .4px;
+      }
+
+      .footnote strong { color: var(--teal-dark); }
+    </style>
+  </head>
+  <body>
+    <main class="canvas">
+      <header class="topbar">
+        <div>
+          <div class="brand"><span class="mark"><span></span><span></span><span></span></span> SHEPERD / SOURCE-BOUND INTELLIGENCE</div>
+          <h1>From trigger to trusted decision brief</h1>
+          <p class="subtitle">A controlled research loop that turns public maritime and D&amp;D signals into dated, cited, reviewable intelligence.</p>
+        </div>
+        <div class="header-badges">
+          <div class="badge teal">Current demo · USA + Mexico</div>
+          <div class="badge">Daily collection · Weekly synthesis</div>
+          <div class="badge">Draft · Human review required</div>
+        </div>
+      </header>
+
+      <section class="main">
+        <section class="loop">
+          <div class="loop-head">
+            <div>
+              <p class="section-label">The operating loop</p>
+              <h2 class="loop-title">Evidence in → decision-ready brief out</h2>
+            </div>
+            <div class="loop-note">Caller-controlled: on-demand or scheduled worker</div>
+          </div>
+          <div class="steps">
+            <article class="step">
+              <div class="step-id">01 · TRIGGER + CONTEXT</div>
+              <h3>Lock the question</h3>
+              <p>Load topics, source routes, scope, UTC “as-of” time, and the daily or weekly window.</p>
+              <span class="tool">RUN_MODE · date gate · source catalog</span>
+            </article>
+            <article class="step">
+              <div class="step-id">02 · DISCOVER</div>
+              <h3>Find fresh signals</h3>
+              <p>Lane workers search public authorities, ports, carriers, terminals, and relevant trade sources.</p>
+              <span class="tool">Tavily Search</span>
+            </article>
+            <article class="step">
+              <div class="step-id">03 · EXTRACT + CHECK</div>
+              <h3>Prove the source</h3>
+              <p>Resolve direct pages, extract the full article, then check page type, publication date, URL, and hash.</p>
+              <span class="tool">Tavily Extract · validators</span>
+            </article>
+            <article class="step">
+              <div class="step-id">04 · DISTILL + CRITIQUE</div>
+              <h3>Turn text into insight</h3>
+              <p>One structured packet per source: what changed, why it matters, risk, opportunity, action, and limits.</p>
+              <span class="tool">LangChain workers · critic</span>
+            </article>
+            <article class="step">
+              <div class="step-id">05 · PERSIST + GATE</div>
+              <h3>Keep the evidence</h3>
+              <p>Neon stores metadata, hashes, claims, citations, receipts, and status. Strict gates stop weak output.</p>
+              <span class="tool">Neon PostgreSQL · readback</span>
+            </article>
+            <article class="step">
+              <div class="step-id">06 · DELIVER</div>
+              <h3>Make it usable</h3>
+              <p>Expose the same canonical report in the dashboard, Markdown, and custom HTML-to-PDF output.</p>
+              <span class="tool">FastAPI · Next.js · Chrome PDF</span>
+            </article>
+          </div>
+        </section>
+
+        <aside class="side">
+          <section class="panel">
+            <p class="section-label">Agent team</p>
+            <h2>Specialists with a control plane</h2>
+            <div class="agent-row"><div class="agent-name">Coordinator</div><div class="agent-desc">LangGraph state, checkpoints, budgets, routing, and stop conditions.</div></div>
+            <div class="agent-row"><div class="agent-name">Lane agents</div><div class="agent-desc">Regulatory, U.S. ports, and Mexico discovery paths for the current scope.</div></div>
+            <div class="agent-row"><div class="agent-name">Source sub-agents</div><div class="agent-desc">Bounded per-source distillation into one structured insight packet.</div></div>
+            <div class="agent-row"><div class="agent-name">Assurance</div><div class="agent-desc">Critic checks contradictions, unsupported claims, freshness, and citations.</div></div>
+            <div class="agent-row"><div class="agent-name">Synthesis</div><div class="agent-desc">Builds the cited daily or weekly brief and follow-up questions.</div></div>
+          </section>
+
+          <section class="panel cost-panel">
+            <p class="section-label">Cost guardrails</p>
+            <h2>Bounded usage, visible economics</h2>
+            <div class="cost-grid">
+              <div class="cost-card"><strong>$0.50 / 1M</strong><span>OpenAI input-token proxy rate</span></div>
+              <div class="cost-card"><strong>$3 / 1M</strong><span>OpenAI output-token proxy rate</span></div>
+              <div class="cost-card"><strong>1 credit</strong><span>Per Tavily Search call</span></div>
+              <div class="cost-card"><strong>≈ 1 / 5</strong><span>Tavily Extract URLs per credit</span></div>
+            </div>
+            <p class="cost-foot"><strong>Latest audit reference:</strong> 17 searches + 13 extracts ≈ 20 Tavily credits ≈ $0.16 at the card rate. Estimates only; provider billing is authoritative.</p>
+          </section>
+        </aside>
+      </section>
+
+      <section class="stack">
+        <p class="section-label">Tech stack + boundaries</p>
+        <div class="stack-row">
+          <span class="stack-pill primary">Python + uv</span>
+          <span class="stack-pill primary">LangGraph / LangChain</span>
+          <span class="stack-pill primary">OpenAI ChatOpenAI · gpt-5.6-luna</span>
+          <span class="stack-pill primary">Tavily Search + Extract</span>
+          <span class="stack-pill">Neon PostgreSQL</span>
+          <span class="stack-pill">FastAPI read-only API</span>
+          <span class="stack-pill">Next.js / Vercel dashboard</span>
+          <span class="stack-pill">Chrome / Chromium → PDF</span>
+          <span class="stack-pill">No CRM writes · no auto-publish · no paywall bypass</span>
+        </div>
+      </section>
+
+      <section class="bottom">
+        <div class="outcome">
+          <p class="outcome-title">Verified outcome · USA + Mexico · new findings only</p>
+          <div class="metrics">
+            <div class="metric"><strong>13</strong><span>source packets</span></div>
+            <div class="metric"><strong>12</strong><span>eligible in-period</span></div>
+            <div class="metric"><strong>35</strong><span>cited claims</span></div>
+            <div class="metric"><strong>100%</strong><span>citation coverage</span></div>
+          </div>
+        </div>
+        <div class="purpose">
+          <h2>Purpose / end goal</h2>
+          <p>Give the CEO a fast, source-linked view of what changed, what it means, and what deserves attention next.</p>
+          <p class="small">Human reviews the draft before any approval, private upload, or external action.</p>
+        </div>
+      </section>
+
+      <footer class="footnote">
+        <span><strong>SHEPERD</strong> · source-bound intelligence for maritime, port, carrier, terminal, and D&amp;D decisions</span>
+        <span>Architecture explainer · 01 Sep 2026 · facts reflect the verified scoped run</span>
+      </footer>
+    </main>
+  </body>
+</html>

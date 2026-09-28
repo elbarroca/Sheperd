@@ -1,0 +1,87 @@
+%% SheperD engineering module map — source for the CEO-facing explainer PNG.
+flowchart TB
+    T["TRIGGER<br/>CLI or deployed scheduler<br/>cadence = daily | weekly<br/>run_id + UTC as_of"]:::trigger --> C["LANGGRAPH<br/>workflow orchestrator<br/>state · checkpoints · budgets · gates"]:::control
+    C --> CTX["CONTEXT + REQUEST CONTRACT<br/>topics + source catalog · scope + UTC window<br/>RUN_MODE · new-only · max sources"]:::control
+
+    subgraph DISC["01 · DISCOVERY + ACQUISITION"]
+        direction TB
+        ROUTE["LANE ROUTER<br/>scope · geography · domain filters"]:::control
+        subgraph LANES["PARALLEL LANE AGENTS"]
+            direction LR
+            REG["REGULATORY<br/>FMC · eCFR · Federal Register<br/>D&D · courts · enforcement"]:::agent
+            PORT["U.S. PORTS<br/>West · East · Gulf<br/>ports · terminals · carriers"]:::agent
+            MEX["MEXICO<br/>official port/customs routes<br/>Manzanillo · Lázaro · Veracruz · Altamira"]:::agent
+        end
+        SEARCH["TAVILY SEARCH<br/>web research discovery tool<br/>candidate pages · dates · receipts"]:::tool
+        EXTRACT["TAVILY EXTRACT<br/>page-reading tool<br/>direct full content · no paywall bypass<br/>source receipt"]:::tool
+        ROUTE --> REG
+        ROUTE --> PORT
+        ROUTE --> MEX
+        REG --> SEARCH
+        PORT --> SEARCH
+        MEX --> SEARCH
+        SEARCH --> EXTRACT
+    end
+
+    CTX --> ROUTE
+    EXTRACT --> SOURCE["SOURCE CONTRACT CHECK<br/>direct page · allowed URL · publication date<br/>page type · content hash · period status"]:::gate
+    SOURCE -- "fail: blocked / excluded" --> STOP["STOP<br/>blocked or failed run<br/>no weak output"]:::stop
+
+    subgraph ANALYSIS["02 · STRUCTURED ANALYSIS"]
+        direction LR
+        DIST["PER-SOURCE SUB-AGENTS<br/>LangChain workers · one packet/source<br/>summary · claims · impact · risk<br/>opportunity · action · limits"]:::agent
+        CRIT["CRITIC AGENT<br/>contradictions · unsupported claims<br/>freshness · citation gaps"]:::agent
+        SYN["SYNTHESIS AGENT<br/>daily or weekly cited brief<br/>follow-up questions"]:::agent
+        DIST --> CRIT --> SYN
+    end
+
+    SOURCE -- "pass" --> DIST
+    SYN --> VALID["DETERMINISTIC VALIDATION<br/>period · completeness · citations · lane coverage<br/>hashes · readback · weekly gate: ≥10 eligible sources"]:::gate
+    VALID -- "fail" --> STOP
+    VALID -- "pass" --> DB[("NEON POSTGRESQL<br/>canonical append-only evidence store<br/>metadata · hashes · packets · claims<br/>database cost = $0 for now<br/>no blockchain in current design")]:::data
+
+    subgraph OUT["03 · DELIVERY SURFACES — SAME CANONICAL SNAPSHOT"]
+        direction LR
+        API["FASTAPI<br/>read-only API<br/>counts · statuses · evidence"]:::delivery
+        UI["NEXT.JS / VERCEL<br/>read-only dashboard<br/>explicit partial/blocked states"]:::delivery
+        MD["MARKDOWN<br/>source-forward<br/>human report"]:::delivery
+        PDF["CUSTOM HTML/CSS PDF<br/>Chrome/Chromium render<br/>16-page cited decision brief · source links"]:::delivery
+        REVIEW["HUMAN REVIEW GATE<br/>draft → approved"]:::review
+        PRIVATE["OPTIONAL PRIVATE ARTIFACT<br/>Vercel Blob + signed access"]:::review
+        API --> UI
+        MD --> REVIEW
+        PDF --> REVIEW
+        REVIEW -- "approval only" --> PRIVATE
+    end
+
+    DB --> API
+    DB --> MD
+    DB --> PDF
+
+    subgraph RULES["CROSS-CUTTING CONTROLS + DEPLOYMENT"]
+        direction LR
+        LIMITS["NO SECRETS / RAW BODIES / PROMPTS<br/>No hidden reasoning persisted<br/>No auto-publish · CRM writes · outreach<br/>No paywall bypass"]:::boundary
+        RETRY["BOUNDED RECOVERY<br/>same-model retry only where allowed<br/>no silent provider/key fallback<br/>missing evidence remains blocked"]:::boundary
+        HOST["AUTONOMOUS MODE REQUIRES<br/>deployed server · scheduler · secrets · Chrome/PDF runtime<br/>hosting cost is additional"]:::boundary
+    end
+    LIMITS -. "constrains every stage" .-> C
+    RETRY -. "controls failures" .-> SEARCH
+    RETRY -. "controls failures" .-> DIST
+    HOST -. "required for unattended runs" .-> T
+
+    classDef trigger fill:#fff3c4,stroke:#d89b00,color:#17324d,stroke-width:2px;
+    classDef control fill:#dff5f1,stroke:#0f8f86,color:#102a43,stroke-width:2px;
+    classDef agent fill:#e7eef4,stroke:#4e7088,color:#102a43,stroke-width:2px;
+    classDef tool fill:#d9f0ff,stroke:#1976a8,color:#102a43,stroke-width:2px;
+    classDef gate fill:#fce6d9,stroke:#d76a45,color:#102a43,stroke-width:2px;
+    classDef data fill:#17324d,stroke:#0f766e,color:#ffffff,stroke-width:2px;
+    classDef delivery fill:#e8f6f4,stroke:#0f8f86,color:#102a43,stroke-width:2px;
+    classDef review fill:#fff5cf,stroke:#d89b00,color:#17324d,stroke-width:2px;
+    classDef boundary fill:#f1f4f6,stroke:#7890a0,color:#314b5c,stroke-dasharray: 5 4;
+    classDef stop fill:#ffe0dd,stroke:#c94f4f,color:#7b2424,stroke-width:2px;
+    style DISC fill:#f5f9fb,stroke:#a9c1ce,stroke-width:2px
+    style LANES fill:#eef4f7,stroke:#b9cbd5,stroke-width:1px
+    style ANALYSIS fill:#f7fafb,stroke:#b9cbd5,stroke-width:1px
+    style OUT fill:#f0f8f7,stroke:#8cc8c0,stroke-width:2px
+    style RULES fill:#faf8f0,stroke:#d8c995,stroke-width:1px
+    linkStyle default stroke:#0f8f86,stroke-width:2px
