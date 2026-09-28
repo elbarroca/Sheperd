@@ -258,6 +258,7 @@ export interface ReportPayload {
 
 export interface MonthlyRollup {
   month: string;
+  date?: string;
   signals: number;
   runs: number;
   geographies: string[];
@@ -840,6 +841,7 @@ function isWeeklyResponse(value: unknown): value is WeeklyResponse {
 function isMonthlyRollup(value: unknown): value is MonthlyRollup {
   return isRecord(value)
     && hasStrings(value, ["month"])
+    && isOptional(value, "date", isString)
     && isNonNegativeInteger(value.signals)
     && isNonNegativeInteger(value.runs)
     && isStringArray(value.geographies)
@@ -961,8 +963,12 @@ export function getWeeklyReport(
   );
 }
 
-export function getMonthlyRollups(): Promise<ResearchResponse<MonthlyResponse>> {
-  return getJson("/api/reports/monthly", (value) => isMonthlyResponse(value) ? value : null);
+export function getMonthlyRollups(
+  filters: { region?: string; language?: string; evidence?: string; limit?: number; offset?: number } = {},
+): Promise<ResearchResponse<MonthlyResponse>> {
+  const params = new URLSearchParams({ limit: String(filters.limit ?? 1000) });
+  for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== "") params.set(key, String(value));
+  return getJson(`/api/reports/monthly?${params.toString()}`, (value) => isMonthlyResponse(value) ? value : null);
 }
 
 export function getResearchHealth(): Promise<ResearchResponse<ResearchHealth>> {

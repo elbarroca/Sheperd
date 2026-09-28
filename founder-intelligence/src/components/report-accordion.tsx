@@ -173,6 +173,7 @@ function ToolCallList({ calls }: { calls: ToolCallReceipt[] }) {
 }
 
 function SourceEvidence({ report }: { report: ReportPayload }) {
+  const distillationByUrl = new Map(report.distillations.map((item) => [item.source_url, item]));
   return (
     <>
       <p>
@@ -185,8 +186,10 @@ function SourceEvidence({ report }: { report: ReportPayload }) {
           <ul className="source-list">
             {report.sources.map((source) => (
               <li key={source.url}>
-                <a href={source.url} target="_blank" rel="noreferrer">{source.title}</a>
-                <span className="bullet-meta">{source.publisher} / {source.region ?? "global"} / {source.language_code ?? "und"} / {source.lane} / {source.evidence_status} / {source.extraction_status ?? "unknown"}</span>
+                <a href={source.url} target="_blank" rel="noreferrer">{source.title.trim() || "Untitled source"}</a>
+                <span className="bullet-meta">{source.publisher || "Unknown publisher"} / {source.region ?? "global"} / {source.language_code ?? "und"} / {source.lane} / {source.source_type ?? "unknown type"} / {source.evidence_status} / {source.extraction_status ?? "unknown"}</span>
+                <span className="bullet-meta">Published {source.published_at ? dateLabel(source.published_at) : "undated"} / freshness {source.freshness_status ?? "not recorded"} / {source.is_seed ? "seed" : "discovered"}</span>
+                {distillationByUrl.get(source.url)?.content_hash ? <code>Hash: {distillationByUrl.get(source.url)?.content_hash}</code> : null}
               </li>
             ))}
           </ul>
@@ -279,6 +282,8 @@ function ReportQuality({ report }: { report: ReportPayload }) {
         : "This run requires review before it can be decision-ready."}</p>
       {!report.quality ? <p className="muted">Legacy quality snapshot: Not recorded in this run.</p> : null}
       {report.blocking_reasons?.length ? <p className="muted">Blocking reasons: {report.blocking_reasons.join(", ")}</p> : null}
+      {report.quality?.report_quality_issues.length ? <p className="muted">Report quality issues: {report.quality.report_quality_issues.join(", ")}</p> : null}
+      {report.quality?.article_quality_issues && Object.keys(report.quality.article_quality_issues).length > 0 ? <p className="muted">Article quality issues recorded for {Object.keys(report.quality.article_quality_issues).length} source(s).</p> : null}
       </section>
   );
 }
@@ -290,8 +295,13 @@ function briefSourceUrls(brief: WeeklyBrief): string[] {
 function ClaimRow({ claim }: { claim: ResearchClaim }) {
   return (
     <li>
-      <span>{claim.claim}{claim.evidence_excerpt ? `: ${claim.evidence_excerpt}` : ""}</span>
-      <span className="bullet-meta"><span className={`evidence-badge evidence-${claim.evidence_status}`}>{claim.evidence_status}</span><CitationLinks urls={claim.source_urls} /></span>
+      <span>{claim.claim || claim.original_claim || "Not recorded in this run."}{claim.evidence_excerpt ? `: ${claim.evidence_excerpt}` : ""}</span>
+      {claim.original_claim && claim.original_claim !== claim.claim ? <small className="muted">Original: {claim.original_claim}</small> : null}
+      <span className="bullet-meta"><span className={`evidence-badge evidence-${claim.evidence_status}`}>{claim.evidence_status}</span><span>Confidence: {claim.confidence || "not recorded"}</span><span>{claim.independent_source_count ?? 0} independent sources</span><CitationLinks urls={claim.source_urls} /></span>
+      {claim.citation_status ? <small className="muted">Citation: {claim.citation_status}</small> : null}
+      {claim.verification_basis ? <small className="muted">Verification basis: {claim.verification_basis}</small> : null}
+      {claim.support_locator ? <small className="muted">Locator: {claim.support_locator}</small> : null}
+      {claim.conflicts.length > 0 ? <small className="muted">Conflicts: {claim.conflicts.join("; ")}</small> : null}
     </li>
   );
 }
@@ -300,7 +310,9 @@ function SignalRow({ signal }: { signal: ResearchSignal }) {
   return (
     <li>
       <span>{signal.event_type}: {signal.summary}</span>
-      <span className="bullet-meta"><span className={`evidence-badge evidence-${signal.evidence_status}`}>{signal.evidence_status}</span><CitationLinks urls={signal.source_urls} /></span>
+      <span className="bullet-meta"><span className={`evidence-badge evidence-${signal.evidence_status}`}>{signal.evidence_status}</span><span>Event: {signal.event_at ? timestampLabel(signal.event_at) : "not recorded"}</span><span>{signal.geographies.join(", ") || "geography not recorded"}</span><CitationLinks urls={signal.source_urls} /></span>
+      {signal.ports.length > 0 ? <small className="muted">Ports: {signal.ports.join(", ")}</small> : null}
+      {signal.carriers.length > 0 ? <small className="muted">Carriers: {signal.carriers.join(", ")}</small> : null}
     </li>
   );
 }

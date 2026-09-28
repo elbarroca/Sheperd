@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal, Protocol, cast
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
-from psycopg import Connection, OperationalError
+from psycopg import Connection, InternalError, OperationalError
 
 from .contracts import (
     ArticleDistillation,
@@ -1886,7 +1886,7 @@ class PostgresRepository:
                         rows = cursor.fetchall() if cursor.description else []
                     self.connection.commit()
                     return rows
-                except OperationalError:
+                except (OperationalError, InternalError):
                     self.connection.rollback()
                     if attempt == 1 or self._connection_url is None:
                         raise
@@ -3797,7 +3797,20 @@ class PostgresRepository:
             "wb.run_id", "adq.run_id"
         )
         aggregate_ctes = f"""
-            WITH source_agg AS (
+            WITH page_briefs AS (
+                SELECT wb.run_id
+                FROM weekly_briefs wb
+                JOIN research_runs rr ON rr.run_id = wb.run_id
+                LEFT JOIN validation_checks vc ON vc.run_id = wb.run_id
+                WHERE {' AND '.join(clauses)}
+                ORDER BY CASE WHEN rr.status = 'succeeded'
+                    AND COALESCE(vc.status, 'blocked') = 'pass'
+                    AND wb.review_state = 'approved'
+                    THEN 0 ELSE 1 END,
+                    wb.covered_until DESC, wb.run_id ASC
+                LIMIT %s OFFSET %s
+            ),
+            source_agg AS (
                 SELECT rs.run_id,
                        count(DISTINCT rs.normalized_url) FILTER (WHERE NOT s.is_seed)
                            AS source_count,
@@ -3814,28 +3827,33 @@ class PostgresRepository:
                            FILTER (WHERE s.lane IS NOT NULL), '{{}}'::text[]
                        ) AS lane_coverage
                 FROM run_sources rs
+                JOIN page_briefs page_source ON page_source.run_id = rs.run_id
                 JOIN sources s ON s.normalized_url = rs.normalized_url
                 GROUP BY rs.run_id
             ),
             distillation_agg AS (
-                SELECT run_id,
-                       count(DISTINCT distillation_id) AS distillation_count,
+                SELECT ad.run_id,
+                       count(DISTINCT ad.distillation_id) AS distillation_count,
                        COALESCE(
-                           array_agg(DISTINCT model_id)
-                           FILTER (WHERE model_id IS NOT NULL), '{{}}'::text[]
+                           array_agg(DISTINCT ad.model_id)
+                           FILTER (WHERE ad.model_id IS NOT NULL), '{{}}'::text[]
                        ) AS models
-                FROM article_distillations
-                GROUP BY run_id
+                FROM article_distillations ad
+                JOIN page_briefs page_distillation
+                    ON page_distillation.run_id = ad.run_id
+                GROUP BY ad.run_id
             ),
             claim_agg AS (
-                SELECT run_id, count(DISTINCT claim_id) AS claim_count
-                FROM claims
-                GROUP BY run_id
+                SELECT c.run_id, count(DISTINCT c.claim_id) AS claim_count
+                FROM claims c
+                JOIN page_briefs page_claim ON page_claim.run_id = c.run_id
+                GROUP BY c.run_id
             ),
             signal_agg AS (
-                SELECT run_id, count(DISTINCT event_id) AS signal_count
-                FROM signal_events
-                GROUP BY run_id
+                SELECT se.run_id, count(DISTINCT se.event_id) AS signal_count
+                FROM signal_events se
+                JOIN page_briefs page_signal ON page_signal.run_id = se.run_id
+                GROUP BY se.run_id
             ),
             article_agg AS (
                 SELECT adq.run_id,
@@ -3861,6 +3879,7 @@ class PostgresRepository:
                            AND ({article_complete_for_aggregate_sql})
                        ) AS complete_article_count
                 FROM article_distillations adq
+                JOIN page_briefs page_article ON page_article.run_id = adq.run_id
                 GROUP BY adq.run_id
             )
         """
@@ -3910,7 +3929,8 @@ class PostgresRepository:
                        ELSE 0
                    END,
                    rr.migration_version
-            FROM weekly_briefs wb
+            FROM page_briefs page_result
+            JOIN weekly_briefs wb ON wb.run_id = page_result.run_id
             JOIN research_runs rr ON rr.run_id = wb.run_id
             LEFT JOIN validation_checks vc ON vc.run_id = wb.run_id
             LEFT JOIN source_agg sa ON sa.run_id = wb.run_id
@@ -3918,10 +3938,11 @@ class PostgresRepository:
             LEFT JOIN claim_agg ca ON ca.run_id = wb.run_id
             LEFT JOIN signal_agg sea ON sea.run_id = wb.run_id
             LEFT JOIN article_agg aa ON aa.run_id = wb.run_id
-            WHERE """
-            + " AND ".join(clauses)
-            + f" ORDER BY CASE WHEN {ready_sql} THEN 0 ELSE 1 END, "
-            "wb.covered_until DESC, wb.run_id ASC LIMIT %s OFFSET %s",
+            ORDER BY CASE WHEN rr.status = 'succeeded'
+                AND COALESCE(vc.status, 'blocked') = 'pass'
+                AND wb.review_state = 'approved'
+                THEN 0 ELSE 1 END,
+                wb.covered_until DESC, wb.run_id ASC""",
             tuple(params),
         )
         fields = (

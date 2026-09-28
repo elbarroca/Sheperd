@@ -801,6 +801,22 @@ def test_workflow_records_step_hashes_and_latency() -> None:
         assert step["output_hash"]
 
 
+def test_weekly_window_includes_the_start_of_the_calendar_day() -> None:
+    request = ResearchRunRequest(
+        topic_set="dnd-port",
+        as_of=datetime(2026, 8, 25, 12, 22, tzinfo=UTC),
+    )
+    topic = TopicConfig(
+        name="dnd-port",
+        description="Fixture topic",
+        queries=["port update"],
+    )
+
+    assert ResearchWorkflow._run_since(request, topic) == datetime(
+        2026, 8, 18, tzinfo=UTC
+    )
+
+
 def test_workflow_fails_closed_when_extraction_is_incomplete() -> None:
     repository = InMemoryRepository()
     workflow = ResearchWorkflow(repository, EmptyExtractTavily(), FakeLLM())

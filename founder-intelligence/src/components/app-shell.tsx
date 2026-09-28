@@ -19,6 +19,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
             <Link href="/">Briefs</Link>
             <Link href="/sources">Sources</Link>
             <Link href="/monthly">Monthly</Link>
+            <Link href="/how-it-works">How it works</Link>
           </nav>
           <span className="read-only-badge">Read-only</span>
         </div>

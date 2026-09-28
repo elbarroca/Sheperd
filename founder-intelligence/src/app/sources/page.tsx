@@ -72,14 +72,19 @@ function ClaimList({ claims }: { claims: ResearchClaim[] }) {
     <ul className="source-list">
       {claims.map((claim, index) => (
         <li key={`${claim.claim}-${index}`}>
-          <span>{claim.claim}</span>
+          <span>{claim.claim || claim.original_claim || "Not recorded in this run."}</span>
+          {claim.original_claim && claim.original_claim !== claim.claim ? <small className="muted">Original: {claim.original_claim}</small> : null}
           <span className="bullet-meta">
             <span className={`evidence-badge evidence-${claim.evidence_status}`}>{claim.evidence_status}</span>
-            <span>{claim.citation_status ?? "uncited"}</span>
+            <span>{claim.citation_status ?? "citation status not recorded"}</span>
+            <span>Confidence: {claim.confidence || "not recorded"}</span>
+            <span>{claim.independent_source_count ?? 0} independent sources</span>
             <CitationLinks urls={claim.source_urls} />
           </span>
           {claim.evidence_excerpt ? <small>Evidence: {claim.evidence_excerpt}</small> : null}
           {claim.support_locator ? <small>Locator: {claim.support_locator}</small> : null}
+          {claim.verification_basis ? <small>Verification basis: {claim.verification_basis}</small> : null}
+          {claim.conflicts.length > 0 ? <small>Conflicts: {claim.conflicts.join("; ")}</small> : null}
         </li>
       ))}
     </ul>
@@ -91,14 +96,16 @@ function SourceCard({ item }: { item: SourceExplorerItem }) {
   const mergedClaims = distillation?.claims.length ? distillation.claims : claims;
   const originalSnippet = source.snippet.trim() || "Not recorded in this run.";
   const snippet = source.normalized_snippet_en?.trim() || originalSnippet;
+  const title = source.title.trim() || "Untitled source";
   return (
     <article className="source-row">
       <div className="source-card-heading">
         <div>
           <p className="eyebrow">{source.region ?? "global"} / {source.language_code ?? "und"} / {source.lane}</p>
-          <h2><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a></h2>
-          {source.normalized_title_en && source.normalized_title_en !== source.title ? <p className="source-normalized-title">English title: {source.normalized_title_en}</p> : null}
+          <h2><a href={source.url} target="_blank" rel="noreferrer">{title}</a></h2>
+          {source.normalized_title_en && source.normalized_title_en !== title ? <p className="source-normalized-title">English title: {source.normalized_title_en}</p> : null}
           <p className="muted">{source.publisher || "Unknown publisher"} / {source.authority_tier ?? "unknown authority"} / {source.source_type ?? "unknown type"}</p>
+          <p className="muted">{source.source_kind || "source kind not recorded"} / {source.topics.length ? source.topics.join(", ") : "topics not recorded"}</p>
         </div>
         <Status label="Evidence" value={source.evidence_status} />
       </div>
@@ -107,6 +114,8 @@ function SourceCard({ item }: { item: SourceExplorerItem }) {
         <Status label="Freshness" value={source.freshness_status} />
         <Status label="Extraction" value={source.extraction_status} />
         <Status label="Translation" value={distillation?.translation_status} />
+        <span className="status-badge">{source.is_seed ? "Seed source" : "Discovered source"}</span>
+        <span className="status-badge">Language confidence: {source.language_confidence === undefined ? "not recorded" : `${Math.round(source.language_confidence * 100)}%`}</span>
       </div>
       <p className="source-snippet">Snippet: {snippet || "Not recorded in this run."}</p>
       {source.normalized_snippet_en && source.normalized_snippet_en !== source.snippet ? <p className="muted">Original: {originalSnippet}</p> : null}

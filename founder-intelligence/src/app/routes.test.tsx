@@ -25,6 +25,7 @@ vi.mock("@/components/report-accordion", () => ({
 
 import HomePage from "./page";
 import MonthlyPage from "./monthly/page";
+import HowItWorksPage from "./how-it-works/page";
 import ReportPage from "./reports/[run_id]/page";
 import SourcesPage from "./sources/page";
 
@@ -76,10 +77,86 @@ describe("production report routes", () => {
   });
 
   it("renders monthly data from the API without fallback content", async () => {
-    const rollup: MonthlyRollup = { month: "2026-08-01", signals: 2, runs: 1, geographies: ["US"] };
+    const rollup: MonthlyRollup = {
+      month: "2026-08-01",
+      date: "2026-08-14",
+      signals: 2,
+      runs: 1,
+      geographies: ["US"],
+      region: "us",
+      language: "en",
+      lane: "ports",
+      authority: "Port authority",
+      signal: "congestion",
+      evidence: "cited",
+    };
     api.getMonthlyRollups.mockResolvedValue({ status: "ok", data: { rollups: [rollup] } });
 
-    expect(renderToStaticMarkup(await MonthlyPage())).toContain("2026-08-01");
+    const markup = renderToStaticMarkup(await MonthlyPage());
+    expect(markup).toContain("2026-08-01");
+    expect(markup).toContain("Port authority");
+    expect(markup).toContain("congestion");
+  });
+
+  it("passes monthly filters to the API", async () => {
+    api.getMonthlyRollups.mockResolvedValue({ status: "ok", data: { rollups: [] } });
+    await MonthlyPage({ searchParams: Promise.resolve({ region: "us", evidence: "cited" }) });
+    expect(api.getMonthlyRollups).toHaveBeenCalledWith({ region: "us", evidence: "cited" });
+  });
+
+  it("renders the live workflow explanation and persisted run metrics", async () => {
+    api.getResearchHealth.mockResolvedValue({
+      status: "ok",
+      data: { status: "pass", migration_version: "0013", branch_id: "main", database: "neondb" },
+    });
+    api.getWeeklyReports.mockResolvedValue({
+      status: "ok",
+      data: {
+        reports: [{
+          run_id: "run-1",
+          title: "Weekly research brief",
+          covered_from: "2026-08-01",
+          covered_until: "2026-08-07",
+          review_state: "draft",
+          run_status: "succeeded",
+          validation_status: "pass",
+          source_count: 12,
+          distillation_count: 12,
+          claim_count: 33,
+          signal_count: 9,
+          regions: ["us", "mexico"],
+          languages: ["en", "es"],
+          lane_coverage: ["regulatory", "us-ports", "mexico"],
+          models: ["gpt-5.6-luna"],
+          as_of: "2026-08-07T12:00:00Z",
+          article_count: 12,
+          article_insight_completeness: 1,
+          report_section_count: 5,
+          report_sections_complete: 5,
+          report_section_completeness: 1,
+        }],
+        count: 1,
+      },
+    });
+
+    const markup = renderToStaticMarkup(await HowItWorksPage());
+    expect(markup).toContain("From source to decision");
+    expect(markup).toContain("Atoms and sub-atoms");
+    expect(markup).toContain("distill-v6-insight");
+    expect(markup).toContain("gpt-5.6-luna");
+    expect(markup).toContain("12");
+  });
+
+  it("does not invent live metrics when the weekly endpoint is unavailable", async () => {
+    api.getResearchHealth.mockResolvedValue({
+      status: "ok",
+      data: { status: "pass", migration_version: "0013", branch_id: "main", database: "neondb" },
+    });
+    api.getWeeklyReports.mockResolvedValue({ status: "unavailable", error: "API returned 500" });
+
+    const markup = renderToStaticMarkup(await HowItWorksPage());
+    expect(markup).toContain("Latest run metrics unavailable.");
+    expect(markup).not.toContain("No recorded run yet.");
   });
 
   it("renders the paginated source explorer from Neon records", async () => {

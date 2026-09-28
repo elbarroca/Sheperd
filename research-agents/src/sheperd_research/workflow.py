@@ -541,7 +541,12 @@ class ResearchWorkflow:
         if request.since is not None:
             return request.since
         days = topic.lookback_days if request.cadence is ResearchCadence.DAILY else 7
-        return request.as_of - timedelta(days=days)
+        return (request.as_of - timedelta(days=days)).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
 
     def _retained_evidence(
         self,
