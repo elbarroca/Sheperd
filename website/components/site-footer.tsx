@@ -14,7 +14,7 @@ export function SiteFooter() {
           <p>
             You send the invoices. We handle the recovery.
           </p>
-          <a className="footer-cta" href="/pilot">
+          <a className="footer-cta" href="/contact">
             {recoveryCta}
             <ArrowRight aria-hidden="true" size={18} />
           </a>
@@ -33,7 +33,7 @@ export function SiteFooter() {
 
         <div className="footer-column footer-contact">
           <p className="footer-heading">Contact</p>
-          <a href="/pilot">
+          <a href="/contact">
             Start a recovery enquiry
             <ArrowUpRight aria-hidden="true" size={16} />
           </a>

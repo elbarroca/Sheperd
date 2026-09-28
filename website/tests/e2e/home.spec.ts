@@ -11,7 +11,7 @@ test("leads with invoice value and follows the enquiry path without collecting d
   await expect(page.locator(".recovery-hero + .market-section")).toHaveCount(1);
   await expect(page.locator(".cfo-editorial-scene")).toHaveCount(0);
   await expect(page.locator("#market-title")).toHaveText("Past invoices may hold money for your bottom line.");
-  await expect(page.locator("#evidence .recovery-action")).toHaveAttribute("href", "/pilot");
+  await expect(page.locator("#evidence .recovery-action")).toHaveAttribute("href", "/contact");
   await expect(page.locator(".recovery-process li")).toHaveCount(4);
   await expect(page.locator("#process-title")).toHaveText("A clear path.An entirely managed process.");
   await expect(page.locator("#evidence")).toContainText("Three years of past U.S. detention and demurrage invoices");
@@ -38,8 +38,8 @@ test("leads with invoice value and follows the enquiry path without collecting d
   await page.locator("summary").filter({ hasText: "What does my team need to do?" }).click();
   await expect(page.locator("details[open]")).toContainText("Your team does not need to build or manage a recovery function");
   await page.locator(".hero-actions").getByRole("link", { name: "Find Recoverable Value" }).click();
-  await expect(page).toHaveURL(/\/pilot$/);
-  await expect(page.getByRole("status")).toContainText("No details are collected, stored, or sent");
+  await expect(page).toHaveURL(/\/contact$/);
+  await expect(page.locator(".intake-unavailable")).toContainText("No details are collected or sent through this form");
   await expect(page.locator("input,textarea,select")).toHaveCount(0);
   expect(posts).toEqual([]);
   expect(errors).toEqual([]);
@@ -99,7 +99,7 @@ test("mobile header keeps the value CTA visible and targets touch size", async (
     const cta = page.locator(".mobile-audit-link");
     const toggle = page.getByRole("button", { name: "Open navigation" });
     await expect(cta).toBeVisible();
-    await expect(cta).toHaveAttribute("href", "/pilot");
+    await expect(cta).toHaveAttribute("href", "/contact");
     await expect(toggle).toBeVisible();
     const box = await toggle.boundingBox();
     expect(box?.width).toBeGreaterThanOrEqual(44);
@@ -124,7 +124,7 @@ test("mobile hero image fills the section background", async ({ page }) => {
   expect(Math.abs(dimensions.heroHeight - dimensions.imageHeight)).toBeLessThan(1);
 });
 
-for (const route of ["/", "/how-it-works", "/for-importers", "/about", "/pilot", "/privacy", "/terms"]) {
+for (const route of ["/", "/how-it-works", "/for-importers", "/about", "/contact", "/pilot", "/privacy", "/terms"]) {
   test(`accessible and complete route ${route}`, async ({ page }) => {
     const response = await page.goto(route);
     expect(response?.status()).toBe(200);
@@ -133,6 +133,36 @@ for (const route of ["/", "/how-it-works", "/for-importers", "/about", "/pilot",
     expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze()).violations).toEqual([]);
   });
 }
+
+test("contact page offers Calendly booking or states that it is not configured", async ({ page }) => {
+  await page.route("https://calendly.com/**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: "<!doctype html><title>Calendly test frame</title>",
+    }),
+  );
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page.goto("/contact");
+  await expect(page.getByRole("heading", { name: "Choose a time to talk." })).toBeVisible();
+
+  const calendlyFrame = page.locator("#calendly-booking");
+  if (await calendlyFrame.count()) {
+    await expect(calendlyFrame).toHaveAttribute("title", "Schedule a recovery conversation with SheperD");
+    await expect(calendlyFrame).toHaveAttribute("src", /^https:\/\/(www\.)?calendly\.com\//);
+    for (const width of [320, 360, 375, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    }
+  } else {
+    await expect(page.locator(".calendly-unavailable")).toBeVisible();
+  }
+});
+
+test("legacy pilot route redirects to contact", async ({ page }) => {
+  await page.goto("/pilot");
+  await expect(page).toHaveURL(/\/contact$/);
+});
 
 test("legacy anchors and footer routes point to real destinations", async ({ page }) => {
   await page.goto("/");

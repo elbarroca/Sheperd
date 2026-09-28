@@ -73,9 +73,9 @@ export function PilotForm() {
   if (!deliveryEnabled) {
     return <div className="intake-unavailable" role="status">
       <WarningCircle size={28} aria-hidden="true" />
-      <h2>Online enquiries are not open yet.</h2>
-      <p>No details are collected, stored, or sent. Invoice handoff will be arranged separately when enquiries open.</p>
-      <a className="quiet-link" href="/how-it-works">See how recovery works</a>
+      <h2>The enquiry form is not active in this Preview.</h2>
+      <p>No details are collected or sent through this form.</p>
+      <a className="quiet-link" href="#schedule">See scheduling options</a>
     </div>;
   }
 
@@ -83,7 +83,7 @@ export function PilotForm() {
     <form
       id="pilot-form"
       className="pilot-form"
-      action="/pilot#pilot-form"
+      action="/contact#pilot-form"
       onSubmit={handleSubmit}
       aria-busy={isSubmitting}
     >

@@ -43,7 +43,7 @@ const industryIcons = {
 
 export function RecoveryAction(): ReactElement {
   return (
-    <a className="recovery-action" href="/pilot">
+    <a className="recovery-action" href="/contact">
       {recoveryCta}
       <ArrowUpRight size={19} aria-hidden="true" />
     </a>
