@@ -8,8 +8,8 @@ const sections = [
     body: "The page recreates the currently selected SheperD marketing direction for design and engineering review. It does not evaluate a charge, determine compliance, or provide legal advice.",
   },
   {
-    heading: "No submitted request",
-    body: "Online enquiries and invoice uploads are disabled in this preview. Browsing the site does not submit a service request or create a commercial relationship.",
+    heading: "Scheduling and enquiries",
+    body: "The SheperD enquiry form and invoice uploads remain disabled in this Preview. A Calendly booking schedules a meeting; it does not itself start a recovery engagement or authorize an invoice upload.",
   },
   {
     heading: "Use current sources and qualified review",

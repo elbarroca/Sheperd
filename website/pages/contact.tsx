@@ -4,6 +4,6 @@ export const getServerSideProps: GetServerSideProps = async () => ({
   redirect: { destination: "/#contact", permanent: true },
 });
 
-export default function PilotRedirectPage(): null {
+export default function ContactRedirectPage(): null {
   return null;
 }

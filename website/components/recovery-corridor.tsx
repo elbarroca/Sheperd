@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { RecoveryLayout } from "./recovery-layout";
 import {
+  CalendlySection,
   ClosingSection,
   EconomicsSection,
   ImporterSection,
@@ -20,6 +21,7 @@ export function RecoveryCorridor(): ReactElement {
       <ProcessSection />
       <EconomicsSection />
       <ImporterSection />
+      <CalendlySection />
       <ClosingSection />
     </RecoveryLayout>
   );

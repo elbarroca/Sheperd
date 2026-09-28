@@ -4,12 +4,22 @@ import { NoticePage } from "@/components/notice-page";
 
 const sections = [
   {
-    heading: "Online enquiries are disabled",
-    body: "This preview does not display enquiry fields or accept invoice uploads. No enquiry details are transmitted, stored, emailed, or sent to a CRM.",
+    heading: "Calendly scheduling",
+    body: (
+      <>
+        When a Calendly link is configured, the homepage contact section embeds a Calendly booking
+        page. Calendly processes details submitted there to schedule the meeting. Read
+        the{" "}
+        <a href="https://calendly.com/legal/privacy-notice" target="_blank" rel="noopener noreferrer">
+          Calendly Privacy Notice
+        </a>
+        .
+      </>
+    ),
   },
   {
-    heading: "No measurement layer",
-    body: "The local Preview includes no analytics, advertising pixels, cookies, session replay, CRM routing, or third-party runtime requests.",
+    heading: "SheperD enquiries",
+    body: "The site does not collect or send enquiry details to SheperD in this Preview. Calendly booking is handled separately and follows Calendly’s own cookie settings.",
   },
   {
     heading: "Publication boundary",
@@ -26,8 +36,8 @@ export default function PrivacyPage() {
       </Head>
       <NoticePage
         eyebrow="Preview privacy notice"
-        title="No transmission in this Preview."
-        summary="Online enquiries are disabled in this preview. No customer details are collected, stored, or sent."
+        title="Calendly booking disclosure."
+        summary="When configured, the homepage contact section embeds Calendly for meeting bookings. Details entered there are processed by Calendly. The site does not collect enquiry details in this Preview."
         sections={sections}
       />
     </>

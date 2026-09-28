@@ -41,9 +41,11 @@ const industryIcons = {
   Industrial: Factory,
 } as const;
 
+const CALENDLY_EVENT_URL = "";
+
 export function RecoveryAction(): ReactElement {
   return (
-    <a className="recovery-action" href="/pilot">
+    <a className="recovery-action" href="/#contact">
       {recoveryCta}
       <ArrowUpRight size={19} aria-hidden="true" />
     </a>
@@ -469,6 +471,67 @@ export function ImporterSection({ faq = true }: { faq?: boolean }): ReactElement
             </div>
           </div>
         )}
+      </div>
+    </section>
+  );
+}
+
+export function CalendlySection(): ReactElement {
+  return (
+    <section className="calendly-section" id="contact" aria-labelledby="contact-title">
+      <div className="recovery-container calendly-content">
+        <div className="calendly-intro">
+          <p className="section-label">Your next step</p>
+          <h2 id="contact-title">Let’s talk about your shipping history.</h2>
+          <p>
+            Book a conversation about your detention and demurrage invoices, the
+            records around each charge, and whether a focused recovery review makes
+            sense.
+          </p>
+        </div>
+        <div className="calendly-booking">
+          {CALENDLY_EVENT_URL ? (
+            <>
+              <iframe
+                className="calendly-frame"
+                id="calendly-booking"
+                src={CALENDLY_EVENT_URL}
+                title="Schedule a recovery conversation with SheperD"
+                loading="lazy"
+              />
+              <p className="calendly-privacy">
+                Scheduling is handled by Calendly. See the{" "}
+                <a
+                  href="https://calendly.com/legal/privacy-notice"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Calendly Privacy Notice
+                  <ArrowUpRight size={14} aria-hidden="true" />
+                </a>
+                .
+              </p>
+              <a
+                className="quiet-link calendly-fallback"
+                href={CALENDLY_EVENT_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open the calendar in a new tab
+                <ArrowUpRight size={16} aria-hidden="true" />
+              </a>
+            </>
+          ) : (
+            <div className="calendly-unavailable" role="status">
+              <p className="calendly-unavailable-label">Calendly scheduling</p>
+              <h3>Choose a time that works.</h3>
+              <p>The booking calendar will appear here once scheduling is set up.</p>
+              <p className="calendly-unavailable-note">
+                No booking details are collected until then.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );

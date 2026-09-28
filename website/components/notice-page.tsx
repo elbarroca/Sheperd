@@ -1,5 +1,6 @@
 import { BrandLogo } from "./brand-logo";
 import Head from "next/head";
+import type { ReactNode } from "react";
 import { SiteFooter } from "./site-footer";
 
 interface NoticePageProps {
@@ -8,7 +9,7 @@ interface NoticePageProps {
   summary: string;
   sections: ReadonlyArray<{
     heading: string;
-    body: string;
+    body: ReactNode;
   }>;
 }
 
