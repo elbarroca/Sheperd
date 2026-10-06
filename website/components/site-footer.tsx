@@ -37,6 +37,7 @@ export function SiteFooter() {
             Book a conversation
             <ArrowUpRight aria-hidden="true" size={16} />
           </a>
+          <a href="mailto:michaelk@sheperd.io">michaelk@sheperd.io</a>
           <span className="footer-muted">Detention &amp; demurrage recovery for importers</span>
         </div>
 

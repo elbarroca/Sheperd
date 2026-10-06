@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-test("leads with invoice value and follows the enquiry path without collecting data", async ({ page }) => {
+test("leads with invoice value and provides the homepage enquiry form", async ({ page }) => {
   const errors: string[] = [];
   const posts: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -35,13 +35,13 @@ test("leads with invoice value and follows the enquiry path without collecting d
   await expect(page.locator(".industry-icon")).toHaveCount(8);
   await expect(page.locator(".industry img")).toHaveCount(0);
   await expect(page.locator(".industry-icon").first()).toHaveCSS("color", "rgb(13, 109, 253)");
-  await expect(page.locator("#trust + #contact + .recovery-closing")).toHaveCount(1);
+  await expect(page.locator("#trust + .recovery-closing + #contact")).toHaveCount(1);
   await page.locator("summary").filter({ hasText: "What does my team need to do?" }).click();
   await expect(page.locator("details[open]")).toContainText("Your team does not need to build or manage a recovery function");
   await page.locator(".hero-actions").getByRole("link", { name: "Find Recoverable Value" }).click();
   await expect(page).toHaveURL(/\/#contact$/);
-  await expect(page.locator(".calendly-unavailable")).toContainText("No booking details are collected");
-  await expect(page.locator("input,textarea,select")).toHaveCount(0);
+  await expect(page.locator('form[name="contact-home"]')).toBeVisible();
+  await expect(page.locator('form[name="contact-home"] input[name="email"]')).toBeVisible();
   expect(posts).toEqual([]);
   expect(errors).toEqual([]);
 });
@@ -49,10 +49,10 @@ test("leads with invoice value and follows the enquiry path without collecting d
 test("keeps the clear-path message and readable type hierarchy", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
-  await expect(page).toHaveTitle("SheperD | A clear path through D&D recovery");
+  await expect(page).toHaveTitle("SheperD | D&D recovery potential for U.S. importers");
   await expect(page.locator('meta[name="description"]')).toHaveAttribute(
     "content",
-    /A clear path from invoice to recovery\./,
+    /Could three years of U\.S\. detention and demurrage charges put real money back on your bottom line\?/,
   );
   await expect(page.locator(".hero-headline")).toHaveText("A clear path from invoice to recovery.");
   await expect(page.locator(".hero-description")).toHaveText("You send the invoices. We handle the recovery.");
@@ -125,7 +125,7 @@ test("mobile hero image fills the section background", async ({ page }) => {
   expect(Math.abs(dimensions.heroHeight - dimensions.imageHeight)).toBeLessThan(1);
 });
 
-for (const route of ["/", "/how-it-works", "/for-importers", "/about", "/privacy", "/terms"]) {
+for (const route of ["/", "/contact", "/how-it-works", "/for-importers", "/about", "/privacy", "/terms"]) {
   test(`accessible and complete route ${route}`, async ({ page }) => {
     const response = await page.goto(route);
     expect(response?.status()).toBe(200);
@@ -135,25 +135,13 @@ for (const route of ["/", "/how-it-works", "/for-importers", "/about", "/privacy
   });
 }
 
-test("homepage contact section offers Calendly booking or states that setup is pending", async ({ page }) => {
-  await page.route("https://calendly.com/**", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "text/html",
-      body: "<!doctype html><title>Calendly test frame</title>",
-    }),
-  );
+test("homepage contact section fits small screens and links to the contact email", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 900 });
   await page.goto("/#contact");
   await expect(page.getByRole("heading", { name: "Let’s talk about your shipping history." })).toBeVisible();
-
-  const calendlyFrame = page.locator("#calendly-booking");
-  if (await calendlyFrame.count()) {
-    await expect(calendlyFrame).toHaveAttribute("title", "Schedule a recovery conversation with SheperD");
-    await expect(calendlyFrame).toHaveAttribute("src", /^https:\/\/(www\.)?calendly\.com\//);
-  } else {
-    await expect(page.locator(".calendly-unavailable")).toBeVisible();
-  }
+  await expect(page.locator('form[name="contact-home"]')).toBeVisible();
+  await expect(page.locator("#contact .contact-email a")).toHaveAttribute("href", "mailto:michaelk@sheperd.io");
+  await expect(page.locator("#site-footer").getByRole("link", { name: "michaelk@sheperd.io" })).toHaveAttribute("href", "mailto:michaelk@sheperd.io");
 
   for (const width of [320, 360, 375, 768, 1440]) {
     await page.setViewportSize({ width, height: 900 });
@@ -161,13 +149,18 @@ test("homepage contact section offers Calendly booking or states that setup is p
   }
 });
 
-for (const route of ["/contact", "/pilot"]) {
-  test(`legacy route ${route} redirects to the homepage contact section`, async ({ page }) => {
-    await page.goto(route);
-    await expect(page).toHaveURL(/\/#contact$/);
-    await expect(page.locator("#contact")).toBeVisible();
-  });
-}
+test("contact route presents its own inquiry form", async ({ page }) => {
+  const response = await page.goto("/contact");
+  expect(response?.status()).toBe(200);
+  await expect(page.locator('form[name="contact-page"]')).toBeVisible();
+  await expect(page.locator('form[name="contact-page"] input[name="email"]')).toBeVisible();
+});
+
+test("legacy pilot route redirects to the homepage contact section", async ({ page }) => {
+  await page.goto("/pilot");
+  await expect(page).toHaveURL(/\/#contact$/);
+  await expect(page.locator("#contact")).toBeVisible();
+});
 
 test("legacy anchors and footer routes point to real destinations", async ({ page }) => {
   await page.goto("/");

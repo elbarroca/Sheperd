@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SheperD contact forms</title>
+  </head>
+  <body>
+    <form name="contact-home" method="POST" action="/__forms.html" data-netlify="true" netlify-honeypot="bot-field" hidden>
+      <input type="hidden" name="form-name" value="contact-home">
+      <p hidden><label>Leave this field empty <input name="bot-field"></label></p>
+      <label>Name <input type="text" name="name" required></label>
+      <label>Email <input type="email" name="email" required></label>
+      <label>Company <input type="text" name="company" required></label>
+      <label>Inquiry type
+        <select name="inquiryType" required>
+          <option value="Investor">Investor</option>
+          <option value="Partner">Partner</option>
+          <option value="Importer">Importer</option>
+          <option value="Other">Other</option>
+        </select>
+      </label>
+      <label>Message <textarea name="message" required></textarea></label>
+    </form>
+    <form name="contact-page" method="POST" action="/__forms.html" data-netlify="true" netlify-honeypot="bot-field" hidden>
+      <input type="hidden" name="form-name" value="contact-page">
+      <p hidden><label>Leave this field empty <input name="bot-field"></label></p>
+      <label>Name <input type="text" name="name" required></label>
+      <label>Email <input type="email" name="email" required></label>
+      <label>Company <input type="text" name="company" required></label>
+      <label>Inquiry type
+        <select name="inquiryType" required>
+          <option value="Investor">Investor</option>
+          <option value="Partner">Partner</option>
+          <option value="Importer">Importer</option>
+          <option value="Other">Other</option>
+        </select>
+      </label>
+      <label>Message <textarea name="message" required></textarea></label>
+    </form>
+  </body>
+</html>

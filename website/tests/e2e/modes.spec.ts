@@ -78,12 +78,12 @@ test("content and enquiry remain available without JavaScript", async ({ browser
   const context = await browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
   await page.goto("/");
-  await expect(page.locator("#cfo-title")).toBeVisible();
+  await expect(page.locator("#market-title")).toBeVisible();
   await expect(page.locator(".recovery-process li")).toHaveCount(4);
   await page.locator("summary").filter({ hasText: "What does it cost?" }).click();
   await expect(page.locator("details[open]")).toContainText("no upfront cost");
   await page.locator(".hero-actions").getByRole("link", { name: "Find Recoverable Value" }).click();
-  await expect(page.getByRole("status")).toBeVisible();
+  await expect(page.locator('#contact form[name="contact-home"] input[name="email"]')).toBeVisible();
   await context.close();
 });
 

@@ -1,14 +1,14 @@
 # SheperD Website
 
-The 2026-09-08 website centers on: "You send the invoices. We handle the recovery."
-It includes `/how-it-works`, `/for-importers`, and `/about`. `/contact` and
-`/pilot` redirect to the homepage Calendly section below the importer FAQ. No
-upfront cost and recovery-aligned payment are approved copy. See
+The website centers on: "You send the invoices. We handle the recovery." It
+includes `/how-it-works`, `/for-importers`, `/about`, and a `/contact` form.
+The homepage form appears below its closing call to action. `/pilot` redirects
+to that form. No upfront cost and recovery-aligned payment are approved copy. See
 `docs/RECOVERY-IMPLEMENTATION.md` for the copy deck and reference mapping.
 
 The Recovery Corridor is the public-facing SheperD website. It explains the
-shipping-container demurrage and detention recovery workflow while keeping
-form delivery disabled until its separate intake approvals are complete.
+shipping-container demurrage and detention recovery workflow. Contact forms
+collect name, email, company, inquiry type, and message for replies from SheperD.
 
 ## Local setup
 
@@ -31,14 +31,16 @@ corepack pnpm build
 corepack pnpm test:e2e
 ```
 
-The audit form validates locally but does not transmit or store submissions by
-default. Keep the flags in `.env.example` false unless the approvals and
-server-only delivery values in `DEPLOYMENT.md` are complete.
+Contact forms render locally, but the default `NEXT_PUBLIC_CONTACT_DELIVERY_ENABLED=false`
+setting prevents JavaScript submissions from being sent. The Playwright web
+server enables the flag only for tests that mock the Netlify response. The
+separate audit form also remains disabled by default; see `DEPLOYMENT.md`.
 
 ## Deployment boundary
 
-Deploy this directory as its own public Vercel project with Root Directory
-`website`. Publication was explicitly authorized on 2026-07-15. The unresolved
-legal, claims, privacy, contact, and ownership risks remain recorded in
-`docs/FACTS-AND-CONSTRAINTS.md`. See `DEPLOYMENT.md` and `../obsidian/VERCEL.md` for the
-exact settings.
+The repository now includes a Netlify build configuration for this directory.
+The live Netlify account, form notifications, final domain, and inbox delivery
+remain unverified. Keep the existing Vercel configuration until the account
+owner completes and verifies the hosting cutover. Unresolved legal, claims,
+privacy, and ownership risks remain in `docs/FACTS-AND-CONSTRAINTS.md`. See
+`DEPLOYMENT.md` and `../obsidian/VERCEL.md` for the source settings and cutover steps.

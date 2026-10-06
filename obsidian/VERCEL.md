@@ -1,25 +1,36 @@
-# SheperD Vercel Projects
+# SheperD Website Hosting
 
-The private `elbarroca/Sheperd` GitHub repository is connected to two public
-Vercel projects. Each application has its own lockfile and project root.
+The repository has separate `website` and `founder-intelligence` applications.
+Older deployment notes described both as Vercel projects. The website source
+now includes Netlify build settings, while its existing Vercel configuration
+remains in the repository until the owner verifies a hosting cutover.
 
-| Project | Root Directory | Framework | Install | Build | Node.js | Production branch | Protection |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `sheperd-website` | `website` | Next.js | `pnpm install --frozen-lockfile` | `pnpm build` | 24.x | `main` | Disabled |
-| `sheperd-founder-intelligence` | `founder-intelligence` | Next.js | `pnpm install --frozen-lockfile` | `pnpm build` | 24.x | `main` | Disabled |
+| Application | Root | Source configuration | Live status |
+| --- | --- | --- | --- |
+| Website | `website` | Root `netlify.toml`; existing Vercel files retained | Netlify account, domain, and delivery are unverified |
+| Founder intelligence | `founder-intelligence` | Separate Vercel setup | Not changed or checked in this migration |
 
-All generated Vercel URLs are public. The website keeps noindex headers and
-form delivery disabled. The founder dashboard remains read-only, noindex, and
-limited to the committed D0/D1 research package; it must not contain customer,
-invoice, contract, credential, or case data.
+## Website Netlify settings in source
 
-## Release sequence
+- Base directory: `website`
+- Build command: `pnpm build:production`
+- Publish directory: `.next`
+- Node.js: `24`
+- pnpm: `10.33.2`
+- `PNPM_FLAGS=--shamefully-hoist`
 
-1. Run lint, typecheck, tests, data validation, and builds locally.
-2. Review generated founder data for unintended sensitive material.
-3. Push the verified commit to `main`.
-4. Wait for both Git-connected Production deployments to report `READY`.
-5. Verify anonymous HTTP 200 responses, key routes, headers, and runtime logs.
+The production context enables client submission behavior. Other contexts keep
+contact submissions disabled. See `website/DEPLOYMENT.md` for form detection,
+notification setup, and live verification steps.
 
-Public deployment was explicitly authorized on 2026-07-15. It does not approve
-indexing, form delivery, analytics, custom domains, or unsupported claims.
+## Required owner verification
+
+1. Connect the repository to the company-managed Netlify account.
+2. Enable form detection and confirm both form names appear after deployment.
+3. Add a notification for each form to `michaelk@sheperd.io`.
+4. Confirm the final domain and its apex/`www` behavior.
+5. Submit both forms and verify every field, inbox delivery, and visitor Reply-to.
+
+Source configuration and mocked local tests do not prove account ownership,
+domain routing, Netlify receipt, or email delivery. This update does not approve
+indexing, analytics, or publication of unsupported claims.

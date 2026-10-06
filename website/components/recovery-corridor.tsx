@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
+import { ContactForm } from "./contact-form";
 import { RecoveryLayout } from "./recovery-layout";
 import {
-  CalendlySection,
   ClosingSection,
   EconomicsSection,
   ImporterSection,
@@ -21,8 +21,8 @@ export function RecoveryCorridor(): ReactElement {
       <ProcessSection />
       <EconomicsSection />
       <ImporterSection />
-      <CalendlySection />
       <ClosingSection />
+      <ContactForm formName="contact-home" />
     </RecoveryLayout>
   );
 }

@@ -1,0 +1,12 @@
+[build]
+  base = "website"
+  command = "pnpm build:production"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "24"
+  PNPM_FLAGS = "--shamefully-hoist"
+  NEXT_PUBLIC_CONTACT_DELIVERY_ENABLED = "false"
+
+[context.production.environment]
+  NEXT_PUBLIC_CONTACT_DELIVERY_ENABLED = "true"

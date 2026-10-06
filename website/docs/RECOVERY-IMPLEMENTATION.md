@@ -17,9 +17,10 @@ does not activate intake or publication.
 | Importer fit / FAQ | Built for importers. Invoice-only participation; fees, records, outcomes and timing explained. | 08, supporting page 02 |
 | Closing | Find recoverable value in your shipping history. You send the invoices. We handle the recovery. | 12 |
 
-Supporting routes: /how-it-works, /for-importers, /about. The homepage includes a
-Calendly contact section after the importer FAQ; legacy /contact and /pilot URLs
-redirect there. No upload, delivery activation, CRM, analytics or deploy.
+Supporting routes: /how-it-works, /for-importers, /about, and /contact. The
+homepage contact form follows the closing call to action and sits before the
+footer. `/pilot` redirects to the homepage form. Netlify delivery remains gated
+by production configuration and account setup. No upload, CRM, analytics or deploy.
 
 Customer responsibility: send invoices. SheperD responsibility: supporting-record
 work, review, recovery follow-up, outcome tracking. No customer evidence-gathering
