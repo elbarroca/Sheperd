@@ -19,7 +19,7 @@ These entries describe audience context, interface behavior, generic workflow ca
 | UI-007 | `Operational record` | generic evidence category | FMC guidance lists operational evidence examples | yes |
 | UI-008 | `Governing record` | generic evidence category | Current rules and terms are source-linked | yes |
 | UI-009 | `Educational Preview. No uploads. No case decision.` | tested boundary | Application behavior plus publication contract | yes |
-| UI-010 | `This Preview does not collect files, contact details, or personal information.` | tested application behavior | Must pass form/network/third-party tests | yes after tests |
+| UI-010 | The contact forms ask for a name, email, company, inquiry type, and message; they do not accept file uploads. | rendered form fields and request behavior | Contact form tests; production collection still depends on Netlify setup | yes |
 | UI-011 | Official source title, issuer, checked date, and URL | source metadata | Current internal source register | yes |
 | UI-012 | `SheperD` | project label | Company-controlled spelling consistency | yes; no entity suffix |
 | UI-013 | `Review the checklist` | on-page instruction | Anchor links to rendered checklist; no intake or creation | yes |

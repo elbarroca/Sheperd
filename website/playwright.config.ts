@@ -35,9 +35,10 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm build && pnpm start:e2e",
+    command: "corepack pnpm build && corepack pnpm start:e2e",
     url: "http://127.0.0.1:3100",
     reuseExistingServer: false,
     timeout: 120_000,
+    env: { NEXT_PUBLIC_CONTACT_DELIVERY_ENABLED: "true" },
   },
 });

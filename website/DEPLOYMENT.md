@@ -1,67 +1,67 @@
 # SheperD Website Deployment
 
-Status: public Vercel Production deployment authorized
-Checked: 2026-07-15
+Status: Netlify migration prepared in source; account, domain, and live delivery are unverified.
+Checked: 2026-10-06
 
-## Vercel project
+## Netlify build settings
 
-- Repository: `https://github.com/elbarroca/Sheperd`
-- Production branch: `main`
-- Deployment Protection: disabled; all generated URLs are public
-- Root Directory: `website`
-- Framework: Next.js
-- Install command: `pnpm install --frozen-lockfile`
-- Build command: `pnpm build`
-- Node.js: 24.x
+The repository-root `netlify.toml` sets the website base directory to `website`.
+The source repository sets these build values:
 
-Pushes to `main` create public Production deployments. The application keeps
-noindex headers and form delivery disabled. Publication was explicitly
-authorized on 2026-07-15; the unresolved evidence and legal risks remain
-recorded below.
+- Build command: `pnpm build:production`
+- Publish directory: `.next` (relative to the `website` base directory)
+- Node.js: `24`
+- pnpm: `10.33.2`, from `website/package.json`
+- `PNPM_FLAGS`: `--shamefully-hoist`
+- Contact submissions: disabled by default; enabled for the production build
 
-The repository-level two-project setup is documented in `../VERCEL.md`.
+The package manifest declares Node `24.x` and pnpm `10.33.2`. Its `build`
+script selects Preview, so Netlify must use `build:production`.
 
-## Local verification
+## Netlify Forms setup
 
-```sh
-corepack pnpm install --frozen-lockfile
-corepack pnpm check
-corepack pnpm build
-```
+`website/public/__forms.html` defines `contact-home` and `contact-page` for
+deploy-time detection. The shared forms post URL-encoded fields to
+`/__forms.html`; each includes Netlify's `bot-field` honeypot. The visitor field
+is named `email` so Netlify can use it as Reply-to.
 
-Run `corepack pnpm test:e2e` against the optimized server for browser and visual
-verification.
+After connecting the repository to the company-managed Netlify account:
 
-## Resend audit-form setup
+1. Enable form detection and confirm Netlify spam filtering is active, then deploy.
+2. Confirm Netlify lists `contact-home` and `contact-page`.
+3. Add one email notification for each form to `michaelk@sheperd.io` under
+   Forms → Submission notifications.
+4. Confirm the final domain and its apex/`www` behavior with the account owner.
+5. Submit one test from each form. Confirm both Netlify records and inbox emails
+   contain all fields, and confirm Reply-to addresses the visitor's `email`.
 
-The form keeps its local no-transmission Preview behavior by default. The
-server route validates every field, uses a honeypot, sends plain-text intake to
-the approved SheperD inbox, and applies a per-submission idempotency key. It does
-not log form data.
+Local Playwright tests mock `/__forms.html`. They verify client encoding and
+success/error states, but they do not confirm Netlify receipt or email delivery.
 
-Before enabling delivery:
+## Existing Vercel configuration
 
-1. Verify the sending domain in Resend and approve the sender and recipient.
-2. Approve the privacy notice, intake retention policy, response owner, and a
-   durable rate-limit or abuse-control decision for the deployed environment.
-3. Set the server-only `RESEND_API_KEY`, `SHEPERD_AUDIT_FROM_EMAIL`, and
-   `SHEPERD_AUDIT_TO_EMAIL` values using `.env.example` as the key contract.
-4. Set both `FORM_DELIVERY_ENABLED=true` and
-   `NEXT_PUBLIC_AUDIT_DELIVERY_ENABLED=true`, rebuild, and test exactly one
-   bounded request before broader traffic.
+The repository still contains its Vercel configuration. This source change does
+not remove that configuration, connect a Netlify account, change DNS, or verify
+which provider currently serves the final domain. Keep it until the account
+owner completes and verifies the cutover. The founder-intelligence project has
+its own deployment setup.
 
-Do not place the Resend API key in a `NEXT_PUBLIC_` variable or commit a local
-environment file. If either the server flag or any required server value is
-missing, the API returns a non-delivery response and sends nothing.
+## Separate audit intake
+
+The existing audit form and Resend API use separate flags and server values.
+Their local no-delivery behavior remains unchanged. Keep
+`FORM_DELIVERY_ENABLED` and `NEXT_PUBLIC_AUDIT_DELIVERY_ENABLED` false until the
+audit intake approvals, server values, and bounded delivery test are complete.
+See `.env.example` for the server-only variable names. Never expose the Resend
+API key with a `NEXT_PUBLIC_` prefix.
 
 ## Unresolved publication risks
 
-1. Verified legal entity, publishable brand identity, and publication owner.
-2. Approved company/product positioning and exact claim evidence with named approvers and dates.
-3. Approved privacy notice, terms, intake/data controls, and commercial terms.
-4. Approved CTA/contact destination and response owner.
-5. Canonical origin, indexing, metadata, analytics decision, deployment target, and explicit deploy/domain/DNS authority.
+1. Confirm the final domain, apex/`www` behavior, and deployment owner.
+2. Approve the privacy notice, retention period, and data-processing terms.
+3. Confirm contact notification setup and test live inbox delivery.
+4. Resolve remaining legal, claims, intake, and ownership items in
+   `docs/FACTS-AND-CONSTRAINTS.md`.
 
-The complete evidence contract is in `docs/FACTS-AND-CONSTRAINTS.md`. Public
-deployment does not approve indexing, domain attachment, form delivery,
-analytics, or unsupported claims.
+The local source configuration does not approve publication, indexing,
+analytics, domain attachment, or live form delivery.

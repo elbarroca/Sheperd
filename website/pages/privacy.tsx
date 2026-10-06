@@ -4,26 +4,16 @@ import { NoticePage } from "@/components/notice-page";
 
 const sections = [
   {
-    heading: "Calendly scheduling",
-    body: (
-      <>
-        When a Calendly link is configured, the homepage contact section embeds a Calendly booking
-        page. Calendly processes details submitted there to schedule the meeting. Read
-        the{" "}
-        <a href="https://calendly.com/legal/privacy-notice" target="_blank" rel="noopener noreferrer">
-          Calendly Privacy Notice
-        </a>
-        .
-      </>
-    ),
+    heading: "Information in a contact inquiry",
+    body: "The contact forms ask for your name, email address, company, inquiry type, and message. The forms do not accept file uploads. Do not include confidential invoice, shipment, or financial details in a message.",
   },
   {
-    heading: "SheperD enquiries",
-    body: "The site does not collect or send enquiry details to SheperD in this Preview. Calendly booking is handled separately and follows Calendly’s own cookie settings.",
+    heading: "Purpose and recipient",
+    body: "SheperD uses these details to understand and reply to your inquiry. When Netlify Forms is enabled, Netlify receives the submission and stores it in the site's Netlify account. Configured email notifications go to michaelk@sheperd.io. The visitor's email field is named email so the notification can use it as Reply-to.",
   },
   {
-    heading: "Publication boundary",
-    body: "This is a local design and engineering Preview. A production privacy notice, data owner, retention policy, and approved processing terms have not been established here.",
+    heading: "Retention and processing terms",
+    body: "The retention period, deletion process, data owner, and additional processing terms still require approval. Confirm them before enabling live collection.",
   },
 ] as const;
 
@@ -31,13 +21,13 @@ export default function PrivacyPage() {
   return (
     <>
       <Head>
-        <title>Privacy notice | SheperD Preview</title>
+        <title>Privacy notice | SheperD</title>
         <meta name="robots" content="noindex,nofollow,noarchive" />
       </Head>
       <NoticePage
-        eyebrow="Preview privacy notice"
-        title="Calendly booking disclosure."
-        summary="When configured, the homepage contact section embeds Calendly for meeting bookings. Details entered there are processed by Calendly. The site does not collect enquiry details in this Preview."
+        eyebrow="Privacy notice"
+        title="Contact form information."
+        summary="The SheperD contact forms collect details to help the team understand and answer inquiries."
         sections={sections}
       />
     </>

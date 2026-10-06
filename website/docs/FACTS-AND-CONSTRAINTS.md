@@ -6,7 +6,7 @@ upfront and payment on recovered value. Those approved copy decisions supersede
 conflicting copy restrictions below. No outcome guarantee or fee percentage was
 approved. Intake activation and deployment are not part of this implementation.
 
-Status: controlling clean-room input
+Status: controlling clean-room input, amended for the contact form scope below
 Checked: 2026-07-15
 Publication state: Preview only; Production blocked
 
@@ -29,7 +29,24 @@ At the recovery checkpoint, the workspace was already an uncommitted Git reposit
 - Current 46 CFR Part 541 contains D&D invoice-content, issuance-timing, and dispute-process requirements. The rule version applicable to the invoice date still matters.
 - 46 U.S.C. 41301 contains a three-year complaint limitation; it is not blanket refund eligibility.
 - The FMC's interim Charge Complaint process is enforcement intake. It is not representation of a complainant and does not guarantee a refund.
-- The rebuilt Preview can truthfully state its own tested behavior: no forms, uploads, contact capture, analytics, cookies, CRM, or personal-information collection.
+- At the 2026-07-15 recovery checkpoint, the rebuilt Preview had no forms, uploads, contact capture, analytics, cookies, CRM, or personal-information collection. See the 2026-10-06 contact form update below for current scope.
+
+## Contact form implementation update — 2026-10-06
+
+The user authorized two contact forms: `contact-home` and `contact-page`. They
+collect a name, email address, company, inquiry type, and message to answer
+questions about SheperD. The choices are Investor, Partner, Importer, and Other.
+The approved notification recipient is `michaelk@sheperd.io`. The forms do not
+accept file uploads.
+
+The repository prepares Netlify Forms detection and production-only client
+submission. Netlify account settings, notifications, final-domain routing, and
+inbox delivery remain unverified. Local tests use mocked responses. Do not
+describe local test results as live receipt or delivery.
+
+The retention period, deletion process, data owner, and Netlify processing terms
+remain unresolved. The contact form authorization does not approve those claims
+or authorize a production launch.
 
 ## Audience hypothesis, not validated fact
 
@@ -50,7 +67,7 @@ Do not publish or imply any of the following without a new exact claim row, prim
 ## Preview publication contract
 
 - The site is a noindex, nofollow, noarchive Preview. `noindex` is not access control.
-- No form, upload, mail link, contact destination, analytics, tracking, cookie, CRM, or third-party runtime.
+- The contact form is limited to the fields and recipient approved above. Netlify delivery remains disabled except for a configured production build; no file upload, analytics, tracking, cookie, or CRM is added.
 - No company capability section, product UI, fake dashboard, roadmap promise, customer scene, or outcome imagery.
 - The approved AI positioning exception is limited to the exact AI-APPROVED-001 through AI-APPROVED-004 rows in `CLAIM-LEDGER.md`; all other AI capability, agent, engine, autonomous, guarantee, and outcome language remains suppressed.
 - Source-gated regulatory explanations may render only after the exact text is independently approved for `preview-web`. Current candidate claim rows have no approver and therefore must remain suppressed.
@@ -66,7 +83,7 @@ Do not publish or imply any of the following without a new exact claim row, prim
 4. Approved privacy notice and terms.
 5. Approved intake, consent, storage, access, retention, deletion, incident, and subprocessor controls.
 6. Approved commercial model, fees, timing, recovery definition, and customer authority.
-7. Approved contact/CTA destination and response owner.
+7. Confirm the response owner and operating process for the user-approved contact recipient.
 8. Permissioned customer proof or an explicit decision to launch without it.
 9. Canonical production origin, indexing, metadata, analytics, structured-data, and deployment authority.
 10. Explicit authority to publish, deploy, attach a domain, or mutate a live site.
