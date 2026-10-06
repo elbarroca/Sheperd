@@ -94,17 +94,35 @@ test("mobile navigation follows supporting routes and closes", async ({ page }) 
 });
 
 test("mobile header keeps the value CTA visible and targets touch size", async ({ page }) => {
-  for (const width of [320, 375, 420, 540]) {
+  for (const width of [320, 375, 420, 430, 540, 768]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/");
     const cta = page.locator(".mobile-audit-link");
+    const fullLabel = cta.locator(".mobile-audit-full");
+    const compactLabel = cta.locator(".mobile-audit-compact");
     const toggle = page.getByRole("button", { name: "Open navigation" });
+    const brandBox = await page.locator(".site-header .brand-lockup").boundingBox();
+    const ctaBox = await cta.boundingBox();
+    const toggleBox = await toggle.boundingBox();
+
     await expect(cta).toBeVisible();
     await expect(cta).toHaveAttribute("href", "/#contact");
     await expect(toggle).toBeVisible();
-    const box = await toggle.boundingBox();
-    expect(box?.width).toBeGreaterThanOrEqual(44);
-    expect(box?.height).toBeGreaterThanOrEqual(44);
+
+    if (width <= 540) {
+      await expect(fullLabel).toBeHidden();
+      await expect(compactLabel).toBeVisible();
+    } else {
+      await expect(fullLabel).toBeVisible();
+      await expect(compactLabel).toBeHidden();
+    }
+
+    if (!brandBox || !ctaBox || !toggleBox) throw new Error("Header controls are not visible");
+    expect(ctaBox.x).toBeGreaterThanOrEqual(brandBox.x + brandBox.width - 1);
+    expect(toggleBox.x).toBeGreaterThanOrEqual(ctaBox.x + ctaBox.width - 1);
+    const minimumToggleSize = width <= 540 ? 44 : 42;
+    expect(toggleBox.width).toBeGreaterThanOrEqual(minimumToggleSize);
+    expect(toggleBox.height).toBeGreaterThanOrEqual(minimumToggleSize);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   }
 });
