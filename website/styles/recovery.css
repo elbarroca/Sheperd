@@ -1641,7 +1641,7 @@
     max-width: 310px;
   }
 }
-@media (max-width: 420px) {
+@media (max-width: 540px) {
   .recovery-site .mobile-audit-full {
     display: none;
   }
