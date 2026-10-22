@@ -4,7 +4,7 @@
   publish = ".next"
 
 [build.environment]
-  NODE_VERSION = "24"
+  NODE_VERSION = "24.22.1"
   PNPM_FLAGS = "--shamefully-hoist"
   NEXT_PUBLIC_CONTACT_DELIVERY_ENABLED = "false"
 
